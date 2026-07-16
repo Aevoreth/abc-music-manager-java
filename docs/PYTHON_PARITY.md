@@ -17,7 +17,7 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Band management | Complete | Complete | Preserve stored data | Bands, members, layouts, snapped layout grid; Change Player cascades song/setlist assignments |
 | Player management | Complete | Complete | Preserve stored data | Players + instruments; filters (name/level/class/instrument); searchable layout picker |
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
-| Part assignments | Complete | Partial | Preserve stored data | Setlist item overrides wired; dedicated song-layout library editor deferred |
+| Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor deferred |
 | Playback | Complete (custom TinySoundFont path) | Prototype (adapter boundary) | Use Maestro Java engine | Python ports Maestro ABC→MIDI; Java must use Maestro `java24` implementation |
 | Set Play | Complete | Not started | Preserve session semantics | NOW/NEXT/Played/Skip; advance song; play logging |
 | Relay / group playback | Complete | Not started | Preserve protocol where practical | Cloudflare Worker relay; Band Assistant / browser follower |

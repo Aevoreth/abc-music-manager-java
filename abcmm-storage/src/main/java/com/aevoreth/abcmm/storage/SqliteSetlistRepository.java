@@ -276,6 +276,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
         String sql = """
                 SELECT si.id, si.setlist_id, si.song_id, s.title, s.composers, s.duration_seconds,
                        json_array_length(COALESCE(s.parts, '[]')) AS part_count,
+                       s.parts,
                        si.position, si.override_change_duration_seconds, si.song_layout_id
                 FROM SetlistItem si
                 JOIN Song s ON s.id = si.song_id
@@ -304,6 +305,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                             nullToEmpty(rs.getString("composers")),
                             duration,
                             rs.getInt("part_count"),
+                            rs.getString("parts"),
                             rs.getInt("position"),
                             override,
                             songLayoutId));

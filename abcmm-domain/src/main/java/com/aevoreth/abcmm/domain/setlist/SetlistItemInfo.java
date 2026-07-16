@@ -11,6 +11,7 @@ public record SetlistItemInfo(
         String songComposers,
         Integer songDurationSeconds,
         int partCount,
+        String partsJson,
         int position,
         Integer overrideChangeDurationSeconds,
         Long songLayoutId) {

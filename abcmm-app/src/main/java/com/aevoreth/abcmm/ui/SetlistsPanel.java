@@ -20,15 +20,12 @@ import java.util.Objects;
 import java.util.Set;
 
 import javax.swing.BorderFactory;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
-import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -54,11 +51,12 @@ import com.aevoreth.abcmm.domain.band.BandLayoutInfo;
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
 import com.aevoreth.abcmm.domain.band.PlayerRepository;
+import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
+import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
-import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
@@ -98,10 +96,7 @@ public final class SetlistsPanel extends JPanel {
     private final ItemTableModel itemModel = new ItemTableModel();
     private final JTable itemTable = new JTable(itemModel);
 
-    private final DefaultListModel<AssignmentRow> assignmentModel = new DefaultListModel<>();
-    private final JList<AssignmentRow> assignmentList = new JList<>(assignmentModel);
-    private final JComboBox<Integer> partCombo = new JComboBox<>();
-    private final JPanel assignmentPanel = new JPanel(new BorderLayout(4, 4));
+    private final SetlistBandAssignmentPanel assignmentPanel = new SetlistBandAssignmentPanel();
 
     private final JPanel editorPanel = new JPanel(new BorderLayout(8, 8));
     private final JPanel metaPanel = new JPanel(new GridBagLayout());
@@ -140,38 +135,7 @@ public final class SetlistsPanel extends JPanel {
         applyDefaultColumnWidths();
         enableItemTableReorder();
 
-        assignmentList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        assignmentList.setCellRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof AssignmentRow row) {
-                    setText(row.label());
-                }
-                return this;
-            }
-        });
-        assignmentList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                syncPartComboFromSelection();
-            }
-        });
-
-        for (int part = 1; part <= 24; part++) {
-            partCombo.addItem(part);
-        }
-        partCombo.insertItemAt(null, 0);
-        partCombo.setSelectedIndex(0);
-        partCombo.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                setText(value == null ? "(none)" : "Part " + value);
-                return this;
-            }
-        });
+        assignmentPanel.setAssignmentChangedHandler(this::reloadAssignments);
 
         JPanel left = buildLeftPane();
         buildEditorPane();
@@ -211,6 +175,7 @@ public final class SetlistsPanel extends JPanel {
         this.setlistRepository = setlists;
         this.songRepository = songs;
         this.songLayoutRepository = songLayouts;
+        assignmentPanel.bind(bands, players, setlists, songLayouts);
         reload();
     }
 
@@ -340,17 +305,8 @@ public final class SetlistsPanel extends JPanel {
         songsPanel.add(new JScrollPane(itemTable), BorderLayout.CENTER);
         songsPanel.setMinimumSize(new Dimension(200, 120));
 
-        assignmentPanel.setBorder(BorderFactory.createTitledBorder("Part assignments"));
-        JPanel assignToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JButton applyPart = new JButton("Apply part");
-        applyPart.addActionListener(e -> applyAssignment());
-        assignToolbar.add(new JLabel("Part"));
-        assignToolbar.add(partCombo);
-        assignToolbar.add(applyPart);
-        assignmentPanel.add(assignToolbar, BorderLayout.NORTH);
-        assignmentPanel.add(new JScrollPane(assignmentList), BorderLayout.CENTER);
-        assignmentPanel.setPreferredSize(new Dimension(400, 140));
-        assignmentPanel.setMinimumSize(new Dimension(120, 80));
+        assignmentPanel.setPreferredSize(new Dimension(400, 220));
+        assignmentPanel.setMinimumSize(new Dimension(120, 120));
 
         JSplitPane topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, metaPanel, songsPanel);
         topSplit.setResizeWeight(0.28);
@@ -358,9 +314,9 @@ public final class SetlistsPanel extends JPanel {
         topSplit.setDividerLocation(260);
 
         JSplitPane editorSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, assignmentPanel);
-        editorSplit.setResizeWeight(0.7);
+        editorSplit.setResizeWeight(0.55);
         editorSplit.setContinuousLayout(true);
-        editorSplit.setDividerLocation(320);
+        editorSplit.setDividerLocation(280);
 
         editorPanel.setMinimumSize(new Dimension(280, 0));
         editorPanel.add(editorSplit, BorderLayout.CENTER);
@@ -630,8 +586,7 @@ public final class SetlistsPanel extends JPanel {
         layoutCombo.addItem(new LayoutChoice(null, "(none)"));
         layoutCombo.setSelectedIndex(0);
         itemModel.setItems(List.of());
-        assignmentModel.clear();
-        assignmentPanel.setVisible(true);
+        assignmentPanel.clear();
         revalidate();
         repaint();
     }
@@ -651,8 +606,7 @@ public final class SetlistsPanel extends JPanel {
         moveUpButton.setEnabled(enabled);
         moveDownButton.setEnabled(enabled);
         itemTable.setEnabled(enabled);
-        assignmentList.setEnabled(enabled);
-        partCombo.setEnabled(enabled);
+        assignmentPanel.setEnabled(enabled);
     }
 
     private void loadSetlistEditor(SetlistInfo setlist) {
@@ -667,11 +621,6 @@ public final class SetlistsPanel extends JPanel {
         lockedCheck.setSelected(setlist.locked());
         reloadLayoutChoices(setlist.bandLayoutId());
         reloadItems(setlist.id());
-        boolean hasLayout = setlist.bandLayoutId() != null;
-        assignmentPanel.setVisible(hasLayout);
-        if (!hasLayout) {
-            assignmentModel.clear();
-        }
         revalidate();
         repaint();
     }
@@ -717,60 +666,64 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void reloadAssignments() {
-        assignmentModel.clear();
         SetlistInfo setlist = selectedSetlist();
         SetlistItemInfo item = selectedItem();
-        if (setlist == null || item == null || setlist.bandLayoutId() == null || bandRepository == null
-                || setlistRepository == null) {
+        if (setlist == null) {
+            assignmentPanel.clear();
             return;
         }
-        try {
-            List<BandLayoutSlotInfo> slots = bandRepository.listSlots(setlist.bandLayoutId());
-            Map<Long, Integer> assigned = new HashMap<>();
-            for (SetlistBandAssignmentInfo info : setlistRepository.listBandAssignments(item.id())) {
-                assigned.put(info.playerId(), info.partNumber());
-            }
-            for (BandLayoutSlotInfo slot : slots) {
-                assignmentModel.addElement(new AssignmentRow(
-                        slot.playerId(),
-                        slot.playerName(),
-                        assigned.get(slot.playerId())));
-            }
-        } catch (LibraryException ex) {
-            showError(ex.getMessage());
-        }
-        if (!assignmentModel.isEmpty()) {
-            assignmentList.setSelectedIndex(0);
-        }
-    }
-
-    private void syncPartComboFromSelection() {
-        AssignmentRow row = assignmentList.getSelectedValue();
-        if (row == null) {
-            return;
-        }
-        partCombo.setSelectedItem(row.partNumber());
-    }
-
-    private void applyAssignment() {
-        SetlistItemInfo item = selectedItem();
-        AssignmentRow row = assignmentList.getSelectedValue();
-        if (item == null || row == null || setlistRepository == null) {
-            return;
-        }
-        Integer part = (Integer) partCombo.getSelectedItem();
-        try {
-            setlistRepository.upsertBandAssignment(item.id(), row.playerId(), part);
-            reloadAssignments();
-            for (int i = 0; i < assignmentModel.size(); i++) {
-                if (assignmentModel.get(i).playerId() == row.playerId()) {
-                    assignmentList.setSelectedIndex(i);
-                    break;
+        Long songLayoutId = item == null ? null : item.songLayoutId();
+        if (item != null
+                && setlist.bandLayoutId() != null
+                && songLayoutRepository != null
+                && setlistRepository != null) {
+            try {
+                Long ensured = ensureSongLayout(item, setlist.bandLayoutId());
+                if (ensured != null && !Objects.equals(ensured, item.songLayoutId())) {
+                    int selected = itemTable.getSelectedRow();
+                    itemModel.setItems(setlistRepository.listItems(setlist.id()));
+                    if (selected >= 0 && selected < itemModel.getRowCount()) {
+                        itemTable.setRowSelectionInterval(selected, selected);
+                        item = itemModel.itemAt(selected);
+                    } else {
+                        item = selectedItem();
+                    }
                 }
+                songLayoutId = ensured;
+            } catch (LibraryException ex) {
+                showError(ex.getMessage());
             }
-        } catch (LibraryException ex) {
-            showError(ex.getMessage());
         }
+        SetlistItemInfo current = item;
+        assignmentPanel.refresh(
+                setlist.bandLayoutId(),
+                current == null ? null : current.id(),
+                songLayoutId,
+                current == null ? null : current.partsJson(),
+                itemModel.items());
+    }
+
+    /**
+     * Create or reuse a song layout for {@code (song, band layout)}, link it on the setlist
+     * item, and seed null assignments for layout players when the layout is new/empty.
+     */
+    private Long ensureSongLayout(SetlistItemInfo item, long bandLayoutId) throws LibraryException {
+        if (songLayoutRepository == null || setlistRepository == null || bandRepository == null) {
+            return item.songLayoutId();
+        }
+        SongLayoutInfo layout = songLayoutRepository.getOrCreateSongLayout(
+                item.songId(), bandLayoutId, "Default");
+        List<SongLayoutAssignmentInfo> existing = songLayoutRepository.listAssignments(layout.id());
+        if (existing.isEmpty()) {
+            for (BandLayoutSlotInfo slot : bandRepository.listSlots(bandLayoutId)) {
+                songLayoutRepository.setAssignment(layout.id(), slot.playerId(), null);
+            }
+        }
+        if (!Objects.equals(item.songLayoutId(), layout.id())) {
+            setlistRepository.updateItem(
+                    item.id(), item.overrideChangeDurationSeconds(), layout.id());
+        }
+        return layout.id();
     }
 
     private void saveMetadata() {
@@ -1112,16 +1065,6 @@ public final class SetlistsPanel extends JPanel {
         @Override
         public String toString() {
             return label;
-        }
-    }
-
-    private record AssignmentRow(long playerId, String playerName, Integer partNumber) {
-        String label() {
-            String name = playerName == null || playerName.isBlank() ? ("#" + playerId) : playerName;
-            if (partNumber == null) {
-                return name + " — (none)";
-            }
-            return name + " — Part " + partNumber;
         }
     }
 
