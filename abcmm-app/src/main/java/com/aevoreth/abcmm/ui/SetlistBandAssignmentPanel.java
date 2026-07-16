@@ -67,6 +67,7 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     private static final Color DUP_RED = new Color(0xFF4444);
     private static final Color WARN_ORANGE = new Color(0xD48A3A);
     private static final Color CURRENT_GREEN = new Color(0x4CAF50);
+    private static final float MENU_FONT_SIZE = 14f;
 
     private BandRepository bandRepository;
     private PlayerRepository playerRepository;
@@ -508,16 +509,21 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         }
 
         JPopupMenu menu = new JPopupMenu();
+        Font menuFont = getFont().deriveFont(Font.PLAIN, MENU_FONT_SIZE);
+        menu.setFont(menuFont);
         String help = helpByPlayer.get(card.playerId());
         if (help != null && !help.isBlank()) {
-            JMenuItem head = new JMenuItem("<html><body style='width:280px;color:#b4a8a8'>"
+            JMenuItem head = new JMenuItem(
+                    "<html><body style='width:300px;font-size:14px;color:#b4a8a8'>"
                     + help.replace("\n", "<br>") + "</body></html>");
             head.setEnabled(false);
+            head.setFont(menuFont);
             menu.add(head);
             menu.addSeparator();
         }
 
         JMenuItem none = new JMenuItem("(None)");
+        none.setFont(menuFont);
         if (current == null) {
             none.setForeground(CURRENT_GREEN);
         }
@@ -544,6 +550,7 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                 }
             }
             JMenuItem item = new JMenuItem("#" + pn + " — " + pname + " — " + iname);
+            item.setFont(menuFont);
             Long other = partToPlayer.get(pn);
             boolean taken = other != null && other != card.playerId();
             if (Objects.equals(pn, current)) {
@@ -813,7 +820,8 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                 }
             }
 
-            Font baseFont = getFont().deriveFont(Font.PLAIN, 11f);
+            Font baseFont = getFont().deriveFont(Font.PLAIN, 13f);
+            final int lineGap = 1;
             for (AssignmentCard card : cards) {
                 Rectangle r = cardBounds(card);
                 g2.setColor(CARD_FILL);
@@ -827,7 +835,7 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                 int innerW = r.width - 2 * margin;
                 int y = r.y + margin;
                 FontMetrics fm = g2.getFontMetrics(baseFont);
-                int lineH = fm.getHeight();
+                int lineH = fm.getAscent() + fm.getDescent();
 
                 // Name row (optional neighbor parts)
                 if (card.useSetlistHeader()) {
@@ -852,17 +860,17 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                 } else {
                     drawFitting(g2, baseFont, card.playerName(), innerX, y, innerW, lineH, TEXT);
                 }
-                y += lineH + 2;
+                y += lineH + lineGap;
 
                 // Large part number
-                Font big = baseFont.deriveFont(Font.BOLD, baseFont.getSize2D() + 14f);
+                Font big = baseFont.deriveFont(Font.BOLD, baseFont.getSize2D() + 16f);
                 FontMetrics bigFm = g2.getFontMetrics(big);
-                int bigH = bigFm.getHeight();
+                int bigH = bigFm.getAscent() + bigFm.getDescent();
                 Color partColor = card.partDuplicate()
                         ? DUP_RED
                         : (card.instrumentChanged() ? WARN_ORANGE : TEXT);
                 drawFitting(g2, big, card.partNumber(), innerX, y, innerW, bigH, partColor);
-                y += bigH + 2;
+                y += bigH + lineGap;
 
                 // Instrument
                 Color instColor = card.partDuplicate()
@@ -870,10 +878,10 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                         : (card.instrumentWarning() ? WARN_ORANGE : TEXT);
                 drawFitting(
                         g2, baseFont, card.instrumentName(), innerX, y, innerW, lineH, instColor);
-                y += lineH + 2;
+                y += lineH + lineGap;
 
                 // Part name
-                Font small = baseFont.deriveFont(Math.max(8f, baseFont.getSize2D() - 1f));
+                Font small = baseFont.deriveFont(Math.max(10f, baseFont.getSize2D() - 1f));
                 Color nameColor = card.partDuplicate() ? DUP_RED : TEXT;
                 int remaining = Math.max(lineH, r.y + r.height - margin - y);
                 drawFitting(
