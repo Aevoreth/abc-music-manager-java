@@ -1,19 +1,14 @@
 package com.aevoreth.abcmm.ui;
 
-import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FontMetrics;
 import java.awt.Insets;
-import java.awt.Point;
-import java.awt.event.MouseWheelEvent;
-import java.awt.event.MouseWheelListener;
 import java.text.ParseException;
 
 import javax.swing.JFormattedTextField;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
-import javax.swing.SwingUtilities;
 import javax.swing.text.DefaultFormatter;
 import javax.swing.text.DefaultFormatterFactory;
 
@@ -60,6 +55,7 @@ final class DurationSpinners {
     static void installPaddedIntEditor(JSpinner spinner) {
         PaddedIntEditor editor = new PaddedIntEditor(spinner);
         spinner.setEditor(editor);
+        SpinnerMouseWheel.install(spinner);
     }
 
     /**
@@ -89,109 +85,17 @@ final class DurationSpinners {
     static void installMinutesSecondsEditor(JSpinner spinner) {
         MinutesSecondsEditor editor = new MinutesSecondsEditor(spinner);
         spinner.setEditor(editor);
-        installSplitMouseWheel(spinner, editor.getTextField());
+        SpinnerMouseWheel.installNumberSplitByColon(spinner, 60, 1);
     }
 
     static void installHoursMinutesEditor(JSpinner spinner) {
         HoursMinutesEditor editor = new HoursMinutesEditor(spinner);
         spinner.setEditor(editor);
-        installHoursMinutesMouseWheel(spinner, editor.getTextField());
+        SpinnerMouseWheel.installNumberSplitByColon(spinner, 3600, 60);
     }
 
     private static int roundDownToMinute(int seconds) {
         return Math.max(0, seconds) / 60 * 60;
-    }
-
-    private static void installHoursMinutesMouseWheel(JSpinner spinner, JFormattedTextField field) {
-        MouseWheelListener listener = e -> {
-            if (!spinner.isEnabled() || e.getWheelRotation() == 0) {
-                return;
-            }
-            int direction = e.getWheelRotation() < 0 ? 1 : -1;
-            boolean overHours = isPointerOverMinutes(field, e); // left of colon = hours
-            int deltaSeconds = overHours ? direction * 3600 : direction * 60;
-            adjustSeconds(spinner, deltaSeconds);
-            e.consume();
-        };
-        spinner.addMouseWheelListener(listener);
-        for (Component child : spinner.getComponents()) {
-            child.addMouseWheelListener(listener);
-        }
-        field.addMouseWheelListener(listener);
-        for (Component child : field.getComponents()) {
-            child.addMouseWheelListener(listener);
-        }
-    }
-
-    private static void installSplitMouseWheel(JSpinner spinner, JFormattedTextField field) {
-        MouseWheelListener listener = e -> {
-            if (!spinner.isEnabled() || e.getWheelRotation() == 0) {
-                return;
-            }
-            int direction = e.getWheelRotation() < 0 ? 1 : -1;
-            boolean overMinutes = isPointerOverMinutes(field, e);
-            int deltaSeconds = overMinutes ? direction * 60 : direction;
-            adjustSeconds(spinner, deltaSeconds);
-            e.consume();
-        };
-        spinner.addMouseWheelListener(listener);
-        for (Component child : spinner.getComponents()) {
-            child.addMouseWheelListener(listener);
-        }
-        field.addMouseWheelListener(listener);
-        for (Component child : field.getComponents()) {
-            child.addMouseWheelListener(listener);
-        }
-    }
-
-    private static boolean isPointerOverMinutes(JFormattedTextField field, MouseWheelEvent e) {
-        Point inField = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), field);
-        if (inField.x < 0 || inField.x >= field.getWidth()
-                || inField.y < 0 || inField.y >= field.getHeight()) {
-            // Outside the text field (e.g. spinner buttons): treat as seconds.
-            return false;
-        }
-
-        String text = field.getText();
-        if (text == null) {
-            text = "";
-        }
-        int colon = text.indexOf(':');
-        if (colon < 0) {
-            return true;
-        }
-
-        FontMetrics metrics = field.getFontMetrics(field.getFont());
-        Insets insets = field.getInsets();
-        int textWidth = metrics.stringWidth(text);
-        int available = field.getWidth() - insets.left - insets.right;
-        int textStartX = switch (field.getHorizontalAlignment()) {
-            case JTextField.LEFT, JTextField.LEADING -> insets.left;
-            case JTextField.CENTER -> insets.left + Math.max(0, (available - textWidth) / 2);
-            default -> insets.left + Math.max(0, available - textWidth);
-        };
-        int colonCenterX = textStartX
-                + metrics.stringWidth(text.substring(0, colon))
-                + Math.max(1, metrics.charWidth(':') / 2);
-        return inField.x < colonCenterX;
-    }
-
-    private static void adjustSeconds(JSpinner spinner, int deltaSeconds) {
-        try {
-            spinner.commitEdit();
-        } catch (ParseException ignored) {
-            // Fall back to the last committed model value.
-        }
-        if (!(spinner.getModel() instanceof SpinnerNumberModel model)) {
-            return;
-        }
-        int current = ((Number) model.getValue()).intValue();
-        int minimum = ((Number) model.getMinimum()).intValue();
-        int maximum = ((Number) model.getMaximum()).intValue();
-        int next = Math.max(minimum, Math.min(maximum, current + deltaSeconds));
-        if (next != current) {
-            spinner.setValue(next);
-        }
     }
 
     private static final class MinutesSecondsEditor extends JSpinner.DefaultEditor {

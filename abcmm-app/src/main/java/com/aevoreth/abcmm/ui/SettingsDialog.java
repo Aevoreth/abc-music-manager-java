@@ -128,6 +128,9 @@ public final class SettingsDialog extends JDialog {
         for (int size : AppearanceOptions.FONT_SIZES) {
             fontSizeCombo.addItem(Integer.toString(size));
         }
+        SpinnerMouseWheel.install(volumeSpinner);
+        SpinnerMouseWheel.install(tempoSpinner);
+        SpinnerMouseWheel.install(stereoSlider);
 
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Appearance", buildAppearanceTab());
@@ -1146,6 +1149,12 @@ public final class SettingsDialog extends JDialog {
             addRow(c, y++, "Last played from ISO", lastFromIso);
             addRow(c, y++, "Last played to ISO", lastToIso);
             addRow(c, y, "Status ids (comma-separated)", statusIdsField);
+
+            SpinnerMouseWheel.install(ratingFrom);
+            SpinnerMouseWheel.install(ratingTo);
+            SpinnerMouseWheel.install(partsMin);
+            SpinnerMouseWheel.install(partsMax);
+            SpinnerMouseWheel.install(lastFromAgo);
         }
 
         void setFilters(DefaultFilters filters) {

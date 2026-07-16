@@ -27,7 +27,6 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -540,10 +539,10 @@ public final class LibraryPanel extends JPanel {
         inSetCombo.addActionListener(e -> notifyFilterChanged());
         wireCoupledRangeSpinners(ratingFrom, ratingTo);
         wireCoupledRangeSpinners(partsFrom, partsTo);
-        enableSpinnerMouseWheel(ratingFrom);
-        enableSpinnerMouseWheel(ratingTo);
-        enableSpinnerMouseWheel(partsFrom);
-        enableSpinnerMouseWheel(partsTo);
+        SpinnerMouseWheel.install(ratingFrom);
+        SpinnerMouseWheel.install(ratingTo);
+        SpinnerMouseWheel.install(partsFrom);
+        SpinnerMouseWheel.install(partsTo);
         durationMinNone.addActionListener(e -> notifyFilterChanged());
         durationMaxNone.addActionListener(e -> notifyFilterChanged());
         durationMinSec.addChangeListener(e -> notifyFilterChanged());
@@ -595,28 +594,6 @@ public final class LibraryPanel extends JPanel {
             }
             notifyFilterChanged();
         });
-    }
-
-    private static void enableSpinnerMouseWheel(JSpinner spinner) {
-        java.awt.event.MouseWheelListener listener = e -> {
-            if (!spinner.isEnabled() || e.getWheelRotation() == 0) {
-                return;
-            }
-            Object next = e.getWheelRotation() < 0 ? spinner.getNextValue() : spinner.getPreviousValue();
-            if (next != null) {
-                spinner.setValue(next);
-            }
-            e.consume();
-        };
-        spinner.addMouseWheelListener(listener);
-        for (Component child : spinner.getComponents()) {
-            child.addMouseWheelListener(listener);
-        }
-        JComponent editor = spinner.getEditor();
-        editor.addMouseWheelListener(listener);
-        for (Component child : editor.getComponents()) {
-            child.addMouseWheelListener(listener);
-        }
     }
 
     private DocumentListener debounceListener() {

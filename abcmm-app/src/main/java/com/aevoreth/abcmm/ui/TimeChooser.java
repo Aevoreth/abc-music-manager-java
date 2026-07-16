@@ -33,6 +33,7 @@ final class TimeChooser extends JPanel {
         SpinnerDateModel model = new SpinnerDateModel(calendar.getTime(), null, null, Calendar.MINUTE);
         spinner = new JSpinner(model);
         spinner.setEditor(new JSpinner.DateEditor(spinner, "HH:mm"));
+        SpinnerMouseWheel.installDateTimeSplit(spinner);
         add(spinner, BorderLayout.CENTER);
     }
 

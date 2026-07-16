@@ -183,6 +183,8 @@ public final class BandsPanel extends JPanel {
         playerClassFilter.putClientProperty("JTextField.placeholderText", "Filter by class");
         filters.add(playerNameFilter);
         filters.add(new JLabel("Level:"));
+        SpinnerMouseWheel.install(playerLevelMin);
+        SpinnerMouseWheel.install(playerLevelMax);
         filters.add(playerLevelMin);
         filters.add(new JLabel("to"));
         filters.add(playerLevelMax);
@@ -504,6 +506,7 @@ public final class BandsPanel extends JPanel {
         JSpinner levelSpinner = new JSpinner(new SpinnerNumberModel(
                 existing == null || existing.level() == null ? 1 : existing.level(),
                 1, 200, 1));
+        SpinnerMouseWheel.install(levelSpinner);
         JComboBox<String> classCombo = new JComboBox<>();
         classCombo.addItem("");
         for (String characterClass : LotroInstrumentDefaults.CHARACTER_CLASSES) {
