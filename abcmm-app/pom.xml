@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aevoreth.abcmm</groupId>
+    <artifactId>abc-music-manager-java</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>abcmm-app</artifactId>
+  <name>ABCMM Application</name>
+  <description>Standalone Swing ABC Music Manager application</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.aevoreth.abcmm</groupId>
+      <artifactId>abcmm-domain</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.aevoreth.abcmm</groupId>
+      <artifactId>abcmm-storage</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.aevoreth.abcmm</groupId>
+      <artifactId>abcmm-maestro-adapter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.formdev</groupId>
+      <artifactId>flatlaf</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>com.aevoreth.abcmm.AbcMusicManagerMain</mainClass>
+          <commandlineArgs></commandlineArgs>
+          <additionalClasspathElements/>
+          <jvmArgs>
+            <jvmArg>--add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED</jvmArg>
+            <jvmArg>--add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED</jvmArg>
+          </jvmArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+        <configuration>
+          <archive>
+            <manifest>
+              <mainClass>com.aevoreth.abcmm.AbcMusicManagerMain</mainClass>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

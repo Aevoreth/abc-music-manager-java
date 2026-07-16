@@ -1,0 +1,34 @@
+﻿target/
+.tools/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+*.class
+*.log
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.cursor/
+
+# Local secrets / credentials
+.env
+.env.*
+*.pem
+*.p12
+*.jks
+credentials.json
+secrets.json
+
+# Local user data (must never be committed)
+*.db
+*.sqlite
+*.sqlite3
+preferences.json
+
+# JVM crash / heap dumps
+hs_err_pid*
+*.hprof
