@@ -1,11 +1,14 @@
 package com.aevoreth.abcmm.ui;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.event.ActionListener;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,6 +22,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -34,6 +38,7 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.UIManager;
 import javax.swing.table.DefaultTableModel;
 
 import com.aevoreth.abcmm.domain.library.AccountTargetInfo;
@@ -60,8 +65,8 @@ public final class SettingsDialog extends JDialog {
 
     private final JComboBox<String> themeCombo = new JComboBox<>(AppearanceOptions.THEMES);
     private final JComboBox<String> fontSizeCombo = new JComboBox<>();
-    private final JTextField lotroRootField = new JTextField(36);
-    private final JTextField setExportDirField = new JTextField(36);
+    private final JTextField lotroRootField = new JTextField();
+    private final JTextField setExportDirField = new JTextField();
     private final JComboBox<StatusInfo> defaultStatusCombo = new JComboBox<>();
     private final DefaultFiltersPanel defaultFiltersPanel = new DefaultFiltersPanel();
     private final JTextField soundfontField = new JTextField(28);
@@ -143,9 +148,7 @@ public final class SettingsDialog extends JDialog {
         tabs.addChangeListener(e -> {
             if ("Folder rules".equals(tabs.getTitleAt(tabs.getSelectedIndex()))) {
                 LotroPaths.ensureDefaultLotroRoot(working);
-                if (lotroRootField.getText().isBlank() && !working.lotroRoot().isBlank()) {
-                    lotroRootField.setText(working.lotroRoot());
-                }
+                refreshFolderPathFields();
             }
         });
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -179,8 +182,8 @@ public final class SettingsDialog extends JDialog {
     private void loadWorkingIntoControls() {
         themeCombo.setSelectedItem(working.theme());
         fontSizeCombo.setSelectedItem(Integer.toString(working.baseFontSize()));
-        lotroRootField.setText(working.lotroRoot());
-        setExportDirField.setText(working.setExportDir());
+        LotroPaths.ensureDefaultLotroRoot(working);
+        refreshFolderPathFields();
         defaultFiltersPanel.setFilters(working.defaultFilters());
         soundfontField.setText(working.playbackSoundfontPath());
         volumeSpinner.setValue(working.playbackVolume());
@@ -219,13 +222,13 @@ public final class SettingsDialog extends JDialog {
     private void collectWorkingFromControls() {
         working.setTheme(String.valueOf(themeCombo.getSelectedItem()));
         working.setBaseFontSize(Integer.parseInt(String.valueOf(fontSizeCombo.getSelectedItem())));
-        working.setLotroRoot(lotroRootField.getText());
-        String setExport = setExportDirField.getText();
-        if (setExport != null && !setExport.isBlank()) {
+        working.setLotroRoot(pathFieldValue(lotroRootField));
+        String setExport = pathFieldValue(setExportDirField);
+        if (!setExport.isBlank()) {
             setExport = LotroPaths.toMusicRelative(setExport, working.lotroRoot());
         }
         working.setSetExportDir(setExport);
-        setExportDirField.setText(working.setExportDir());
+        refreshFolderPathFields();
         working.setDefaultFilters(defaultFiltersPanel.toFilters());
         StatusInfo selectedStatus = (StatusInfo) defaultStatusCombo.getSelectedItem();
         working.setDefaultStatusId(selectedStatus == null ? null : selectedStatus.id());
@@ -238,12 +241,49 @@ public final class SettingsDialog extends JDialog {
 
     private void saveAndClose() {
         collectWorkingFromControls();
+        if (!confirmSetExportDir()) {
+            return;
+        }
         onSaved.accept(working.copy());
         saved = true;
         if (entitiesChanged) {
             onEntitiesChanged.run();
         }
         dispose();
+    }
+
+    /**
+     * Set export / excludes must be under Music. Warn when the resolved directory is missing.
+     */
+    private boolean confirmSetExportDir() {
+        String stored = working.setExportDir();
+        if (stored == null || stored.isBlank()) {
+            return true;
+        }
+        if (!LotroPaths.isUnderMusic(stored, working.lotroRoot())) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Set export directory must be under the LOTRO Music folder.\n"
+                            + "Browse under Music and pick your export folder "
+                            + "(stored relative to Music, e.g. Sets).",
+                    "Set export directory",
+                    JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        String resolved = LotroPaths.resolveMusicPath(stored, working.lotroRoot());
+        if (resolved.isBlank() || Files.isDirectory(Path.of(resolved))) {
+            return true;
+        }
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Set export directory does not exist:\n"
+                        + resolved
+                        + "\n\nLibrary scan will not skip that folder, so set copies may be "
+                        + "indexed and flagged as duplicates. Save anyway?",
+                "Set export directory missing",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        return choice == JOptionPane.YES_OPTION;
     }
 
     public boolean entitiesChanged() {
@@ -324,49 +364,65 @@ public final class SettingsDialog extends JDialog {
     }
 
     private JPanel buildFolderRulesTab() {
+        JPanel panel = new JPanel(new BorderLayout());
+        JTabbedPane subTabs = new JTabbedPane();
+        subTabs.addTab("LOTRO Directory", buildLotroDirectorySubTab());
+        subTabs.addTab("Set Directory", buildSetDirectorySubTab());
+        subTabs.addTab("Exclude Directories", buildExcludeDirectoriesSubTab());
+        subTabs.addChangeListener(e -> {
+            if (subTabs.getSelectedIndex() >= 0) {
+                LotroPaths.ensureDefaultLotroRoot(working);
+                refreshFolderPathFields();
+            }
+        });
+        panel.add(subTabs, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private JPanel buildLotroDirectorySubTab() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        panel.add(pathSettingSection(
+                "Lord of the Rings Online directory",
+                "Main LOTRO directory (contains Music and PluginData). Auto-detected under "
+                        + "Documents or OneDrive\\Documents when possible; set manually only if "
+                        + "yours is elsewhere.",
+                lotroRootField,
+                "Not set — will use Documents\\The Lord of the Rings Online if found",
+                "Set LOTRO Directory",
+                e -> browseLotroRoot(),
+                null,
+                null), BorderLayout.NORTH);
+        return panel;
+    }
 
-        JPanel roots = formPanel();
-        GridBagConstraints c = formConstraints();
-        c.gridx = 0;
-        c.gridy = 0;
-        c.gridwidth = 3;
-        roots.add(new JLabel(
-                "LOTRO root contains Music (library) and PluginData (songbook accounts). "
-                        + "Detected under your Documents library when possible."), c);
+    private JPanel buildSetDirectorySubTab() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        panel.add(pathSettingSection(
+                "Set Export directory",
+                "Single folder under Music for set export. Not scanned for the library. "
+                        + "Shown as a full path; stored relative to Music.",
+                setExportDirField,
+                "Not set",
+                "Set Export Directory",
+                e -> browseSetExportDir(),
+                "Clear",
+                e -> {
+                    working.setSetExportDir("");
+                    refreshFolderPathFields();
+                }), BorderLayout.NORTH);
+        return panel;
+    }
 
-        c.gridy = 1;
-        c.gridwidth = 1;
-        roots.add(new JLabel("LOTRO root"), c);
-        c.gridx = 1;
-        roots.add(lotroRootField, c);
-        c.gridx = 2;
-        JButton browseRoot = new JButton("Browse…");
-        browseRoot.addActionListener(e -> browseLotroRoot());
-        roots.add(browseRoot, c);
+    private JPanel buildExcludeDirectoriesSubTab() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
 
-        c.gridx = 0;
-        c.gridy = 2;
-        roots.add(new JLabel("Set export dir"), c);
-        c.gridx = 1;
-        setExportDirField.setToolTipText(
-                "Under the Music folder when possible; stored relative to Music.");
-        roots.add(setExportDirField, c);
-        c.gridx = 2;
-        JPanel exportButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JButton browseExport = new JButton("Browse…");
-        JButton clearExport = new JButton("Clear");
-        browseExport.addActionListener(e -> browseSetExportDir());
-        clearExport.addActionListener(e -> setExportDirField.setText(""));
-        exportButtons.add(browseExport);
-        exportButtons.add(clearExport);
-        roots.add(exportButtons, c);
-
-        c.gridx = 0;
-        c.gridy = 3;
-        c.gridwidth = 3;
-        roots.add(new JLabel("Excluded directories (relative to Music; skipped by library scan)"), c);
+        JLabel exclDesc = new JLabel(
+                "<html><body style='width:520px'>Paths listed here are not indexed in the library. "
+                        + "You can choose whether to include them in songbook export.</body></html>");
+        panel.add(exclDesc, BorderLayout.NORTH);
 
         folderRulesModel = new DefaultTableModel(
                 new Object[] {"Path", "Enabled", "Include in export"}, 0) {
@@ -384,7 +440,7 @@ public final class SettingsDialog extends JDialog {
         folderRulesTable = new JTable(folderRulesModel);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton add = new JButton("Add");
+        JButton add = new JButton("Add Excluded Directory");
         JButton edit = new JButton("Edit");
         JButton delete = new JButton("Delete");
         add.addActionListener(e -> addFolderRule());
@@ -401,10 +457,103 @@ public final class SettingsDialog extends JDialog {
             buttons.add(new JLabel("Writable database required for folder-rule edits."));
         }
 
-        panel.add(roots, BorderLayout.NORTH);
         panel.add(new JScrollPane(folderRulesTable), BorderLayout.CENTER);
         panel.add(buttons, BorderLayout.SOUTH);
         return panel;
+    }
+
+    /**
+     * Python-style path setting block: title, description, read-only path field, action button(s).
+     */
+    private JPanel pathSettingSection(
+            String title,
+            String description,
+            JTextField pathField,
+            String emptyHint,
+            String setButtonLabel,
+            ActionListener onSet,
+            String clearButtonLabel,
+            ActionListener onClear) {
+        JPanel section = new JPanel(new BorderLayout(4, 4));
+        JPanel text = new JPanel();
+        text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        text.add(titleLabel);
+        JLabel descLabel = new JLabel("<html><body style='width:520px'>" + description + "</body></html>");
+        descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        text.add(descLabel);
+        section.add(text, BorderLayout.NORTH);
+
+        pathField.setEditable(false);
+        pathField.setColumns(48);
+        pathField.putClientProperty("emptyHint", emptyHint);
+        section.add(pathField, BorderLayout.CENTER);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JButton setButton = new JButton(setButtonLabel);
+        setButton.addActionListener(onSet);
+        buttons.add(setButton);
+        if (clearButtonLabel != null && onClear != null) {
+            JButton clearButton = new JButton(clearButtonLabel);
+            clearButton.addActionListener(onClear);
+            buttons.add(clearButton);
+        }
+        section.add(buttons, BorderLayout.SOUTH);
+        return section;
+    }
+
+    /**
+     * Show absolute paths in the Folder rules path fields. Set export is stored Music-relative
+     * but displayed resolved so the current choice is obvious.
+     */
+    private void refreshFolderPathFields() {
+        String lotro = LotroPaths.effectiveLotroRootString(working);
+        showPathOrHint(lotroRootField, lotro, lotro);
+
+        String stored = working.setExportDir();
+        if (stored == null || stored.isBlank()) {
+            showPathOrHint(setExportDirField, "", null);
+            return;
+        }
+        String resolved = LotroPaths.resolveMusicPath(stored, lotro);
+        showPathOrHint(setExportDirField, resolved, "Stored relative to Music: " + stored);
+    }
+
+    private void showPathOrHint(JTextField field, String path, String tooltipWhenSet) {
+        Color active = UIManager.getColor("TextField.foreground");
+        Color inactive = UIManager.getColor("TextField.inactiveForeground");
+        if (active == null) {
+            active = Color.BLACK;
+        }
+        if (inactive == null) {
+            inactive = Color.GRAY;
+        }
+        if (path == null || path.isBlank()) {
+            Object hint = field.getClientProperty("emptyHint");
+            field.setText(hint == null ? "Not set" : String.valueOf(hint));
+            field.setForeground(inactive);
+            field.setToolTipText(field.getText());
+            return;
+        }
+        field.setText(path);
+        field.setForeground(active);
+        field.setToolTipText(tooltipWhenSet == null || tooltipWhenSet.isBlank() ? path : tooltipWhenSet);
+    }
+
+    private static String pathFieldValue(JTextField field) {
+        String text = field.getText();
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        Object hint = field.getClientProperty("emptyHint");
+        if (hint != null && text.equals(String.valueOf(hint))) {
+            return "";
+        }
+        if ("Not set".equals(text)) {
+            return "";
+        }
+        return text.trim();
     }
 
     private JPanel buildStatusesTab() {
@@ -734,12 +883,22 @@ public final class SettingsDialog extends JDialog {
                 "Include in export", existing != null && existing.includeInExport());
         JButton browse = new JButton("Browse…");
         browse.addActionListener(e -> {
-            Optional<Path> music = LotroPaths.musicRoot(currentLotroRoot());
+            String lotroRoot = currentLotroRoot();
+            Optional<Path> music = LotroPaths.musicRoot(lotroRoot);
             File start = music.map(Path::toFile).filter(File::isDirectory).orElse(null);
             File chosen = chooseDirectoryFile(
                     "Select folder to exclude (under Music)", start);
             if (chosen != null) {
-                path.setText(chosen.getAbsolutePath());
+                String absolute = chosen.getAbsolutePath();
+                if (!LotroPaths.isUnderMusic(absolute, lotroRoot)) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Excluded folders must be under the LOTRO Music folder.",
+                            "Excluded directory",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                path.setText(LotroPaths.toMusicRelative(absolute, lotroRoot));
             }
         });
         JPanel form = new JPanel(new GridBagLayout());
@@ -763,7 +922,18 @@ public final class SettingsDialog extends JDialog {
         if (result != JOptionPane.OK_OPTION || path.getText().isBlank()) {
             return null;
         }
-        String stored = LotroPaths.toMusicRelative(path.getText().trim(), currentLotroRoot());
+        String lotroRoot = currentLotroRoot();
+        String raw = path.getText().trim();
+        if (!LotroPaths.isUnderMusic(raw, lotroRoot)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Excluded folders must be under the LOTRO Music folder.\n"
+                            + "Choose a folder inside Music (stored relative to Music).",
+                    "Excluded directory",
+                    JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        String stored = LotroPaths.toMusicRelative(raw, lotroRoot);
         return new FolderRuleEdit(stored, enabled.isSelected(), include.isSelected());
     }
 
@@ -974,10 +1144,8 @@ public final class SettingsDialog extends JDialog {
         String lotroRoot = currentLotroRoot();
         if (lotroRoot.isBlank()) {
             LotroPaths.ensureDefaultLotroRoot(working);
-            lotroRoot = working.lotroRoot();
-            if (!lotroRoot.isBlank()) {
-                lotroRootField.setText(lotroRoot);
-            }
+            refreshFolderPathFields();
+            lotroRoot = currentLotroRoot();
         }
         if (lotroRoot.isBlank()) {
             JOptionPane.showMessageDialog(
@@ -1049,11 +1217,11 @@ public final class SettingsDialog extends JDialog {
     }
 
     private String currentLotroRoot() {
-        String fromField = lotroRootField.getText();
-        if (fromField != null && !fromField.isBlank()) {
-            return fromField.trim();
+        String fromField = pathFieldValue(lotroRootField);
+        if (!fromField.isBlank()) {
+            return fromField;
         }
-        return working.lotroRoot() == null ? "" : working.lotroRoot();
+        return LotroPaths.effectiveLotroRootString(working);
     }
 
     private void browseLotroRoot() {
@@ -1072,31 +1240,36 @@ public final class SettingsDialog extends JDialog {
         File chosen = chooseDirectoryFile(
                 "Select Lord of the Rings Online directory", start);
         if (chosen != null) {
-            lotroRootField.setText(chosen.getAbsolutePath());
             working.setLotroRoot(chosen.getAbsolutePath());
+            refreshFolderPathFields();
         }
     }
 
     private void browseSetExportDir() {
         String lotro = currentLotroRoot();
+        if (lotro.isBlank()) {
+            LotroPaths.ensureDefaultLotroRoot(working);
+            refreshFolderPathFields();
+            lotro = currentLotroRoot();
+        }
         Optional<Path> music = LotroPaths.musicRoot(lotro);
-        String currentStored = setExportDirField.getText();
-        String currentResolved = LotroPaths.resolveMusicPath(currentStored, lotro);
-        File start = null;
-        if (!currentResolved.isBlank()) {
-            File currentFile = new File(currentResolved);
-            if (currentFile.isDirectory()) {
-                start = currentFile;
-            }
-        }
-        if (start == null && music.isPresent() && Files.isDirectory(music.get())) {
-            start = music.get().toFile();
-        }
+        // Always open at Music (Python: get_music_root() first) — never assume a prior Sets path.
+        File start = music.map(Path::toFile).filter(File::isDirectory).orElse(null);
         File chosen = chooseDirectoryFile(
                 "Select Set Export directory (under Music folder)", start);
         if (chosen != null) {
-            String relative = LotroPaths.toMusicRelative(chosen.getAbsolutePath(), lotro);
-            setExportDirField.setText(relative);
+            String absolute = chosen.getAbsolutePath();
+            if (!LotroPaths.isUnderMusic(absolute, lotro)) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Set export directory must be under the LOTRO Music folder.",
+                        "Set export directory",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String relative = LotroPaths.toMusicRelative(absolute, lotro);
+            working.setSetExportDir(relative);
+            refreshFolderPathFields();
         }
     }
 
@@ -1105,6 +1278,7 @@ public final class SettingsDialog extends JDialog {
         chooser.setDialogTitle(title);
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         if (startDirectory != null && startDirectory.isDirectory()) {
+            // Open inside this folder (e.g. Music), not a previously chosen subfolder.
             chooser.setCurrentDirectory(startDirectory);
         }
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {

@@ -84,6 +84,27 @@ public final class LotroPaths {
     }
 
     /**
+     * LOTRO root from preferences, or the detected default when unset (Python
+     * {@code get_lotro_root()} parity). Does not write preferences.
+     */
+    public static Optional<Path> effectiveLotroRoot(Preferences preferences) {
+        if (preferences != null) {
+            String stored = preferences.lotroRoot();
+            if (stored != null && !stored.isBlank()) {
+                return Optional.of(Paths.get(stored.trim()).toAbsolutePath().normalize());
+            }
+        }
+        return defaultLotroRoot();
+    }
+
+    /**
+     * Same as {@link #effectiveLotroRoot(Preferences)} as a string; empty when none.
+     */
+    public static String effectiveLotroRootString(Preferences preferences) {
+        return effectiveLotroRoot(preferences).map(Path::toString).orElse("");
+    }
+
+    /**
      * If preferences have no LOTRO root and a default exists, set it. Returns {@code true}
      * when preferences were updated.
      */
@@ -125,31 +146,57 @@ public final class LotroPaths {
     }
 
     /**
-     * Store set-export / exclude paths relative to Music when under Music; otherwise absolute.
-     * Relative form uses forward slashes (Python parity).
+     * Store set-export / exclude paths relative to Music when under Music.
+     *
+     * <p>Non-absolute input is treated as already Music-relative (never resolved against the
+     * process working directory — that previously mangled a relative Music path into
+     * {@code {cwd}/...} on Save). Absolute paths under Music are converted using real
+     * paths when the folders exist (Python {@code Path.resolve()} parity). Relative form uses
+     * forward slashes.
      */
     public static String toMusicRelative(String path, String lotroRoot) {
         if (path == null || path.isBlank()) {
             return "";
         }
+        String trimmed = path.trim();
+        Path input = Paths.get(trimmed);
+        if (!input.isAbsolute()) {
+            return trimmed.replace('\\', '/');
+        }
         Optional<Path> music = musicRoot(lotroRoot);
         if (music.isEmpty()) {
-            return path.trim();
+            return trimmed;
         }
         try {
-            Path full = Paths.get(path.trim()).toAbsolutePath().normalize();
-            Path relative = music.get().relativize(full);
-            if (relative.toString().startsWith("..")) {
-                return full.toString();
+            Path musicCanon = canonicalize(music.get());
+            Path fullCanon = canonicalize(input);
+            if (!isUnder(fullCanon, musicCanon)) {
+                return trimmed;
             }
-            return relative.toString().replace('\\', '/');
-        } catch (IllegalArgumentException ex) {
-            return path.trim();
+            return musicCanon.relativize(fullCanon).toString().replace('\\', '/');
+        } catch (RuntimeException ex) {
+            return trimmed;
         }
     }
 
     /**
+     * True when {@code path} is under {@code lotroRoot/Music} (absolute or Music-relative).
+     */
+    public static boolean isUnderMusic(String path, String lotroRoot) {
+        if (path == null || path.isBlank() || lotroRoot == null || lotroRoot.isBlank()) {
+            return false;
+        }
+        String relative = toMusicRelative(path, lotroRoot);
+        if (relative.isBlank()) {
+            return false;
+        }
+        Path asPath = Paths.get(relative);
+        return !asPath.isAbsolute() && !relative.startsWith("..");
+    }
+
+    /**
      * Resolve a stored Music-relative or absolute path to an absolute path for browsing/ops.
+     * Relative values are always joined under Music (never under the process CWD).
      */
     public static String resolveMusicPath(String relativeOrAbsolute, String lotroRoot) {
         if (relativeOrAbsolute == null || relativeOrAbsolute.isBlank()) {
@@ -157,13 +204,35 @@ public final class LotroPaths {
         }
         Path path = Paths.get(relativeOrAbsolute.trim());
         if (path.isAbsolute()) {
-            return path.toString();
+            return canonicalize(path).toString();
         }
         Optional<Path> music = musicRoot(lotroRoot);
         if (music.isEmpty()) {
             return relativeOrAbsolute.trim();
         }
-        return music.get().resolve(path).toAbsolutePath().normalize().toString();
+        return canonicalize(music.get().resolve(path)).toString();
+    }
+
+    /**
+     * Prefer the filesystem real path when the location exists (junctions / OneDrive),
+     * otherwise absolute + normalize.
+     */
+    static Path canonicalize(Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        try {
+            if (Files.exists(absolute)) {
+                return absolute.toRealPath();
+            }
+        } catch (IOException ignored) {
+            // fall through
+        }
+        return absolute;
+    }
+
+    private static boolean isUnder(Path path, Path parent) {
+        Path p = path.toAbsolutePath().normalize();
+        Path pre = parent.toAbsolutePath().normalize();
+        return p.startsWith(pre);
     }
 
     /**

@@ -111,6 +111,72 @@ class SqliteLibraryScanServiceTest {
     }
 
     @Test
+    void excludesNestedRelativeSetExportDir() throws Exception {
+        Path lotro = tempDir.resolve("lotro");
+        Path music = lotro.resolve("Music");
+        Path setDir = music.resolve("Aev").resolve("Sets");
+        Files.createDirectories(setDir);
+        writeAbc(music.resolve("Aev").resolve("keep.abc"), "Keep", "Ada", 1);
+        writeAbc(setDir.resolve("set-song.abc"), "Set Song", "Ada", 1);
+
+        Path dbPath = tempDir.resolve("library-nested-sets.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(dbPath)) {
+            SqliteLibraryScanService scanner = new SqliteLibraryScanService(database);
+            ScanProgress result = scanner.scan(
+                    new ScanRequest(lotro, Path.of("Aev/Sets"), null),
+                    null,
+                    null);
+            assertEquals(1, result.songsAdded());
+            assertEquals(1, countSongs(database));
+            assertEquals("Keep", loadTitle(database, "keep.abc"));
+            assertFalse(songFileExists(database, setDir.resolve("set-song.abc")));
+        }
+    }
+
+    @Test
+    void missingSetExportDirDoesNotExcludeMusicSets() throws Exception {
+        Path lotro = tempDir.resolve("lotro");
+        Path music = lotro.resolve("Music");
+        Path setDir = music.resolve("Aev").resolve("Sets");
+        Files.createDirectories(setDir);
+        writeAbc(setDir.resolve("set-song.abc"), "Set Song", "Ada", 1);
+
+        Path dbPath = tempDir.resolve("library-missing-sets.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(dbPath)) {
+            SqliteLibraryScanService scanner = new SqliteLibraryScanService(database);
+            ScanProgress result = scanner.scan(
+                    new ScanRequest(lotro, Path.of("C:/does/not/exist/Sets"), null),
+                    null,
+                    null);
+            assertEquals(1, result.songsAdded());
+            assertTrue(songFileExists(database, setDir.resolve("set-song.abc")));
+        }
+    }
+
+    @Test
+    void ignoresSetExportAbsolutePathOutsideMusic() throws Exception {
+        Path lotro = tempDir.resolve("lotro");
+        Path music = lotro.resolve("Music");
+        Path setDir = music.resolve("Aev").resolve("Sets");
+        Path outside = tempDir.resolve("cwd-Aev").resolve("Sets");
+        Files.createDirectories(setDir);
+        Files.createDirectories(outside);
+        writeAbc(setDir.resolve("set-song.abc"), "Set Song", "Ada", 1);
+
+        Path dbPath = tempDir.resolve("library-outside-sets.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(dbPath)) {
+            SqliteLibraryScanService scanner = new SqliteLibraryScanService(database);
+            // Simulates the old Save bug: relative "Aev/Sets" resolved against process CWD.
+            ScanProgress result = scanner.scan(
+                    new ScanRequest(lotro, outside, null),
+                    null,
+                    null);
+            assertEquals(1, result.songsAdded());
+            assertTrue(songFileExists(database, setDir.resolve("set-song.abc")));
+        }
+    }
+
+    @Test
     void duplicateResolverCanKeepExistingOrSeparate() throws Exception {
         Path lotro = tempDir.resolve("lotro");
         Path music = lotro.resolve("Music");

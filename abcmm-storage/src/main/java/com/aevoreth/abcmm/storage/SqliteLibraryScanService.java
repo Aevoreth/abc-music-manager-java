@@ -67,8 +67,21 @@ public final class SqliteLibraryScanService implements LibraryScanService {
             }
 
             Path setRoot = resolveSetExportDir(request.setExportDir(), musicRoot);
+            if (setRoot != null && !isUnderMusicRoot(setRoot, musicRoot)) {
+                notifyProgress(progress, new ScanProgress(
+                        0, 0, 0, 0,
+                        "Warning: set export dir is outside Music — not excluded from scan ("
+                                + setRoot + ")"));
+                setRoot = null;
+            } else if (setRoot != null && !Files.isDirectory(setRoot)) {
+                notifyProgress(progress, new ScanProgress(
+                        0, 0, 0, 0,
+                        "Warning: set export dir not found — not excluded from scan ("
+                                + setRoot + ")"));
+                setRoot = null;
+            }
             List<Path> setRoots = new ArrayList<>();
-            if (setRoot != null && Files.isDirectory(setRoot)) {
+            if (setRoot != null) {
                 setRoots.add(normalizePath(setRoot));
             }
 
@@ -244,14 +257,15 @@ public final class SqliteLibraryScanService implements LibraryScanService {
     }
 
     private static Path resolveSetExportDir(Path setExportDir, Path musicRoot) {
-        if (setExportDir == null) {
+        if (setExportDir == null || musicRoot == null) {
             return null;
         }
         String raw = setExportDir.toString().strip();
         if (raw.isEmpty()) {
             return null;
         }
-        Path p = setExportDir;
+        Path p = Path.of(raw);
+        // Relative values are Music-relative (never process CWD), matching LotroPaths.
         if (!p.isAbsolute()) {
             p = musicRoot.resolve(p);
         }
@@ -264,8 +278,8 @@ public final class SqliteLibraryScanService implements LibraryScanService {
 
     private List<Path> loadExcludePaths(Path musicRoot, Path setRoot) throws SQLException {
         List<Path> excludes = new ArrayList<>();
-        if (setRoot != null) {
-            excludes.add(setRoot);
+        if (setRoot != null && isUnderMusicRoot(setRoot, musicRoot)) {
+            excludes.add(normalizePath(setRoot));
         }
         Connection connection = database.connection();
         try (PreparedStatement statement = connection.prepareStatement(
@@ -278,19 +292,31 @@ public final class SqliteLibraryScanService implements LibraryScanService {
                 }
                 Path p = Path.of(path.strip());
                 try {
+                    Path resolved;
                     if (p.isAbsolute()) {
-                        excludes.add(normalizePath(p));
+                        resolved = normalizePath(p);
                     } else if (musicRoot != null) {
-                        excludes.add(normalizePath(musicRoot.resolve(p)));
+                        resolved = normalizePath(musicRoot.resolve(p));
                     } else {
-                        excludes.add(p);
+                        continue;
                     }
-                } catch (RuntimeException ex) {
-                    excludes.add(p);
+                    // Only Music-tree excludes apply to library scan (Python parity intent).
+                    if (isUnderMusicRoot(resolved, musicRoot)) {
+                        excludes.add(resolved);
+                    }
+                } catch (RuntimeException ignored) {
+                    // skip unreadable exclude paths
                 }
             }
         }
         return excludes;
+    }
+
+    private static boolean isUnderMusicRoot(Path path, Path musicRoot) {
+        if (path == null || musicRoot == null) {
+            return false;
+        }
+        return pathIsUnder(normalizePath(path).toString(), normalizePath(musicRoot).toString());
     }
 
     private static List<Path> collectAbcFiles(List<Path> roots, List<Path> excludePaths) {

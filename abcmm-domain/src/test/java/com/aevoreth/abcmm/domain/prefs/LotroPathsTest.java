@@ -46,6 +46,21 @@ class LotroPathsTest {
     }
 
     @Test
+    void effectiveLotroRootFallsBackToDefaultWithoutWriting(@TempDir Path temp) throws Exception {
+        Path docs = temp.resolve("Documents");
+        Path lotro = docs.resolve(LotroPaths.LOTRO_FOLDER_NAME);
+        Files.createDirectories(lotro);
+        LotroPaths.setDocumentsPathOverride(() -> Optional.of(docs));
+
+        Preferences prefs = new Preferences();
+        assertTrue(prefs.lotroRoot().isBlank());
+        assertEquals(
+                lotro.toAbsolutePath().normalize(),
+                LotroPaths.effectiveLotroRoot(prefs).orElseThrow());
+        assertTrue(prefs.lotroRoot().isBlank());
+    }
+
+    @Test
     void toMusicRelativeStoresUnderMusic(@TempDir Path temp) throws Exception {
         Path lotro = temp.resolve("LOTRO");
         Path music = lotro.resolve(LotroPaths.MUSIC_FOLDER_NAME);
@@ -58,13 +73,35 @@ class LotroPathsTest {
     }
 
     @Test
+    void toMusicRelativeKeepsAlreadyRelativeWithoutUsingCwd(@TempDir Path temp) throws Exception {
+        Path lotro = temp.resolve("LOTRO");
+        Files.createDirectories(lotro.resolve(LotroPaths.MUSIC_FOLDER_NAME).resolve("Aev").resolve("Sets"));
+
+        // Regression: Save must not resolve "Aev/Sets" against process CWD.
+        assertEquals("Aev/Sets", LotroPaths.toMusicRelative("Aev/Sets", lotro.toString()));
+        assertEquals("Aev/Sets", LotroPaths.toMusicRelative("Aev\\Sets", lotro.toString()));
+        assertTrue(LotroPaths.isUnderMusic("Aev/Sets", lotro.toString()));
+    }
+
+    @Test
+    void toMusicRelativeConvertsAbsoluteMusicPath(@TempDir Path temp) throws Exception {
+        Path lotro = temp.resolve("LOTRO");
+        Path sets = lotro.resolve(LotroPaths.MUSIC_FOLDER_NAME).resolve("Aev").resolve("Sets");
+        Files.createDirectories(sets);
+
+        assertEquals("Aev/Sets", LotroPaths.toMusicRelative(sets.toString(), lotro.toString()));
+        assertTrue(LotroPaths.isUnderMusic(sets.toString(), lotro.toString()));
+        assertFalse(LotroPaths.isUnderMusic(temp.resolve("elsewhere").toString(), lotro.toString()));
+    }
+
+    @Test
     void resolveMusicPathJoinsRelative(@TempDir Path temp) throws Exception {
         Path lotro = temp.resolve("LOTRO");
         Path music = lotro.resolve(LotroPaths.MUSIC_FOLDER_NAME);
         Files.createDirectories(music.resolve("Sets"));
 
         String resolved = LotroPaths.resolveMusicPath("Sets", lotro.toString());
-        assertEquals(music.resolve("Sets").toAbsolutePath().normalize().toString(), resolved);
+        assertEquals(LotroPaths.canonicalize(music.resolve("Sets")).toString(), resolved);
     }
 
     @Test

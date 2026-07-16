@@ -476,15 +476,13 @@ public final class MainFrame extends JFrame {
                     this, "Database is not available.", "Scan library", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String lotroRoot = preferences.lotroRoot();
-        if (lotroRoot == null || lotroRoot.isBlank()) {
-            LotroPaths.ensureDefaultLotroRoot(preferences);
-            lotroRoot = preferences.lotroRoot();
-        }
-        if (lotroRoot == null || lotroRoot.isBlank()) {
+        ensureDefaultLotroRootPersisted();
+        String lotroRoot = LotroPaths.effectiveLotroRootString(preferences);
+        if (lotroRoot.isBlank()) {
             JOptionPane.showMessageDialog(
                     this,
-                    "Set LOTRO root in Settings before scanning.",
+                    "Could not find a LOTRO folder under Documents or OneDrive\\Documents.\n"
+                            + "Set LOTRO root in Settings (Folder rules) if it is elsewhere.",
                     "Scan library",
                     JOptionPane.WARNING_MESSAGE);
             return;
