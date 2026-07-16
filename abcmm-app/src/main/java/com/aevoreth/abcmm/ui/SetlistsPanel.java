@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.ui;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -55,6 +56,8 @@ import com.aevoreth.abcmm.domain.band.BandInfo;
 import com.aevoreth.abcmm.domain.band.BandLayoutInfo;
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
+import com.aevoreth.abcmm.domain.band.InstrumentInfo;
+import com.aevoreth.abcmm.domain.band.PlayerInstrumentInfo;
 import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
@@ -65,6 +68,7 @@ import com.aevoreth.abcmm.domain.playback.PlayQueueItem;
 import com.aevoreth.abcmm.domain.playback.PlaybackException;
 import com.aevoreth.abcmm.domain.playback.PlaybackSession;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
+import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
@@ -78,7 +82,11 @@ public final class SetlistsPanel extends JPanel {
     static final String COLUMN_WIDTHS_PREF_KEY = "java_setlist_song_column_widths";
     /** Shared with Python edition preferences key. */
     static final String META_SPLIT_PREF_KEY = "setlists_top_split_state";
-    private static final int[] DEFAULT_COLUMN_WIDTHS = {48, 36, 220, 48, 64, 160};
+    /** #, Play, Warning, Title, Parts, Duration, Composer */
+    private static final int[] DEFAULT_COLUMN_WIDTHS = {36, 48, 28, 220, 48, 64, 160};
+    private static final int COL_PLAY = 1;
+    private static final int COL_WARNING = 2;
+    private static final Color WARNING_RED = new Color(0xFF4444);
     private static final int MAIN_SPLIT_INITIAL = 200;
     private static final int MAIN_SPLIT_MIN_LEFT = 100;
     private static final int META_SPLIT_DEFAULT = 360;
@@ -158,6 +166,7 @@ public final class SetlistsPanel extends JPanel {
         applyDefaultColumnWidths();
         enableItemTableReorder();
         enableItemTablePlaybackActions();
+        enableItemTableWarningColumn();
 
         assignmentPanel.setAssignmentChangedHandler(this::reloadAssignments);
 
@@ -452,6 +461,11 @@ public final class SetlistsPanel extends JPanel {
         if (widths == null || widths.isEmpty()) {
             applyDefaultColumnWidths();
             return;
+        }
+        // Prefs saved before the warning column: insert its default width after Play.
+        if (widths.size() == 6 && DEFAULT_COLUMN_WIDTHS.length == 7) {
+            widths = new ArrayList<>(widths);
+            widths.add(COL_WARNING, DEFAULT_COLUMN_WIDTHS[COL_WARNING]);
         }
         TableColumnModel columns = itemTable.getColumnModel();
         for (int i = 0; i < widths.size() && i < columns.getColumnCount(); i++) {
@@ -1066,7 +1080,7 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void enableItemTablePlaybackActions() {
-        itemTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
+        itemTable.getColumnModel().getColumn(COL_PLAY).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -1087,7 +1101,11 @@ public final class SetlistsPanel extends JPanel {
                 }
                 int viewRow = itemTable.rowAtPoint(e.getPoint());
                 int viewCol = itemTable.columnAtPoint(e.getPoint());
-                if (viewRow < 0 || viewCol != 0) {
+                if (viewRow < 0 || viewCol < 0) {
+                    return;
+                }
+                int modelCol = itemTable.convertColumnIndexToModel(viewCol);
+                if (modelCol != COL_PLAY) {
                     return;
                 }
                 playSetlistFromRow(viewRow);
@@ -1103,6 +1121,113 @@ public final class SetlistsPanel extends JPanel {
                 maybeShowItemPopup(e);
             }
         });
+    }
+
+    private void enableItemTableWarningColumn() {
+        itemTable.getColumnModel().getColumn(COL_WARNING).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                JLabel label = (JLabel) super.getTableCellRendererComponent(
+                        table, value, isSelected, hasFocus, row, column);
+                int modelRow = table.convertRowIndexToModel(row);
+                String warning = itemModel.warningAt(modelRow);
+                if (warning != null && !warning.isBlank()) {
+                    label.setText("\u26A0");
+                    label.setForeground(WARNING_RED);
+                    Font base = label.getFont();
+                    label.setFont(base.deriveFont(Font.BOLD, base.getSize2D() + 4f));
+                    label.setToolTipText(warning);
+                } else {
+                    label.setText("");
+                    label.setToolTipText(null);
+                }
+                label.setHorizontalAlignment(JLabel.CENTER);
+                label.setIcon(null);
+                return label;
+            }
+        });
+    }
+
+    /**
+     * Recompute the warning-flag column for every song (Python {@code _refresh_error_column_only}).
+     */
+    private void refreshWarningColumn() {
+        List<SetlistItemInfo> items = itemModel.items();
+        if (items.isEmpty()) {
+            itemModel.setWarnings(List.of());
+            return;
+        }
+        SetlistInfo setlist = selectedSetlist();
+        Long bandLayoutId = setlist == null ? null : setlist.bandLayoutId();
+        if (bandLayoutId == null
+                || bandRepository == null
+                || setlistRepository == null
+                || songLayoutRepository == null
+                || playerRepository == null) {
+            itemModel.setWarnings(blankWarnings(items.size()));
+            return;
+        }
+        try {
+            List<BandLayoutSlotInfo> slots = bandRepository.listSlots(bandLayoutId);
+            Map<Long, Set<Long>> ownedByPlayer = loadOwnedInstruments(slots);
+            Map<Long, String> instrumentNames = new HashMap<>();
+            for (InstrumentInfo info : playerRepository.listInstruments()) {
+                instrumentNames.put(info.id(), info.name());
+            }
+            Map<Long, Set<Long>> equivByInstrument =
+                    SetlistSongWarningChecker.buildEquivalentInstrumentIds(instrumentNames);
+
+            List<String> warnings = new ArrayList<>(items.size());
+            for (SetlistItemInfo item : items) {
+                Map<Long, Integer> layoutAssigns = new HashMap<>();
+                if (item.songLayoutId() != null) {
+                    for (SongLayoutAssignmentInfo a
+                            : songLayoutRepository.listAssignments(item.songLayoutId())) {
+                        layoutAssigns.put(a.playerId(), a.partNumber());
+                    }
+                }
+                Map<Long, Integer> overrides = new HashMap<>();
+                for (SetlistBandAssignmentInfo a : setlistRepository.listBandAssignments(item.id())) {
+                    overrides.put(a.playerId(), a.partNumber());
+                }
+                warnings.add(SetlistSongWarningChecker.warningMessage(
+                        bandLayoutId,
+                        item.songLayoutId(),
+                        item.partsJson(),
+                        slots,
+                        layoutAssigns,
+                        overrides,
+                        ownedByPlayer,
+                        equivByInstrument));
+            }
+            itemModel.setWarnings(warnings);
+        } catch (LibraryException ex) {
+            itemModel.setWarnings(blankWarnings(items.size()));
+        }
+    }
+
+    private Map<Long, Set<Long>> loadOwnedInstruments(List<BandLayoutSlotInfo> slots)
+            throws LibraryException {
+        Map<Long, Set<Long>> result = new HashMap<>();
+        for (BandLayoutSlotInfo slot : slots) {
+            Set<Long> owned = new HashSet<>();
+            for (PlayerInstrumentInfo info : playerRepository.listPlayerInstruments(slot.playerId())) {
+                if (info.hasInstrument()) {
+                    owned.add(info.instrumentId());
+                }
+            }
+            result.put(slot.playerId(), owned);
+        }
+        return result;
+    }
+
+    private static List<String> blankWarnings(int size) {
+        List<String> warnings = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            warnings.add(null);
+        }
+        return warnings;
     }
 
     private void maybeShowItemPopup(java.awt.event.MouseEvent e) {
@@ -1187,6 +1312,7 @@ public final class SetlistsPanel extends JPanel {
         SetlistItemInfo item = selectedItem();
         if (setlist == null) {
             assignmentPanel.clear();
+            refreshWarningColumn();
             return;
         }
         Long songLayoutId = item == null ? null : item.songLayoutId();
@@ -1218,6 +1344,7 @@ public final class SetlistsPanel extends JPanel {
                 songLayoutId,
                 current == null ? null : current.partsJson(),
                 itemModel.items());
+        refreshWarningColumn();
     }
 
     /**
@@ -1617,14 +1744,37 @@ public final class SetlistsPanel extends JPanel {
 
     private static final class ItemTableModel extends AbstractTableModel {
         private final List<SetlistItemInfo> items = new ArrayList<>();
-        private final String[] columns = {"", "#", "Title", "Parts", "Duration", "Composer"};
+        private final List<String> warnings = new ArrayList<>();
+        private final String[] columns = {"#", "", "", "Title", "Parts", "Duration", "Composer"};
 
         void setItems(List<SetlistItemInfo> next) {
             items.clear();
+            warnings.clear();
             if (next != null) {
                 items.addAll(next);
             }
+            for (int i = 0; i < items.size(); i++) {
+                warnings.add(null);
+            }
             fireTableDataChanged();
+        }
+
+        void setWarnings(List<String> next) {
+            warnings.clear();
+            int size = items.size();
+            for (int i = 0; i < size; i++) {
+                warnings.add(next != null && i < next.size() ? next.get(i) : null);
+            }
+            if (size > 0) {
+                fireTableRowsUpdated(0, size - 1);
+            }
+        }
+
+        String warningAt(int row) {
+            if (row < 0 || row >= warnings.size()) {
+                return null;
+            }
+            return warnings.get(row);
         }
 
         List<SetlistItemInfo> items() {
@@ -1653,7 +1803,7 @@ public final class SetlistsPanel extends JPanel {
         @Override
         public Class<?> getColumnClass(int columnIndex) {
             return switch (columnIndex) {
-                case 1, 3 -> Integer.class;
+                case 0, 4 -> Integer.class;
                 default -> String.class;
             };
         }
@@ -1662,12 +1812,13 @@ public final class SetlistsPanel extends JPanel {
         public Object getValueAt(int rowIndex, int columnIndex) {
             SetlistItemInfo item = items.get(rowIndex);
             return switch (columnIndex) {
-                case 0 -> "";
-                case 1 -> rowIndex + 1;
-                case 2 -> item.songTitle();
-                case 3 -> item.partCount();
-                case 4 -> LibraryDisplayFormats.formatDuration(item.songDurationSeconds());
-                case 5 -> item.songComposers();
+                case 0 -> rowIndex + 1;
+                case 1 -> "";
+                case 2 -> warningAt(rowIndex) == null ? "" : "\u26A0";
+                case 3 -> item.songTitle();
+                case 4 -> item.partCount();
+                case 5 -> LibraryDisplayFormats.formatDuration(item.songDurationSeconds());
+                case 6 -> item.songComposers();
                 default -> "";
             };
         }
