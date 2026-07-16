@@ -189,6 +189,11 @@ public final class PlaybackPanel extends JPanel {
         positionTimer.start();
     }
 
+    /** Stop UI polling so AWT can shut down after the frame is disposed. */
+    public void stopTimers() {
+        positionTimer.stop();
+    }
+
     public void updatePreferences(Preferences preferences) {
         this.preferences = preferences;
         applyPrefsToControls();

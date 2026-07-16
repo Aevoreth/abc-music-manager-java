@@ -218,6 +218,7 @@ public final class MainFrame extends JFrame {
             @Override
             public void windowClosed(WindowEvent e) {
                 shutdown();
+                System.exit(0);
             }
         });
 
@@ -259,6 +260,9 @@ public final class MainFrame extends JFrame {
     }
 
     void shutdown() {
+        if (playbackPanel != null) {
+            playbackPanel.stopTimers();
+        }
         playbackSession.close();
         if (songRepository != null) {
             songRepository.close();
