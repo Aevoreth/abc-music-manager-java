@@ -7,18 +7,26 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
+import javax.swing.DropMode;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
@@ -31,9 +39,11 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JTree;
 import javax.swing.ListSelectionModel;
-import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
+import javax.swing.TransferHandler;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
@@ -47,6 +57,7 @@ import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.SongRepository;
+import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
@@ -58,11 +69,17 @@ import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
  */
 public final class SetlistsPanel extends JPanel {
 
+    static final String COLUMN_WIDTHS_PREF_KEY = "java_setlist_song_column_widths";
+    private static final int[] DEFAULT_COLUMN_WIDTHS = {36, 220, 48, 64, 160};
+    private static final int MAIN_SPLIT_INITIAL = 200;
+    private static final int MAIN_SPLIT_MIN_LEFT = 100;
+
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
     private SetlistRepository setlistRepository;
     private SongRepository songRepository;
     private SongLayoutRepository songLayoutRepository;
+    private Preferences preferences;
 
     private final DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode("Setlists");
     private final DefaultTreeModel treeModel = new DefaultTreeModel(treeRoot);
@@ -74,8 +91,9 @@ public final class SetlistsPanel extends JPanel {
     private final JTextField setTimeField = new JTextField(8);
     private final JSpinner targetDurationSpinner = DurationSpinners.create(0, 0, 24 * 3600, 1);
     private final JSpinner defaultChangeSpinner = DurationSpinners.create(0, 0, 3600, 1);
-    private final JTextArea notesArea = new JTextArea(3, 24);
+    private final JTextArea notesArea = new JTextArea(4, 20);
     private final JCheckBox lockedCheck = new JCheckBox("Locked");
+    private final JButton saveMetaButton = new JButton("Save metadata");
 
     private final ItemTableModel itemModel = new ItemTableModel();
     private final JTable itemTable = new JTable(itemModel);
@@ -86,7 +104,17 @@ public final class SetlistsPanel extends JPanel {
     private final JPanel assignmentPanel = new JPanel(new BorderLayout(4, 4));
 
     private final JPanel editorPanel = new JPanel(new BorderLayout(8, 8));
+    private final JPanel metaPanel = new JPanel(new GridBagLayout());
+    private final JPanel songsPanel = new JPanel(new BorderLayout(4, 4));
+    private final JButton addSongButton = new JButton("Add song");
+    private final JButton removeSongButton = new JButton("Remove");
+    private final JButton moveUpButton = new JButton("Move up");
+    private final JButton moveDownButton = new JButton("Move down");
+
+    private JSplitPane mainSplit;
     private boolean suppressSelection;
+    private boolean columnWidthsRestored;
+    private boolean mainSplitInitialized;
 
     public SetlistsPanel() {
         super(new BorderLayout(8, 8));
@@ -101,12 +129,16 @@ public final class SetlistsPanel extends JPanel {
             }
         });
 
-        itemTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        itemTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        itemTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        itemTable.setFillsViewportHeight(true);
         itemTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 reloadAssignments();
             }
         });
+        applyDefaultColumnWidths();
+        enableItemTableReorder();
 
         assignmentList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         assignmentList.setCellRenderer(new DefaultListCellRenderer() {
@@ -143,11 +175,29 @@ public final class SetlistsPanel extends JPanel {
 
         JPanel left = buildLeftPane();
         buildEditorPane();
-        editorPanel.setVisible(false);
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, editorPanel);
-        split.setResizeWeight(0.28);
-        add(split, BorderLayout.CENTER);
+        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, editorPanel);
+        mainSplit.setResizeWeight(0.22);
+        mainSplit.setContinuousLayout(true);
+        mainSplit.setDividerLocation(MAIN_SPLIT_INITIAL);
+        add(mainSplit, BorderLayout.CENTER);
+
+        clearEditor();
+        setEditorEnabled(false);
+
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                if (!mainSplitInitialized && mainSplit.getWidth() > 0) {
+                    mainSplit.setDividerLocation(MAIN_SPLIT_INITIAL);
+                    mainSplitInitialized = true;
+                }
+                if (!columnWidthsRestored && preferences != null) {
+                    restoreColumnWidths();
+                    columnWidthsRestored = true;
+                }
+            }
+        });
     }
 
     public void bind(
@@ -162,6 +212,21 @@ public final class SetlistsPanel extends JPanel {
         this.songRepository = songs;
         this.songLayoutRepository = songLayouts;
         reload();
+    }
+
+    public void setPreferences(Preferences preferences) {
+        this.preferences = preferences;
+        if (isShowing()) {
+            restoreColumnWidths();
+            columnWidthsRestored = true;
+        }
+    }
+
+    public void persistUiState(Preferences preferences) {
+        if (preferences == null) {
+            return;
+        }
+        preferences.extras().put(COLUMN_WIDTHS_PREF_KEY, captureColumnWidths());
     }
 
     public void setPlayerRepository(PlayerRepository playerRepository) {
@@ -210,69 +275,70 @@ public final class SetlistsPanel extends JPanel {
         toolbar.add(delete);
         panel.add(toolbar, BorderLayout.NORTH);
         panel.add(new JScrollPane(tree), BorderLayout.CENTER);
-        panel.setPreferredSize(new Dimension(240, 400));
+        panel.setPreferredSize(new Dimension(MAIN_SPLIT_INITIAL, 400));
+        panel.setMinimumSize(new Dimension(MAIN_SPLIT_MIN_LEFT, 0));
         return panel;
     }
 
     private void buildEditorPane() {
-        JPanel meta = new JPanel(new GridBagLayout());
-        meta.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        metaPanel.setBorder(BorderFactory.createTitledBorder("Setlist"));
         GridBagConstraints gc = new GridBagConstraints();
         gc.insets = new Insets(2, 4, 2, 4);
         gc.anchor = GridBagConstraints.WEST;
 
         int row = 0;
-        addLabeled(meta, gc, row++, "Name", nameField);
-        addLabeled(meta, gc, row++, "Band layout", layoutCombo);
-        addLabeled(meta, gc, row++, "Set date", setDateField);
-        addLabeled(meta, gc, row++, "Set time", setTimeField);
-        addLabeled(meta, gc, row++, "Target duration", targetDurationSpinner);
-        addLabeled(meta, gc, row++, "Default change", defaultChangeSpinner);
+        addLabeled(metaPanel, gc, row++, "Name", nameField);
+        addLabeled(metaPanel, gc, row++, "Band layout", layoutCombo);
+        addLabeled(metaPanel, gc, row++, "Set date", setDateField);
+        addLabeled(metaPanel, gc, row++, "Set time", setTimeField);
+        addLabeled(metaPanel, gc, row++, "Target duration", targetDurationSpinner);
+        addLabeled(metaPanel, gc, row++, "Default change", defaultChangeSpinner);
 
         gc.gridx = 0;
         gc.gridy = row;
         gc.weightx = 0;
+        gc.weighty = 0;
         gc.fill = GridBagConstraints.NONE;
-        meta.add(new JLabel("Notes"), gc);
+        metaPanel.add(new JLabel("Notes"), gc);
         gc.gridx = 1;
         gc.fill = GridBagConstraints.BOTH;
         gc.weightx = 1;
-        gc.weighty = 0.2;
+        gc.weighty = 1;
         notesArea.setLineWrap(true);
         notesArea.setWrapStyleWord(true);
-        meta.add(new JScrollPane(notesArea), gc);
+        JScrollPane notesScroll = new JScrollPane(notesArea);
+        notesScroll.setPreferredSize(new Dimension(200, 80));
+        metaPanel.add(notesScroll, gc);
         row++;
 
         gc.gridx = 1;
         gc.gridy = row;
         gc.weighty = 0;
         gc.fill = GridBagConstraints.NONE;
-        meta.add(lockedCheck, gc);
+        metaPanel.add(lockedCheck, gc);
         row++;
 
         gc.gridx = 1;
         gc.gridy = row;
-        JButton saveMeta = new JButton("Save metadata");
-        saveMeta.addActionListener(e -> saveMetadata());
-        meta.add(saveMeta, gc);
+        saveMetaButton.addActionListener(e -> saveMetadata());
+        metaPanel.add(saveMetaButton, gc);
 
-        JPanel songs = new JPanel(new BorderLayout(4, 4));
-        songs.setBorder(BorderFactory.createTitledBorder("Songs"));
+        metaPanel.setPreferredSize(new Dimension(260, 280));
+        metaPanel.setMinimumSize(new Dimension(180, 120));
+
+        songsPanel.setBorder(BorderFactory.createTitledBorder("Songs"));
         JPanel songToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JButton addSong = new JButton("Add song");
-        JButton removeSong = new JButton("Remove");
-        JButton moveUp = new JButton("Move up");
-        JButton moveDown = new JButton("Move down");
-        addSong.addActionListener(e -> addSong());
-        removeSong.addActionListener(e -> removeSong());
-        moveUp.addActionListener(e -> moveSong(-1));
-        moveDown.addActionListener(e -> moveSong(1));
-        songToolbar.add(addSong);
-        songToolbar.add(removeSong);
-        songToolbar.add(moveUp);
-        songToolbar.add(moveDown);
-        songs.add(songToolbar, BorderLayout.NORTH);
-        songs.add(new JScrollPane(itemTable), BorderLayout.CENTER);
+        addSongButton.addActionListener(e -> addSong());
+        removeSongButton.addActionListener(e -> removeSong());
+        moveUpButton.addActionListener(e -> moveSongs(-1));
+        moveDownButton.addActionListener(e -> moveSongs(1));
+        songToolbar.add(addSongButton);
+        songToolbar.add(removeSongButton);
+        songToolbar.add(moveUpButton);
+        songToolbar.add(moveDownButton);
+        songsPanel.add(songToolbar, BorderLayout.NORTH);
+        songsPanel.add(new JScrollPane(itemTable), BorderLayout.CENTER);
+        songsPanel.setMinimumSize(new Dimension(200, 120));
 
         assignmentPanel.setBorder(BorderFactory.createTitledBorder("Part assignments"));
         JPanel assignToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -283,25 +349,214 @@ public final class SetlistsPanel extends JPanel {
         assignToolbar.add(applyPart);
         assignmentPanel.add(assignToolbar, BorderLayout.NORTH);
         assignmentPanel.add(new JScrollPane(assignmentList), BorderLayout.CENTER);
-        assignmentPanel.setPreferredSize(new Dimension(220, 160));
+        assignmentPanel.setPreferredSize(new Dimension(400, 140));
+        assignmentPanel.setMinimumSize(new Dimension(120, 80));
 
-        JSplitPane songsSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, songs, assignmentPanel);
-        songsSplit.setResizeWeight(0.7);
+        JSplitPane topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, metaPanel, songsPanel);
+        topSplit.setResizeWeight(0.28);
+        topSplit.setContinuousLayout(true);
+        topSplit.setDividerLocation(260);
 
-        editorPanel.add(meta, BorderLayout.NORTH);
-        editorPanel.add(songsSplit, BorderLayout.CENTER);
+        JSplitPane editorSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, assignmentPanel);
+        editorSplit.setResizeWeight(0.7);
+        editorSplit.setContinuousLayout(true);
+        editorSplit.setDividerLocation(320);
+
+        editorPanel.setMinimumSize(new Dimension(280, 0));
+        editorPanel.add(editorSplit, BorderLayout.CENTER);
     }
 
     private static void addLabeled(JPanel panel, GridBagConstraints gc, int row, String label, Component field) {
         gc.gridx = 0;
         gc.gridy = row;
         gc.weightx = 0;
+        gc.weighty = 0;
         gc.fill = GridBagConstraints.NONE;
         panel.add(new JLabel(label), gc);
         gc.gridx = 1;
         gc.fill = GridBagConstraints.HORIZONTAL;
         gc.weightx = 1;
         panel.add(field, gc);
+    }
+
+    private void applyDefaultColumnWidths() {
+        TableColumnModel columns = itemTable.getColumnModel();
+        for (int i = 0; i < DEFAULT_COLUMN_WIDTHS.length && i < columns.getColumnCount(); i++) {
+            columns.getColumn(i).setPreferredWidth(DEFAULT_COLUMN_WIDTHS[i]);
+        }
+    }
+
+    private void restoreColumnWidths() {
+        if (preferences == null) {
+            return;
+        }
+        Object raw = preferences.extras().get(COLUMN_WIDTHS_PREF_KEY);
+        List<Integer> widths = asIntegerList(raw);
+        if (widths == null || widths.isEmpty()) {
+            applyDefaultColumnWidths();
+            return;
+        }
+        TableColumnModel columns = itemTable.getColumnModel();
+        for (int i = 0; i < widths.size() && i < columns.getColumnCount(); i++) {
+            Integer width = widths.get(i);
+            if (width != null && width > 0) {
+                TableColumn column = columns.getColumn(i);
+                column.setPreferredWidth(width);
+                column.setWidth(width);
+            }
+        }
+    }
+
+    private List<Integer> captureColumnWidths() {
+        TableColumnModel columns = itemTable.getColumnModel();
+        List<Integer> widths = new ArrayList<>(columns.getColumnCount());
+        for (int i = 0; i < columns.getColumnCount(); i++) {
+            widths.add(columns.getColumn(i).getWidth());
+        }
+        return widths;
+    }
+
+    private static List<Integer> asIntegerList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return null;
+        }
+        List<Integer> widths = new ArrayList<>(list.size());
+        for (Object entry : list) {
+            if (entry instanceof Number number) {
+                widths.add(number.intValue());
+            } else if (entry instanceof String text) {
+                try {
+                    widths.add(Integer.parseInt(text.trim()));
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            } else {
+                return null;
+            }
+        }
+        return widths;
+    }
+
+    private void enableItemTableReorder() {
+        itemTable.setDragEnabled(true);
+        itemTable.setDropMode(DropMode.INSERT_ROWS);
+        itemTable.setTransferHandler(new TransferHandler() {
+            private int[] dragRows = new int[0];
+
+            @Override
+            public int getSourceActions(JComponent c) {
+                return MOVE;
+            }
+
+            @Override
+            protected Transferable createTransferable(JComponent c) {
+                dragRows = itemTable.getSelectedRows();
+                Arrays.sort(dragRows);
+                return new StringSelection(Arrays.toString(dragRows));
+            }
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return support.isDrop()
+                        && support.isDataFlavorSupported(DataFlavor.stringFlavor)
+                        && dragRows.length > 0
+                        && selectedSetlist() != null;
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support) || !(support.getDropLocation() instanceof JTable.DropLocation drop)) {
+                    return false;
+                }
+                int dropIndex = drop.getRow();
+                if (dropIndex < 0) {
+                    dropIndex = itemModel.getRowCount();
+                }
+                boolean moved = reorderRows(dragRows, dropIndex);
+                dragRows = new int[0];
+                return moved;
+            }
+
+            @Override
+            protected void exportDone(JComponent source, Transferable data, int action) {
+                dragRows = new int[0];
+            }
+        });
+    }
+
+    private boolean reorderRows(int[] selectedRows, int dropIndex) {
+        SetlistInfo setlist = selectedSetlist();
+        if (setlist == null || setlistRepository == null || selectedRows.length == 0) {
+            return false;
+        }
+        List<SetlistItemInfo> current = new ArrayList<>(itemModel.items());
+        if (dropIndex > current.size()) {
+            dropIndex = current.size();
+        }
+
+        Set<Integer> selected = new HashSet<>();
+        for (int row : selectedRows) {
+            if (row >= 0 && row < current.size()) {
+                selected.add(row);
+            }
+        }
+        if (selected.isEmpty()) {
+            return false;
+        }
+
+        // Dropping inside the selected block is a no-op.
+        int firstSelected = selected.stream().mapToInt(Integer::intValue).min().orElse(0);
+        int lastSelected = selected.stream().mapToInt(Integer::intValue).max().orElse(0);
+        if (dropIndex >= firstSelected && dropIndex <= lastSelected + 1
+                && selected.size() == (lastSelected - firstSelected + 1)) {
+            boolean contiguous = true;
+            for (int i = firstSelected; i <= lastSelected; i++) {
+                if (!selected.contains(i)) {
+                    contiguous = false;
+                    break;
+                }
+            }
+            if (contiguous) {
+                return false;
+            }
+        }
+
+        List<SetlistItemInfo> moved = new ArrayList<>();
+        List<SetlistItemInfo> remaining = new ArrayList<>();
+        for (int i = 0; i < current.size(); i++) {
+            if (selected.contains(i)) {
+                moved.add(current.get(i));
+            } else {
+                remaining.add(current.get(i));
+            }
+        }
+
+        int insertAt = dropIndex;
+        for (int row : selectedRows) {
+            if (row < dropIndex) {
+                insertAt--;
+            }
+        }
+        insertAt = Math.max(0, Math.min(insertAt, remaining.size()));
+        remaining.addAll(insertAt, moved);
+
+        List<Long> order = new ArrayList<>(remaining.size());
+        for (SetlistItemInfo item : remaining) {
+            order.add(item.id());
+        }
+        try {
+            setlistRepository.reorderItems(setlist.id(), order);
+            reloadItems(setlist.id());
+            itemTable.clearSelection();
+            for (int i = 0; i < moved.size(); i++) {
+                int row = insertAt + i;
+                itemTable.addRowSelectionInterval(row, row);
+            }
+            return true;
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+            return false;
+        }
     }
 
     private void rebuildTree() {
@@ -355,13 +610,49 @@ public final class SetlistsPanel extends JPanel {
     private void onTreeSelection() {
         SetlistInfo setlist = selectedSetlist();
         if (setlist == null) {
-            editorPanel.setVisible(false);
-            itemModel.setItems(List.of());
-            assignmentModel.clear();
+            clearEditor();
+            setEditorEnabled(false);
             return;
         }
-        editorPanel.setVisible(true);
+        setEditorEnabled(true);
         loadSetlistEditor(setlist);
+    }
+
+    private void clearEditor() {
+        nameField.setText("");
+        setDateField.setText("");
+        setTimeField.setText("");
+        targetDurationSpinner.setValue(0);
+        defaultChangeSpinner.setValue(0);
+        notesArea.setText("");
+        lockedCheck.setSelected(false);
+        layoutCombo.removeAllItems();
+        layoutCombo.addItem(new LayoutChoice(null, "(none)"));
+        layoutCombo.setSelectedIndex(0);
+        itemModel.setItems(List.of());
+        assignmentModel.clear();
+        assignmentPanel.setVisible(true);
+        revalidate();
+        repaint();
+    }
+
+    private void setEditorEnabled(boolean enabled) {
+        nameField.setEnabled(enabled);
+        layoutCombo.setEnabled(enabled);
+        setDateField.setEnabled(enabled);
+        setTimeField.setEnabled(enabled);
+        targetDurationSpinner.setEnabled(enabled);
+        defaultChangeSpinner.setEnabled(enabled);
+        notesArea.setEnabled(enabled);
+        lockedCheck.setEnabled(enabled);
+        saveMetaButton.setEnabled(enabled);
+        addSongButton.setEnabled(enabled);
+        removeSongButton.setEnabled(enabled);
+        moveUpButton.setEnabled(enabled);
+        moveDownButton.setEnabled(enabled);
+        itemTable.setEnabled(enabled);
+        assignmentList.setEnabled(enabled);
+        partCombo.setEnabled(enabled);
     }
 
     private void loadSetlistEditor(SetlistInfo setlist) {
@@ -615,44 +906,86 @@ public final class SetlistsPanel extends JPanel {
 
     private void removeSong() {
         SetlistInfo setlist = selectedSetlist();
-        SetlistItemInfo item = selectedItem();
-        if (setlist == null || item == null || setlistRepository == null) {
+        int[] rows = itemTable.getSelectedRows();
+        if (setlist == null || rows.length == 0 || setlistRepository == null) {
             return;
         }
+        Arrays.sort(rows);
         try {
-            setlistRepository.removeItem(item.id());
+            for (int i = rows.length - 1; i >= 0; i--) {
+                SetlistItemInfo item = itemModel.itemAt(rows[i]);
+                setlistRepository.removeItem(item.id());
+            }
             reloadItems(setlist.id());
         } catch (LibraryException ex) {
             showError(ex.getMessage());
         }
     }
 
-    private void moveSong(int delta) {
+    private void moveSongs(int delta) {
         SetlistInfo setlist = selectedSetlist();
-        int index = itemTable.getSelectedRow();
-        int target = index + delta;
-        if (setlist == null || setlistRepository == null || index < 0 || target < 0
-                || target >= itemModel.getRowCount()) {
+        int[] selected = itemTable.getSelectedRows();
+        if (setlist == null || setlistRepository == null || selected.length == 0) {
             return;
         }
-        List<Long> order = new ArrayList<>();
-        for (SetlistItemInfo item : itemModel.items()) {
+        Arrays.sort(selected);
+        if (delta < 0 && selected[0] == 0) {
+            return;
+        }
+        if (delta > 0 && selected[selected.length - 1] >= itemModel.getRowCount() - 1) {
+            return;
+        }
+
+        List<SetlistItemInfo> current = new ArrayList<>(itemModel.items());
+        Set<Integer> selectedSet = new HashSet<>();
+        for (int row : selected) {
+            selectedSet.add(row);
+        }
+
+        if (delta < 0) {
+            for (int i = 0; i < current.size(); i++) {
+                if (selectedSet.contains(i) && i > 0 && !selectedSet.contains(i - 1)) {
+                    SetlistItemInfo item = current.remove(i);
+                    current.add(i - 1, item);
+                    selectedSet.remove(i);
+                    selectedSet.add(i - 1);
+                }
+            }
+        } else {
+            for (int i = current.size() - 1; i >= 0; i--) {
+                if (selectedSet.contains(i) && i < current.size() - 1 && !selectedSet.contains(i + 1)) {
+                    SetlistItemInfo item = current.remove(i);
+                    current.add(i + 1, item);
+                    selectedSet.remove(i);
+                    selectedSet.add(i + 1);
+                }
+            }
+        }
+
+        List<Long> order = new ArrayList<>(current.size());
+        for (SetlistItemInfo item : current) {
             order.add(item.id());
         }
-        Long moved = order.remove(index);
-        order.add(target, moved);
         try {
             setlistRepository.reorderItems(setlist.id(), order);
             reloadItems(setlist.id());
-            itemTable.setRowSelectionInterval(target, target);
+            itemTable.clearSelection();
+            List<Integer> newSelection = new ArrayList<>(selectedSet);
+            newSelection.sort(Integer::compareTo);
+            for (int row : newSelection) {
+                itemTable.addRowSelectionInterval(row, row);
+            }
         } catch (LibraryException ex) {
             showError(ex.getMessage());
         }
     }
 
     private SetlistItemInfo selectedItem() {
-        int row = itemTable.getSelectedRow();
-        if (row < 0) {
+        int row = itemTable.getSelectionModel().getLeadSelectionIndex();
+        if (row < 0 || row >= itemModel.getRowCount()) {
+            row = itemTable.getSelectedRow();
+        }
+        if (row < 0 || row >= itemModel.getRowCount()) {
             return null;
         }
         return itemModel.itemAt(row);
@@ -794,7 +1127,7 @@ public final class SetlistsPanel extends JPanel {
 
     private static final class ItemTableModel extends AbstractTableModel {
         private final List<SetlistItemInfo> items = new ArrayList<>();
-        private final String[] columns = {"#", "Title", "Duration", "Change override"};
+        private final String[] columns = {"#", "Title", "Parts", "Duration", "Composer"};
 
         void setItems(List<SetlistItemInfo> next) {
             items.clear();
@@ -828,15 +1161,22 @@ public final class SetlistsPanel extends JPanel {
         }
 
         @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            return switch (columnIndex) {
+                case 0, 2 -> Integer.class;
+                default -> String.class;
+            };
+        }
+
+        @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             SetlistItemInfo item = items.get(rowIndex);
             return switch (columnIndex) {
                 case 0 -> item.position() + 1;
                 case 1 -> item.songTitle();
-                case 2 -> LibraryDisplayFormats.formatDuration(item.songDurationSeconds());
-                case 3 -> item.overrideChangeDurationSeconds() == null
-                        ? ""
-                        : LibraryDisplayFormats.formatDuration(item.overrideChangeDurationSeconds());
+                case 2 -> item.partCount();
+                case 3 -> LibraryDisplayFormats.formatDuration(item.songDurationSeconds());
+                case 4 -> item.songComposers();
                 default -> "";
             };
         }

@@ -120,6 +120,7 @@ public final class MainFrame extends JFrame {
 
         libraryPanel = new LibraryPanel();
         setlistsPanel = new SetlistsPanel();
+        setlistsPanel.setPreferences(preferences);
         bandsPanel = new BandsPanel();
         PlaybackPanel playbackPanel = new PlaybackPanel();
         statusBar = new StatusBar();
@@ -442,6 +443,7 @@ public final class MainFrame extends JFrame {
 
     private void applySavedPreferences(Preferences updated) {
         preferences = updated;
+        setlistsPanel.setPreferences(preferences);
         try {
             preferencesStore.save(preferences);
         } catch (PreferencesException ex) {
@@ -503,6 +505,7 @@ public final class MainFrame extends JFrame {
                 Math.max(0, verticalSplit.getHeight() - verticalSplit.getDividerLocation())));
         preferences.extras().put("java_nav_section", navTabs.getSelectedIndex());
         preferences.extras().remove("java_nav_splitter");
+        setlistsPanel.persistUiState(preferences);
         try {
             preferencesStore.save(preferences);
         } catch (PreferencesException ex) {

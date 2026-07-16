@@ -274,7 +274,8 @@ public final class SqliteSetlistRepository implements SetlistRepository {
     @Override
     public List<SetlistItemInfo> listItems(long setlistId) throws LibraryException {
         String sql = """
-                SELECT si.id, si.setlist_id, si.song_id, s.title, s.duration_seconds,
+                SELECT si.id, si.setlist_id, si.song_id, s.title, s.composers, s.duration_seconds,
+                       json_array_length(COALESCE(s.parts, '[]')) AS part_count,
                        si.position, si.override_change_duration_seconds, si.song_layout_id
                 FROM SetlistItem si
                 JOIN Song s ON s.id = si.song_id
@@ -300,7 +301,9 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                             rs.getLong("setlist_id"),
                             rs.getLong("song_id"),
                             nullToEmpty(rs.getString("title")),
+                            nullToEmpty(rs.getString("composers")),
                             duration,
+                            rs.getInt("part_count"),
                             rs.getInt("position"),
                             override,
                             songLayoutId));
