@@ -4,6 +4,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
+import com.aevoreth.abcmm.domain.scan.AbcFileMetadata;
+
 /**
  * Library index access. Implementations live in {@code abcmm-storage}.
  */
@@ -25,6 +27,31 @@ public interface SongRepository extends AutoCloseable {
      * Looks up a library song by id, or empty if missing.
      */
     Optional<LibrarySong> findSongById(long songId) throws LibraryException;
+
+    /**
+     * Song detail fields for the edit dialog (Python {@code get_song_for_detail}).
+     */
+    Optional<SongDetailInfo> getSongForDetail(long songId) throws LibraryException;
+
+    /**
+     * Updates app-managed Song fields (rating, status, notes, lyrics).
+     */
+    void updateSongAppMetadata(long songId, SongAppMetadataUpdate update) throws LibraryException;
+
+    /**
+     * After Raw ABC save: refresh Song + SongFile metadata from parsed ABC (no new schema).
+     */
+    void updateSongFromParsedFile(
+            long songId,
+            Path filePath,
+            AbcFileMetadata metadata,
+            String fileMtime,
+            String fileHash) throws LibraryException;
+
+    /**
+     * Unlocked setlists that contain this song (Library Set-column navigation).
+     */
+    List<SetlistRef> listUnlockedSetlistsContainingSong(long songId) throws LibraryException;
 
     List<StatusInfo> listStatuses() throws LibraryException;
 

@@ -15,11 +15,15 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -30,6 +34,7 @@ import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
@@ -43,11 +48,19 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.RowSorter;
+import javax.swing.SortOrder;
 import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableRowSorter;
 
+import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.LibraryFilter;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
+import com.aevoreth.abcmm.domain.library.PlayLogRepository;
+import com.aevoreth.abcmm.domain.library.SetlistRef;
+import com.aevoreth.abcmm.domain.library.SongAppMetadataUpdate;
+import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
@@ -101,8 +114,20 @@ public final class LibraryPanel extends JPanel {
     };
     private BiConsumer<LibrarySong, SetlistInfo> addToSetlistListener = (song, setlist) -> {
     };
+    private Consumer<LibrarySong> editSongListener = song -> {
+    };
+    private LongConsumer navigateToSetlistListener = setlistId -> {
+    };
+    private Runnable libraryChangedListener = () -> {
+    };
     private SetlistRepository setlistRepository;
+    private SongRepository songRepository;
+    private PlayLogRepository playLogRepository;
+    private Consumer<Map<String, Object>> headerStateListener = state -> {
+    };
+    private final Timer headerSaveTimer;
     private boolean suppressEvents;
+    private boolean suppressHeaderEvents;
 
     public LibraryPanel() {
         super(new BorderLayout(8, 8));
@@ -114,6 +139,8 @@ public final class LibraryPanel extends JPanel {
         configureTable();
         debounceTimer = new Timer(300, e -> notifyFilterChanged());
         debounceTimer.setRepeats(false);
+        headerSaveTimer = new Timer(400, e -> notifyHeaderStateChanged());
+        headerSaveTimer.setRepeats(false);
 
         for (LastPlayedTimeOptions.Option option : LastPlayedTimeOptions.all()) {
             lastPlayedFromCombo.addItem(option);
@@ -179,8 +206,131 @@ public final class LibraryPanel extends JPanel {
         });
     }
 
+    public void setEditSongListener(Consumer<LibrarySong> editSongListener) {
+        this.editSongListener = Objects.requireNonNullElse(editSongListener, song -> {
+        });
+    }
+
+    public void setNavigateToSetlistListener(LongConsumer navigateToSetlistListener) {
+        this.navigateToSetlistListener = Objects.requireNonNullElse(navigateToSetlistListener, id -> {
+        });
+    }
+
+    public void setLibraryChangedListener(Runnable libraryChangedListener) {
+        this.libraryChangedListener = Objects.requireNonNullElse(libraryChangedListener, () -> {
+        });
+    }
+
     public void setSetlistRepository(SetlistRepository setlistRepository) {
         this.setlistRepository = setlistRepository;
+    }
+
+    public void setSongRepository(SongRepository songRepository) {
+        this.songRepository = songRepository;
+    }
+
+    public void setPlayLogRepository(PlayLogRepository playLogRepository) {
+        this.playLogRepository = playLogRepository;
+    }
+
+    public void setHeaderStateListener(Consumer<Map<String, Object>> headerStateListener) {
+        this.headerStateListener = Objects.requireNonNullElse(headerStateListener, state -> {
+        });
+    }
+
+    /**
+     * Apply saved {@code library_table_header_state} (Python-compatible keys).
+     */
+    public void applyHeaderState(Object rawState) {
+        if (!(rawState instanceof Map<?, ?> map)) {
+            return;
+        }
+        suppressHeaderEvents = true;
+        try {
+            Object sizesRaw = map.get("section_sizes");
+            if (sizesRaw instanceof List<?> sizes) {
+                TableColumnModel columns = table.getColumnModel();
+                int count = Math.min(columns.getColumnCount(), sizes.size());
+                for (int i = 0; i < count; i++) {
+                    Object size = sizes.get(i);
+                    if (size instanceof Number number) {
+                        columns.getColumn(i).setPreferredWidth(Math.max(24, number.intValue()));
+                    }
+                }
+            }
+            Object hiddenRaw = map.get("hidden_columns");
+            if (hiddenRaw instanceof List<?> hidden) {
+                for (Object nameObj : hidden) {
+                    if (nameObj == null) {
+                        continue;
+                    }
+                    String name = String.valueOf(nameObj);
+                    if ("Actions".equals(name) || "Edit".equals(name)) {
+                        continue;
+                    }
+                    try {
+                        TableColumn column = table.getColumn(name);
+                        table.removeColumn(column);
+                    } catch (IllegalArgumentException ignored) {
+                        // already hidden or unknown
+                    }
+                }
+            }
+            Object sortColumnRaw = map.get("sort_column");
+            Object sortOrderRaw = map.get("sort_order");
+            if (sortColumnRaw instanceof Number number && table.getRowSorter() != null) {
+                int modelCol = number.intValue();
+                if (modelCol >= 0 && modelCol < tableModel.getColumnCount()) {
+                    SortOrder order = "descending".equalsIgnoreCase(String.valueOf(sortOrderRaw))
+                            ? SortOrder.DESCENDING
+                            : SortOrder.ASCENDING;
+                    List<RowSorter.SortKey> keys = List.of(new RowSorter.SortKey(modelCol, order));
+                    table.getRowSorter().setSortKeys(keys);
+                }
+            }
+        } finally {
+            suppressHeaderEvents = false;
+        }
+    }
+
+    public Map<String, Object> captureHeaderState() {
+        Map<String, Object> state = new LinkedHashMap<>();
+        TableColumnModel columns = table.getColumnModel();
+        List<Integer> sizes = new ArrayList<>();
+        List<String> visible = new ArrayList<>();
+        for (int i = 0; i < columns.getColumnCount(); i++) {
+            TableColumn column = columns.getColumn(i);
+            sizes.add(column.getPreferredWidth());
+            Object header = column.getHeaderValue();
+            visible.add(header == null ? "" : String.valueOf(header));
+        }
+        state.put("section_sizes", sizes);
+        List<String> hidden = new ArrayList<>();
+        for (String name : LibraryTableModel.COLUMN_NAMES) {
+            if (!visible.contains(name)) {
+                hidden.add(name);
+            }
+        }
+        state.put("hidden_columns", hidden);
+        if (table.getRowSorter() != null && table.getRowSorter().getSortKeys() != null
+                && !table.getRowSorter().getSortKeys().isEmpty()) {
+            RowSorter.SortKey key = table.getRowSorter().getSortKeys().get(0);
+            state.put("sort_column", key.getColumn());
+            state.put("sort_order",
+                    key.getSortOrder() == SortOrder.DESCENDING ? "descending" : "ascending");
+        }
+        return state;
+    }
+
+    private void scheduleHeaderStateSave() {
+        if (suppressHeaderEvents) {
+            return;
+        }
+        headerSaveTimer.restart();
+    }
+
+    private void notifyHeaderStateChanged() {
+        headerStateListener.accept(captureHeaderState());
     }
 
     public void setStatuses(List<StatusInfo> statuses) {
@@ -271,6 +421,13 @@ public final class LibraryPanel extends JPanel {
         table.getColumn("Actions").setMinWidth(56);
         table.getColumn("Actions").setPreferredWidth(64);
         table.getColumn("Actions").setMaxWidth(72);
+        table.getColumn("Playback History").setCellRenderer(new LibraryTableModel.HistoryRenderer());
+        table.getColumn("Playback History").setMinWidth(120);
+        table.getColumn("Playback History").setPreferredWidth(140);
+        table.getColumn("Edit").setCellRenderer(new LibraryTableModel.EditRenderer());
+        table.getColumn("Edit").setMinWidth(44);
+        table.getColumn("Edit").setPreferredWidth(52);
+        table.getColumn("Edit").setMaxWidth(64);
         table.getColumn("Duration").setCellRenderer(new LibraryTableModel.DurationRenderer());
         table.getColumn("Last played").setCellRenderer(new LibraryTableModel.LastPlayedRenderer());
         table.getColumn("Rating").setCellRenderer(new LibraryTableModel.RatingRenderer());
@@ -304,22 +461,28 @@ public final class LibraryPanel extends JPanel {
                 if (viewRow < 0 || viewCol < 0) {
                     return;
                 }
-                int modelCol = table.convertColumnIndexToModel(viewCol);
-                if (modelCol != LibraryTableModel.COL_ACTIONS) {
-                    return;
-                }
                 int modelRow = table.convertRowIndexToModel(viewRow);
+                int modelCol = table.convertColumnIndexToModel(viewCol);
                 LibrarySong song = tableModel.songAt(modelRow);
                 if (song == null) {
                     return;
                 }
+                if (e.getClickCount() == 2
+                        && modelCol != LibraryTableModel.COL_ACTIONS
+                        && modelCol != LibraryTableModel.COL_HISTORY
+                        && modelCol != LibraryTableModel.COL_EDIT
+                        && modelCol != LibraryTableModel.COL_RATING
+                        && modelCol != LibraryTableModel.COL_STATUS
+                        && modelCol != LibraryTableModel.COL_SET) {
+                    editSongListener.accept(song);
+                    return;
+                }
+                if (e.getClickCount() != 1) {
+                    return;
+                }
                 java.awt.Rectangle cell = table.getCellRect(viewRow, viewCol, false);
                 int xInCell = e.getX() - cell.x;
-                if (xInCell < cell.width / 2) {
-                    playListener.accept(song);
-                } else {
-                    enqueueListener.accept(song);
-                }
+                handleCellClick(song, modelCol, xInCell, cell.width, e.getXOnScreen(), e.getYOnScreen());
             }
 
             @Override
@@ -333,6 +496,32 @@ public final class LibraryPanel extends JPanel {
             }
         });
         configureHeaderColumnMenu();
+        table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener() {
+            @Override
+            public void columnAdded(javax.swing.event.TableColumnModelEvent e) {
+                scheduleHeaderStateSave();
+            }
+
+            @Override
+            public void columnRemoved(javax.swing.event.TableColumnModelEvent e) {
+                scheduleHeaderStateSave();
+            }
+
+            @Override
+            public void columnMoved(javax.swing.event.TableColumnModelEvent e) {
+                scheduleHeaderStateSave();
+            }
+
+            @Override
+            public void columnMarginChanged(javax.swing.event.ChangeEvent e) {
+                scheduleHeaderStateSave();
+            }
+
+            @Override
+            public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e) {
+            }
+        });
+        table.getRowSorter().addRowSorterListener(e -> scheduleHeaderStateSave());
 
         JScrollPane tableScroll = new JScrollPane(table);
         JPanel empty = buildEmptyState();
@@ -352,6 +541,9 @@ public final class LibraryPanel extends JPanel {
         setCompactColumnWidth(table.getColumn("Last played"), headerMetrics.stringWidth("Last played") + headerPad);
         setCompactColumnWidth(table.getColumn("Parts"), headerMetrics.stringWidth("Parts") + headerPad);
         setCompactColumnWidth(table.getColumn("Set"), headerMetrics.stringWidth("Set") + headerPad);
+        TableColumn history = table.getColumn("Playback History");
+        history.setPreferredWidth(140);
+        history.setMaxWidth(180);
 
         Font starFont = table.getFont().deriveFont(table.getFont().getSize2D() + 4f);
         FontMetrics starMetrics = table.getFontMetrics(starFont);
@@ -395,21 +587,151 @@ public final class LibraryPanel extends JPanel {
         enqueue.addActionListener(ev -> enqueueListener.accept(song));
         menu.add(play);
         menu.add(enqueue);
+        JMenuItem edit = new JMenuItem("Edit");
+        edit.addActionListener(ev -> editSongListener.accept(song));
+        menu.add(edit);
         menu.addSeparator();
         menu.add(AddToSetlistMenu.build(
                 setlistRepository, null, setlist -> addToSetlistListener.accept(song, setlist)));
         menu.show(table, e.getX(), e.getY());
     }
 
+    private void handleCellClick(
+            LibrarySong song, int modelCol, int xInCell, int cellWidth, int screenX, int screenY) {
+        switch (modelCol) {
+            case LibraryTableModel.COL_ACTIONS -> {
+                if (xInCell < cellWidth / 2) {
+                    playListener.accept(song);
+                } else {
+                    enqueueListener.accept(song);
+                }
+            }
+            case LibraryTableModel.COL_HISTORY -> handleHistoryClick(song, xInCell, cellWidth);
+            case LibraryTableModel.COL_RATING -> handleRatingClick(song, xInCell, cellWidth);
+            case LibraryTableModel.COL_SET -> handleSetClick(song, screenX, screenY);
+            case LibraryTableModel.COL_STATUS -> handleStatusClick(song, screenX, screenY);
+            case LibraryTableModel.COL_EDIT -> editSongListener.accept(song);
+            default -> {
+            }
+        }
+    }
+
+    private void handleHistoryClick(LibrarySong song, int xInCell, int cellWidth) {
+        if (playLogRepository == null) {
+            return;
+        }
+        // Three equal thirds: Now | Set… | History
+        int third = Math.max(1, cellWidth / 3);
+        if (xInCell < third) {
+            try {
+                playLogRepository.logPlay(song.id(), null, null);
+                libraryChangedListener.run();
+            } catch (LibraryException ex) {
+                JOptionPane.showMessageDialog(
+                        this, ex.getMessage(), "Playback History", JOptionPane.ERROR_MESSAGE);
+            }
+        } else if (xInCell < third * 2) {
+            PlayDateTimeDialog dialog = new PlayDateTimeDialog(
+                    SwingUtilities.getWindowAncestor(this),
+                    "Set last played",
+                    java.time.Instant.now(),
+                    null,
+                    false);
+            dialog.showDialog().ifPresent(result -> {
+                try {
+                    playLogRepository.logPlayAt(song.id(), result.playedAtIso(), null, null);
+                    libraryChangedListener.run();
+                } catch (LibraryException ex) {
+                    JOptionPane.showMessageDialog(
+                            this, ex.getMessage(), "Playback History", JOptionPane.ERROR_MESSAGE);
+                }
+            });
+        } else {
+            PlayHistoryDialog dialog = new PlayHistoryDialog(
+                    SwingUtilities.getWindowAncestor(this),
+                    playLogRepository,
+                    song.id(),
+                    song.title());
+            if (dialog.showDialog()) {
+                libraryChangedListener.run();
+            }
+        }
+    }
+
+    private void handleRatingClick(LibrarySong song, int xInCell, int cellWidth) {
+        if (songRepository == null) {
+            return;
+        }
+        int starWidth = Math.max(1, cellWidth / 5);
+        int starIdx = Math.min(5, Math.max(1, (xInCell / starWidth) + 1));
+        int current = song.rating() == null ? 0 : song.rating();
+        int newRating = current == starIdx ? 0 : starIdx;
+        try {
+            songRepository.updateSongAppMetadata(song.id(), SongAppMetadataUpdate.ratingOnly(newRating));
+            libraryChangedListener.run();
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Rating", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void handleSetClick(LibrarySong song, int screenX, int screenY) {
+        if (!song.inUpcomingSet() || songRepository == null) {
+            return;
+        }
+        try {
+            List<SetlistRef> setlists = songRepository.listUnlockedSetlistsContainingSong(song.id());
+            if (setlists.isEmpty()) {
+                return;
+            }
+            JPopupMenu menu = new JPopupMenu();
+            for (SetlistRef setlist : setlists) {
+                JMenuItem item = new JMenuItem("Go to: " + setlist.name());
+                long setlistId = setlist.id();
+                item.addActionListener(ev -> navigateToSetlistListener.accept(setlistId));
+                menu.add(item);
+            }
+            java.awt.Point tableLoc = table.getLocationOnScreen();
+            menu.show(table, screenX - tableLoc.x, screenY - tableLoc.y);
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Set", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void handleStatusClick(LibrarySong song, int screenX, int screenY) {
+        if (songRepository == null || statuses.isEmpty()) {
+            return;
+        }
+        JPopupMenu menu = new JPopupMenu();
+        for (StatusInfo status : statuses) {
+            JCheckBoxMenuItem item = new JCheckBoxMenuItem(status.name());
+            item.setSelected(song.statusId() != null && song.statusId() == status.id());
+            long statusId = status.id();
+            item.addActionListener(ev -> {
+                try {
+                    songRepository.updateSongAppMetadata(
+                            song.id(), SongAppMetadataUpdate.statusOnly(statusId));
+                    libraryChangedListener.run();
+                } catch (LibraryException ex) {
+                    JOptionPane.showMessageDialog(
+                            this, ex.getMessage(), "Status", JOptionPane.ERROR_MESSAGE);
+                }
+            });
+            menu.add(item);
+        }
+        java.awt.Point tableLoc = table.getLocationOnScreen();
+        menu.show(table, screenX - tableLoc.x, screenY - tableLoc.y);
+    }
+
     /** Right-click a column header to show or hide columns. */
     private void configureHeaderColumnMenu() {
+        // Snapshot columns while all are still in the view model.
         JPopupMenu headerMenu = new JPopupMenu();
         List<String> columnNames = Arrays.asList(LibraryTableModel.COLUMN_NAMES);
         for (int i = 0; i < LibraryTableModel.COLUMN_NAMES.length; i++) {
             int modelIndex = i;
             String name = LibraryTableModel.COLUMN_NAMES[i];
-            if (modelIndex == LibraryTableModel.COL_ACTIONS) {
-                continue; // keep actions always visible
+            if (modelIndex == LibraryTableModel.COL_ACTIONS || modelIndex == LibraryTableModel.COL_EDIT) {
+                continue;
             }
             TableColumn column = table.getColumn(name);
             JCheckBoxMenuItem item = new JCheckBoxMenuItem(name, true);
@@ -429,11 +751,11 @@ public final class LibraryPanel extends JPanel {
                         table.moveColumn(from, to);
                     }
                 } else if (table.getColumnCount() <= 1) {
-                    // Keep at least one column visible.
                     item.setSelected(true);
                 } else {
                     table.removeColumn(column);
                 }
+                scheduleHeaderStateSave();
             });
             headerMenu.add(item);
         }

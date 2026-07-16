@@ -30,6 +30,7 @@ import com.aevoreth.abcmm.domain.library.FolderRuleInfo;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.LibraryFilter;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
+import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SettingsRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
@@ -50,6 +51,7 @@ import com.aevoreth.abcmm.storage.JsonPreferencesStore;
 import com.aevoreth.abcmm.storage.SqliteBandRepository;
 import com.aevoreth.abcmm.storage.SqliteDatabase;
 import com.aevoreth.abcmm.storage.SqliteLibraryScanService;
+import com.aevoreth.abcmm.storage.SqlitePlayLogRepository;
 import com.aevoreth.abcmm.storage.SqlitePlayerRepository;
 import com.aevoreth.abcmm.storage.SqliteSetlistRepository;
 import com.aevoreth.abcmm.storage.SqliteSettingsRepository;
@@ -62,6 +64,7 @@ import com.aevoreth.abcmm.ui.PlaybackPanel;
 import com.aevoreth.abcmm.ui.ScanLibraryDialog;
 import com.aevoreth.abcmm.ui.SetlistsPanel;
 import com.aevoreth.abcmm.ui.SettingsDialog;
+import com.aevoreth.abcmm.ui.SongDetailDialog;
 import com.aevoreth.abcmm.ui.StatusBar;
 
 /**
@@ -79,6 +82,7 @@ public final class MainFrame extends JFrame {
     private Preferences preferences;
     private SqliteDatabase database;
     private SongRepository songRepository;
+    private PlayLogRepository playLogRepository;
     private SettingsRepository settingsRepository;
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
@@ -197,6 +201,17 @@ public final class MainFrame extends JFrame {
             }
         });
         libraryPanel.setAddToSetlistListener(this::addLibrarySongToSetlist);
+        libraryPanel.setEditSongListener(this::openSongDetail);
+        libraryPanel.setNavigateToSetlistListener(setlistId -> {
+            navTabs.setSelectedIndex(1);
+            setlistsPanel.navigateToSetlist(setlistId);
+        });
+        libraryPanel.setLibraryChangedListener(() -> reloadLibrary(libraryPanel.currentFilter()));
+        libraryPanel.setHeaderStateListener(state -> {
+            preferences.extras().put("library_table_header_state", state);
+            persistPreferencesQuietly();
+        });
+        libraryPanel.applyHeaderState(preferences.extras().get("library_table_header_state"));
         setlistsPanel.setPlaybackSession(playbackSession, msg -> statusBar.setMessage(msg));
         playbackPanel.bind(
                 playbackSession,
@@ -349,6 +364,7 @@ public final class MainFrame extends JFrame {
         try {
             database = SqliteDatabase.openOrCreate(DataPaths.databasePath());
             songRepository = new SqliteSongRepository(database, false);
+            playLogRepository = new SqlitePlayLogRepository(database);
             settingsRepository = new SqliteSettingsRepository(database);
             playerRepository = new SqlitePlayerRepository(database);
             bandRepository = new SqliteBandRepository(database);
@@ -364,6 +380,8 @@ public final class MainFrame extends JFrame {
                     songRepository,
                     songLayoutRepository);
             libraryPanel.setSetlistRepository(setlistRepository);
+            libraryPanel.setSongRepository(songRepository);
+            libraryPanel.setPlayLogRepository(playLogRepository);
 
             refreshEntityCaches();
             libraryPanel.setStatuses(statuses);
@@ -377,6 +395,7 @@ public final class MainFrame extends JFrame {
                 database = null;
             }
             songRepository = null;
+            playLogRepository = null;
             settingsRepository = null;
             playerRepository = null;
             bandRepository = null;
@@ -387,9 +406,27 @@ public final class MainFrame extends JFrame {
             folderRules = List.of();
             accountTargets = List.of();
             libraryPanel.setSetlistRepository(null);
+            libraryPanel.setSongRepository(null);
+            libraryPanel.setPlayLogRepository(null);
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
             statusBar.setMessage(ex.getMessage());
+        }
+    }
+
+    private void openSongDetail(LibrarySong song) {
+        if (song == null || songRepository == null || playLogRepository == null) {
+            return;
+        }
+        SongDetailDialog dialog = new SongDetailDialog(
+                this, songRepository, playLogRepository, song.id(), statuses);
+        if (dialog.showDialog()) {
+            reloadLibrary(libraryPanel.currentFilter());
+            try {
+                libraryPanel.setTranscribers(songRepository.listUniqueTranscribers());
+            } catch (LibraryException ignored) {
+                // keep prior list
+            }
         }
     }
 
@@ -576,6 +613,7 @@ public final class MainFrame extends JFrame {
                 Math.max(0, verticalSplit.getHeight() - verticalSplit.getDividerLocation())));
         preferences.extras().put("java_nav_section", navTabs.getSelectedIndex());
         preferences.extras().remove("java_nav_splitter");
+        preferences.extras().put("library_table_header_state", libraryPanel.captureHeaderState());
         setlistsPanel.persistUiState(preferences);
         try {
             preferencesStore.save(preferences);

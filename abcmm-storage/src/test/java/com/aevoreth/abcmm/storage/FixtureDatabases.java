@@ -110,6 +110,16 @@ final class FixtureDatabases {
                       updated_at TEXT NOT NULL
                     )
                     """);
+            statement.executeUpdate("""
+                    CREATE TABLE PlayLog (
+                      id INTEGER PRIMARY KEY,
+                      song_id INTEGER NOT NULL,
+                      played_at TEXT NOT NULL,
+                      context_setlist_id INTEGER,
+                      context_note TEXT,
+                      created_at TEXT NOT NULL
+                    )
+                    """);
 
             String now = Instant.parse("2024-01-01T00:00:00Z").toString();
             insertSong(statement, 1, "Alpha March", "Composer A", "Ada", 180, 1, 3,

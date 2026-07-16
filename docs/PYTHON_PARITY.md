@@ -9,15 +9,15 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Area | Python status | Java status | Compatibility requirement | Notes |
 |------|---------------|-------------|---------------------------|-------|
 | Library scanning | Complete | Complete | Preserve behavior | Scan `.abc` under LOTRO Music roots; folder rules; primary vs set-copy; duplicates (Keep existing / Keep new / Separate) |
-| Song metadata | Complete | Partial | Preserve Maestro metadata | Library table reads full indexed row; scan writes Maestro-compatible %%/header fields via `AbcMetadataParser`; inline song edits not started |
-| Filters and search | Complete | Partial | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state |
+| Song metadata | Complete | Complete | Preserve Maestro metadata | Library table + Song detail (Basic Info / Notes & Lyrics / Raw ABC); inline rating/status; Playback History / PlayLog; scan writes Maestro-compatible %%/header fields via `AbcMetadataParser`; dedicated song-layout library editor still deferred |
+| Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted |
 | Setlists | Complete | Complete (builder) | Preserve stored data | Folders, tree drag reorder/move between folders, song order, timing, per-set band layout / part overrides; ABCP import/export deferred |
 | ABCP support | Complete | Not started | Preserve interchange | XML playlist import/export compatible with ABC Player workflows |
 | Songbook export | Complete | Not started | Preserve PluginData format | Manual write of `SongbookData.plugindata` (Lua) to account targets |
 | Band management | Complete | Complete | Preserve stored data | Bands, members, layouts, snapped layout grid; Change Player cascades song/setlist assignments |
 | Player management | Complete | Complete | Preserve stored data | Players + instruments; filters (name/level/class/instrument); searchable layout picker |
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
-| Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor deferred |
+| Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor still deferred |
 | Playback | Complete (custom TinySoundFont path) | Partial (Maestro engine + bottom transport/queue) | Use Maestro Java engine | `LotroAbcPlaybackEngine`; library/setlist play+queue; parts mute/solo popup |
 | Set Play | Complete | Not started | Preserve session semantics | NOW/NEXT/Played/Skip; advance song; play logging |
 | Relay / group playback | Complete | Not started | Preserve protocol where practical | Cloudflare Worker relay; Band Assistant / browser follower |
@@ -49,7 +49,7 @@ Java may add keys under `extras` (e.g. `java_nav_section`) without breaking Pyth
 
 ## Java milestone context
 
-Completed bandleader library + management slice (playback still deferred):
+Completed bandleader library + management slice:
 
 1. Open or create SQLite v12 (writable; migrate older DBs)
 2. List primary-library songs in the Library table with filters
@@ -59,5 +59,6 @@ Completed bandleader library + management slice (playback still deferred):
 6. Navigation: Library | Setlists | Bands (top tabs; Players under Bands)
 7. Player / Band / layout grid management
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
+9. Library song detail + inline metadata / play history / Raw ABC; Maestro playback transport
 
-Later: Set Play / relays, ABCP, songbook export, Band Assistant, portable packaging.
+Later: Set Play / relays, ABCP, songbook export, Band Assistant, dedicated song-layout library editor, portable packaging.

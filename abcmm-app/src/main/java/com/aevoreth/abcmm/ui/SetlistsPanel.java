@@ -1653,6 +1653,13 @@ public final class SetlistsPanel extends JPanel {
         return last instanceof DefaultMutableTreeNode node ? node : null;
     }
 
+    /**
+     * Select a setlist in the tree (Library Set-column navigation).
+     */
+    public void navigateToSetlist(long setlistId) {
+        selectSetlistInTree(setlistId);
+    }
+
     private void selectSetlistInTree(long setlistId) {
         DefaultMutableTreeNode found = findSetlistNode(treeRoot, setlistId);
         if (found != null) {
