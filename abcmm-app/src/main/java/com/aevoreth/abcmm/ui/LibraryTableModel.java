@@ -2,7 +2,9 @@ package com.aevoreth.abcmm.ui;
 
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -247,7 +249,7 @@ final class LibraryTableModel extends AbstractTableModel {
     }
 
     static final class ActionsRenderer extends DefaultTableCellRenderer {
-        private final JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 0));
+        private final JPanel panel = new JPanel(new GridBagLayout());
         private final JLabel play = new JLabel(PlaybackIcons.play(14));
         private final JLabel plus = new JLabel(PlaybackIcons.plus(14));
 
@@ -255,8 +257,10 @@ final class LibraryTableModel extends AbstractTableModel {
             panel.setOpaque(true);
             play.setToolTipText("Play");
             plus.setToolTipText("Add to queue");
-            panel.add(play);
-            panel.add(plus);
+            GridBagConstraints c = new GridBagConstraints();
+            c.insets = new Insets(0, 1, 0, 1);
+            panel.add(play, c);
+            panel.add(plus, c);
         }
 
         @Override
