@@ -42,6 +42,7 @@ import com.aevoreth.abcmm.domain.prefs.PreferencesException;
 import com.aevoreth.abcmm.domain.prefs.PreferencesStore;
 import com.aevoreth.abcmm.domain.scan.LibraryScanService;
 import com.aevoreth.abcmm.domain.scan.ScanRequest;
+import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 import com.aevoreth.abcmm.maestro.MaestroPlaybackEngines;
 import com.aevoreth.abcmm.storage.DataPaths;
@@ -195,6 +196,7 @@ public final class MainFrame extends JFrame {
                 statusBar.setMessage(ex.getMessage());
             }
         });
+        libraryPanel.setAddToSetlistListener(this::addLibrarySongToSetlist);
         setlistsPanel.setPlaybackSession(playbackSession, msg -> statusBar.setMessage(msg));
         playbackPanel.bind(
                 playbackSession,
@@ -361,6 +363,7 @@ public final class MainFrame extends JFrame {
                     setlistRepository,
                     songRepository,
                     songLayoutRepository);
+            libraryPanel.setSetlistRepository(setlistRepository);
 
             refreshEntityCaches();
             libraryPanel.setStatuses(statuses);
@@ -383,6 +386,7 @@ public final class MainFrame extends JFrame {
             statuses = List.of();
             folderRules = List.of();
             accountTargets = List.of();
+            libraryPanel.setSetlistRepository(null);
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
             statusBar.setMessage(ex.getMessage());
@@ -410,6 +414,22 @@ public final class MainFrame extends JFrame {
         } catch (LibraryException ex) {
             libraryPanel.setSongs(List.of());
             statusBar.setMessage(ex.getMessage());
+        }
+    }
+
+    private void addLibrarySongToSetlist(LibrarySong song, SetlistInfo setlist) {
+        if (song == null || setlist == null || setlistRepository == null) {
+            return;
+        }
+        try {
+            int position = setlistRepository.listItems(setlist.id()).size();
+            setlistRepository.addItem(setlist.id(), song.id(), position, null, null);
+            setlistsPanel.reload();
+            reloadLibrary(libraryPanel.currentFilter());
+            statusBar.setMessage("Added \"" + song.title() + "\" to " + setlist.name());
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(
+                    this, ex.getMessage(), "Add to setlist", JOptionPane.ERROR_MESSAGE);
         }
     }
 

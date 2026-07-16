@@ -16,8 +16,11 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
@@ -28,6 +31,8 @@ import javax.swing.JCheckBox;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
@@ -44,10 +49,14 @@ import javax.swing.event.DocumentListener;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
 
+import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.LibraryFilter;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
+import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
+import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
+import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 
 /**
  * Library table with filters/search matching the Python edition terminology.
@@ -95,6 +104,9 @@ public final class LibraryPanel extends JPanel {
     };
     private Consumer<LibrarySong> enqueueListener = song -> {
     };
+    private BiConsumer<LibrarySong, SetlistInfo> addToSetlistListener = (song, setlist) -> {
+    };
+    private SetlistRepository setlistRepository;
     private boolean suppressEvents;
 
     public LibraryPanel() {
@@ -165,6 +177,15 @@ public final class LibraryPanel extends JPanel {
     public void setEnqueueListener(Consumer<LibrarySong> enqueueListener) {
         this.enqueueListener = Objects.requireNonNullElse(enqueueListener, song -> {
         });
+    }
+
+    public void setAddToSetlistListener(BiConsumer<LibrarySong, SetlistInfo> addToSetlistListener) {
+        this.addToSetlistListener = Objects.requireNonNullElse(addToSetlistListener, (song, setlist) -> {
+        });
+    }
+
+    public void setSetlistRepository(SetlistRepository setlistRepository) {
+        this.setlistRepository = setlistRepository;
     }
 
     public void setStatuses(List<StatusInfo> statuses) {
@@ -305,6 +326,16 @@ public final class LibraryPanel extends JPanel {
                     enqueueListener.accept(song);
                 }
             }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                maybeShowRowPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                maybeShowRowPopup(e);
+            }
         });
         configureHeaderColumnMenu();
 
@@ -344,6 +375,76 @@ public final class LibraryPanel extends JPanel {
         column.setMinWidth(Math.min(safe, 24));
         column.setPreferredWidth(safe);
         column.setMaxWidth(safe);
+    }
+
+    private void maybeShowRowPopup(java.awt.event.MouseEvent e) {
+        if (!e.isPopupTrigger()) {
+            return;
+        }
+        int viewRow = table.rowAtPoint(e.getPoint());
+        if (viewRow < 0) {
+            return;
+        }
+        if (!table.isRowSelected(viewRow)) {
+            table.setRowSelectionInterval(viewRow, viewRow);
+        }
+        int modelRow = table.convertRowIndexToModel(viewRow);
+        LibrarySong song = tableModel.songAt(modelRow);
+        if (song == null) {
+            return;
+        }
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem play = new JMenuItem("Play");
+        play.addActionListener(ev -> playListener.accept(song));
+        JMenuItem enqueue = new JMenuItem("Add to queue");
+        enqueue.addActionListener(ev -> enqueueListener.accept(song));
+        menu.add(play);
+        menu.add(enqueue);
+        menu.addSeparator();
+        menu.add(buildAddToSetlistMenu(song));
+        menu.show(table, e.getX(), e.getY());
+    }
+
+    private JMenu buildAddToSetlistMenu(LibrarySong song) {
+        JMenu addToSetlist = new JMenu("Add to setlist");
+        if (setlistRepository == null) {
+            JMenuItem unavailable = new JMenuItem("Unavailable");
+            unavailable.setEnabled(false);
+            addToSetlist.add(unavailable);
+            return addToSetlist;
+        }
+        try {
+            Map<Long, String> folderNames = new HashMap<>();
+            for (SetlistFolderInfo folder : setlistRepository.listFolders()) {
+                folderNames.put(folder.id(), folder.name());
+            }
+            int added = 0;
+            for (SetlistInfo setlist : setlistRepository.listSetlists()) {
+                if (setlist.locked()) {
+                    continue;
+                }
+                String folderName = setlist.folderId() == null
+                        ? "Unfiled"
+                        : folderNames.getOrDefault(setlist.folderId(), "Unfiled");
+                String setName = setlist.name() == null || setlist.name().isBlank()
+                        ? ("#" + setlist.id())
+                        : setlist.name();
+                JMenuItem item = new JMenuItem(folderName + " / " + setName);
+                item.addActionListener(ev -> addToSetlistListener.accept(song, setlist));
+                addToSetlist.add(item);
+                added++;
+            }
+            if (added == 0) {
+                JMenuItem empty = new JMenuItem("No unlocked setlists");
+                empty.setEnabled(false);
+                addToSetlist.add(empty);
+            }
+        } catch (LibraryException ex) {
+            JMenuItem error = new JMenuItem("Failed to load setlists");
+            error.setEnabled(false);
+            addToSetlist.add(error);
+        }
+        return addToSetlist;
     }
 
     /** Right-click a column header to show or hide columns. */
