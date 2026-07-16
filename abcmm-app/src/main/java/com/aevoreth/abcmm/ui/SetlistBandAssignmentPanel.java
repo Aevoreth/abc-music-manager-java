@@ -63,7 +63,8 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     private static final Color CARD_FILL = new Color(0x4A4A4A);
     private static final Color CARD_BORDER = new Color(0x777777);
     private static final Color TEXT = Color.WHITE;
-    private static final Color TEXT_SECONDARY = new Color(0xB4A8A8);
+    /** Prev/next part labels — soft cool accent (matches layout selection highlight). */
+    private static final Color NEIGHBOR_PART = new Color(0x98C1D9);
     private static final Color DUP_RED = new Color(0xFF4444);
     private static final Color WARN_ORANGE = new Color(0xD48A3A);
     private static final Color CURRENT_GREEN = new Color(0x4CAF50);
@@ -839,21 +840,24 @@ public final class SetlistBandAssignmentPanel extends JPanel {
 
                 // Name row (optional neighbor parts)
                 if (card.useSetlistHeader()) {
-                    int gutter = fm.stringWidth("999") + 6;
-                    g2.setFont(baseFont);
-                    g2.setColor(TEXT_SECONDARY);
+                    Font neighborFont = baseFont.deriveFont(Font.BOLD);
+                    FontMetrics neighborFm = g2.getFontMetrics(neighborFont);
+                    int gutter = neighborFm.stringWidth("999") + 6;
+                    g2.setFont(neighborFont);
+                    g2.setColor(NEIGHBOR_PART);
                     g2.drawString(
                             card.neighborPrev(),
                             innerX,
-                            y + fm.getAscent());
+                            y + neighborFm.getAscent());
                     String next = card.neighborNext();
                     g2.drawString(
                             next,
-                            innerX + innerW - fm.stringWidth(next),
-                            y + fm.getAscent());
+                            innerX + innerW - neighborFm.stringWidth(next),
+                            y + neighborFm.getAscent());
                     String name = card.playerName();
                     int centerW = Math.max(1, innerW - 2 * gutter);
                     String elided = elide(fm, name, centerW);
+                    g2.setFont(baseFont);
                     g2.setColor(TEXT);
                     int nameX = innerX + gutter + (centerW - fm.stringWidth(elided)) / 2;
                     g2.drawString(elided, nameX, y + fm.getAscent());
