@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.ui;
 
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FontMetrics;
 import java.awt.Insets;
 import java.awt.Point;
@@ -31,10 +32,95 @@ final class DurationSpinners {
         return spinner;
     }
 
+    /**
+     * Duration spinner in whole minutes, displayed as zero-padded {@code HH:MM}.
+     * Model value remains seconds (multiples of 60).
+     */
+    static JSpinner createHoursMinutes(int valueSeconds, int minimumSeconds, int maximumSeconds) {
+        int step = 60;
+        int value = Math.max(minimumSeconds, Math.min(maximumSeconds, roundDownToMinute(valueSeconds)));
+        int minimum = roundDownToMinute(minimumSeconds);
+        int maximum = roundDownToMinute(maximumSeconds);
+        JSpinner spinner = new JSpinner(new SpinnerNumberModel(value, minimum, maximum, step));
+        installHoursMinutesEditor(spinner);
+        sizeToSample(spinner, "00:00"); // width for HH:MM only
+        return spinner;
+    }
+
+    /**
+     * Integer spinner displayed with at least two zero-padded digits (e.g. {@code 05}).
+     */
+    static JSpinner createPaddedInt(int value, int minimum, int maximum, int stepSize) {
+        JSpinner spinner = new JSpinner(new SpinnerNumberModel(value, minimum, maximum, stepSize));
+        installPaddedIntEditor(spinner);
+        sizeToSample(spinner, "88"); // width for two digits only
+        return spinner;
+    }
+
+    static void installPaddedIntEditor(JSpinner spinner) {
+        PaddedIntEditor editor = new PaddedIntEditor(spinner);
+        spinner.setEditor(editor);
+    }
+
+    /**
+     * Limit spinner <em>width</em> to fit {@code sample} (plus buttons); keep default height.
+     */
+    static void sizeToSample(JSpinner spinner, String sample) {
+        if (!(spinner.getEditor() instanceof JSpinner.DefaultEditor editor)) {
+            return;
+        }
+        JFormattedTextField field = editor.getTextField();
+        field.setColumns(0);
+        FontMetrics metrics = field.getFontMetrics(field.getFont());
+        Insets insets = field.getInsets();
+        // Sample text width + breathing room; not the default oversized field.
+        int fieldWidth = metrics.stringWidth(sample) + insets.left + insets.right + 18;
+        int height = spinner.getPreferredSize().height;
+
+        field.setPreferredSize(new Dimension(fieldWidth, field.getPreferredSize().height));
+        field.setMaximumSize(new Dimension(fieldWidth, Integer.MAX_VALUE));
+
+        int width = fieldWidth + 22; // spinner arrow buttons
+        Dimension size = new Dimension(width, height);
+        spinner.setPreferredSize(size);
+        spinner.setMaximumSize(new Dimension(width, Integer.MAX_VALUE));
+    }
+
     static void installMinutesSecondsEditor(JSpinner spinner) {
         MinutesSecondsEditor editor = new MinutesSecondsEditor(spinner);
         spinner.setEditor(editor);
         installSplitMouseWheel(spinner, editor.getTextField());
+    }
+
+    static void installHoursMinutesEditor(JSpinner spinner) {
+        HoursMinutesEditor editor = new HoursMinutesEditor(spinner);
+        spinner.setEditor(editor);
+        installHoursMinutesMouseWheel(spinner, editor.getTextField());
+    }
+
+    private static int roundDownToMinute(int seconds) {
+        return Math.max(0, seconds) / 60 * 60;
+    }
+
+    private static void installHoursMinutesMouseWheel(JSpinner spinner, JFormattedTextField field) {
+        MouseWheelListener listener = e -> {
+            if (!spinner.isEnabled() || e.getWheelRotation() == 0) {
+                return;
+            }
+            int direction = e.getWheelRotation() < 0 ? 1 : -1;
+            boolean overHours = isPointerOverMinutes(field, e); // left of colon = hours
+            int deltaSeconds = overHours ? direction * 3600 : direction * 60;
+            adjustSeconds(spinner, deltaSeconds);
+            e.consume();
+        };
+        spinner.addMouseWheelListener(listener);
+        for (Component child : spinner.getComponents()) {
+            child.addMouseWheelListener(listener);
+        }
+        field.addMouseWheelListener(listener);
+        for (Component child : field.getComponents()) {
+            child.addMouseWheelListener(listener);
+        }
     }
 
     private static void installSplitMouseWheel(JSpinner spinner, JFormattedTextField field) {
@@ -142,6 +228,85 @@ final class DurationSpinners {
                 return LibraryDisplayFormats.formatDuration(0);
             }
             return LibraryDisplayFormats.formatDuration(((Number) value).intValue());
+        }
+    }
+
+    private static final class HoursMinutesEditor extends JSpinner.DefaultEditor {
+        HoursMinutesEditor(JSpinner spinner) {
+            super(spinner);
+            JFormattedTextField field = getTextField();
+            field.setEditable(true);
+            field.setColumns(0);
+            field.setHorizontalAlignment(JTextField.CENTER);
+            field.setFormatterFactory(new DefaultFormatterFactory(new HoursMinutesFormatter()));
+            field.setValue(spinner.getValue());
+        }
+    }
+
+    private static final class HoursMinutesFormatter extends DefaultFormatter {
+        HoursMinutesFormatter() {
+            setOverwriteMode(false);
+            setAllowsInvalid(true);
+            setCommitsOnValidEdit(false);
+        }
+
+        @Override
+        public Object stringToValue(String text) throws ParseException {
+            Integer seconds = LibraryDisplayFormats.parseHoursMinutesToSeconds(text);
+            if (seconds == null) {
+                throw new ParseException("Invalid duration: " + text, 0);
+            }
+            return seconds;
+        }
+
+        @Override
+        public String valueToString(Object value) {
+            if (value == null) {
+                return LibraryDisplayFormats.formatHoursMinutes(0);
+            }
+            return LibraryDisplayFormats.formatHoursMinutes(((Number) value).intValue());
+        }
+    }
+
+    private static final class PaddedIntEditor extends JSpinner.DefaultEditor {
+        PaddedIntEditor(JSpinner spinner) {
+            super(spinner);
+            JFormattedTextField field = getTextField();
+            field.setEditable(true);
+            field.setColumns(0);
+            field.setHorizontalAlignment(JTextField.CENTER);
+            field.setFormatterFactory(new DefaultFormatterFactory(new PaddedIntFormatter()));
+            field.setValue(spinner.getValue());
+        }
+    }
+
+    private static final class PaddedIntFormatter extends DefaultFormatter {
+        PaddedIntFormatter() {
+            setOverwriteMode(false);
+            setAllowsInvalid(true);
+            setCommitsOnValidEdit(false);
+        }
+
+        @Override
+        public Object stringToValue(String text) throws ParseException {
+            if (text == null) {
+                throw new ParseException("Invalid number", 0);
+            }
+            String value = text.trim();
+            if (value.isEmpty()) {
+                throw new ParseException("Invalid number", 0);
+            }
+            try {
+                return Integer.parseInt(value);
+            } catch (NumberFormatException ex) {
+                throw new ParseException("Invalid number: " + text, 0);
+            }
+        }
+
+        @Override
+        public String valueToString(Object value) {
+            int number = value == null ? 0 : ((Number) value).intValue();
+            return String.format("%02d", Math.max(0, number));
         }
     }
 }

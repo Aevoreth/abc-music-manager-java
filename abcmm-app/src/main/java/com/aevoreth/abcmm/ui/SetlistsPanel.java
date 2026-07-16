@@ -4,9 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
+import java.awt.Font;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
@@ -21,6 +19,8 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.DropMode;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -41,6 +41,7 @@ import javax.swing.JTree;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
+import javax.swing.event.ChangeListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
@@ -75,9 +76,13 @@ import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 public final class SetlistsPanel extends JPanel {
 
     static final String COLUMN_WIDTHS_PREF_KEY = "java_setlist_song_column_widths";
+    /** Shared with Python edition preferences key. */
+    static final String META_SPLIT_PREF_KEY = "setlists_top_split_state";
     private static final int[] DEFAULT_COLUMN_WIDTHS = {48, 36, 220, 48, 64, 160};
     private static final int MAIN_SPLIT_INITIAL = 200;
     private static final int MAIN_SPLIT_MIN_LEFT = 100;
+    private static final int META_SPLIT_DEFAULT = 360;
+    private static final int META_SPLIT_MIN = 240;
 
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
@@ -93,15 +98,19 @@ public final class SetlistsPanel extends JPanel {
     private final DefaultTreeModel treeModel = new DefaultTreeModel(treeRoot);
     private final JTree tree = new JTree(treeModel);
 
-    private final JTextField nameField = new JTextField(24);
+    private final JTextField nameField = new JTextField(20);
     private final JComboBox<LayoutChoice> layoutCombo = new JComboBox<>();
-    private final JTextField setDateField = new JTextField(12);
-    private final JTextField setTimeField = new JTextField(8);
-    private final JSpinner targetDurationSpinner = DurationSpinners.create(0, 0, 24 * 3600, 1);
-    private final JSpinner defaultChangeSpinner = DurationSpinners.create(0, 0, 3600, 1);
+    private final CalendarDatePicker datePicker = new CalendarDatePicker();
+    private final TimeChooser timeChooser = new TimeChooser();
+    private final JSpinner targetDurationSpinner = DurationSpinners.createHoursMinutes(0, 0, 24 * 3600);
+    private final JSpinner switchDelaySpinner = DurationSpinners.createPaddedInt(
+            SetlistDetailsDialog.DEFAULT_SWITCH_DELAY_SECONDS, 0, 300, 1);
+    private final JLabel rawDurationValue = new JLabel("\u2014");
+    private final JLabel actualDurationValue = new JLabel("\u2014");
+    private final JLabel remainingValue = new JLabel("\u2014");
     private final JTextArea notesArea = new JTextArea(4, 20);
     private final JCheckBox lockedCheck = new JCheckBox("Locked");
-    private final JButton saveMetaButton = new JButton("Save metadata");
+    private final JButton saveMetaButton = new JButton("Save");
 
     private final ItemTableModel itemModel = new ItemTableModel();
     private final JTable itemTable = new JTable(itemModel);
@@ -109,7 +118,7 @@ public final class SetlistsPanel extends JPanel {
     private final SetlistBandAssignmentPanel assignmentPanel = new SetlistBandAssignmentPanel();
 
     private final JPanel editorPanel = new JPanel(new BorderLayout(8, 8));
-    private final JPanel metaPanel = new JPanel(new GridBagLayout());
+    private final JPanel metaPanel = new JPanel();
     private final JPanel songsPanel = new JPanel(new BorderLayout(4, 4));
     private final JButton addSongButton = new JButton("Add song");
     private final JButton removeSongButton = new JButton("Remove");
@@ -117,9 +126,12 @@ public final class SetlistsPanel extends JPanel {
     private final JButton moveDownButton = new JButton("Move down");
 
     private JSplitPane mainSplit;
+    private JSplitPane topSplit;
     private boolean suppressSelection;
     private boolean columnWidthsRestored;
     private boolean mainSplitInitialized;
+    private boolean metaSplitRestored;
+    private boolean suppressDurationUpdate;
 
     public SetlistsPanel() {
         super(new BorderLayout(8, 8));
@@ -168,6 +180,10 @@ public final class SetlistsPanel extends JPanel {
                     mainSplit.setDividerLocation(MAIN_SPLIT_INITIAL);
                     mainSplitInitialized = true;
                 }
+                if (!metaSplitRestored && topSplit != null && topSplit.getWidth() > 0) {
+                    restoreMetaSplit();
+                    metaSplitRestored = true;
+                }
                 if (!columnWidthsRestored && preferences != null) {
                     restoreColumnWidths();
                     columnWidthsRestored = true;
@@ -196,6 +212,8 @@ public final class SetlistsPanel extends JPanel {
         if (isShowing()) {
             restoreColumnWidths();
             columnWidthsRestored = true;
+            restoreMetaSplit();
+            metaSplitRestored = true;
         }
     }
 
@@ -204,6 +222,13 @@ public final class SetlistsPanel extends JPanel {
             return;
         }
         preferences.extras().put(COLUMN_WIDTHS_PREF_KEY, captureColumnWidths());
+        if (topSplit != null) {
+            int left = topSplit.getDividerLocation();
+            int right = Math.max(0, topSplit.getWidth() - left - topSplit.getDividerSize());
+            if (left >= META_SPLIT_MIN && right >= 80) {
+                preferences.extras().put(META_SPLIT_PREF_KEY, List.of(left, right));
+            }
+        }
     }
 
     public void setPlayerRepository(PlayerRepository playerRepository) {
@@ -267,50 +292,75 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void buildEditorPane() {
-        metaPanel.setBorder(BorderFactory.createTitledBorder("Setlist"));
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.insets = new Insets(2, 4, 2, 4);
-        gc.anchor = GridBagConstraints.WEST;
+        metaPanel.setLayout(new BoxLayout(metaPanel, BoxLayout.Y_AXIS));
+        metaPanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 10, 10));
 
-        int row = 0;
-        addLabeled(metaPanel, gc, row++, "Name", nameField);
-        addLabeled(metaPanel, gc, row++, "Band layout", layoutCombo);
-        addLabeled(metaPanel, gc, row++, "Set date", setDateField);
-        addLabeled(metaPanel, gc, row++, "Set time", setTimeField);
-        addLabeled(metaPanel, gc, row++, "Target duration", targetDurationSpinner);
-        addLabeled(metaPanel, gc, row++, "Default change", defaultChangeSpinner);
-
-        gc.gridx = 0;
-        gc.gridy = row;
-        gc.weightx = 0;
-        gc.weighty = 0;
-        gc.fill = GridBagConstraints.NONE;
-        metaPanel.add(new JLabel("Notes"), gc);
-        gc.gridx = 1;
-        gc.fill = GridBagConstraints.BOTH;
-        gc.weightx = 1;
-        gc.weighty = 1;
         notesArea.setLineWrap(true);
         notesArea.setWrapStyleWord(true);
+        saveMetaButton.addActionListener(e -> saveMetadata());
+        ChangeListener durationListener = e -> {
+            if (!suppressDurationUpdate) {
+                updateDurationSummary();
+            }
+        };
+        targetDurationSpinner.addChangeListener(durationListener);
+        switchDelaySpinner.addChangeListener(durationListener);
+
+        metaPanel.add(inlineField("Set Name", nameField));
+        metaPanel.add(inlineField("Band Layout", layoutCombo));
+
+        JPanel dateTimeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        dateTimeRow.setOpaque(false);
+        dateTimeRow.add(new JLabel("Set Date / Time"));
+        dateTimeRow.add(datePicker);
+        dateTimeRow.add(new JLabel("at"));
+        dateTimeRow.add(timeChooser);
+        metaPanel.add(flowRow(dateTimeRow));
+
+        JPanel targetSwitchRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        targetSwitchRow.setOpaque(false);
+        targetSwitchRow.add(new JLabel("Target Duration"));
+        targetSwitchRow.add(targetDurationSpinner);
+        targetSwitchRow.add(new JLabel("Switch delay (s)"));
+        targetSwitchRow.add(switchDelaySpinner);
+        metaPanel.add(flowRow(targetSwitchRow));
+
+        Font summaryFont = rawDurationValue.getFont().deriveFont(Font.PLAIN);
+        rawDurationValue.setFont(summaryFont);
+        actualDurationValue.setFont(summaryFont);
+        remainingValue.setFont(summaryFont);
+        JPanel summary = new JPanel();
+        summary.setLayout(new BoxLayout(summary, BoxLayout.Y_AXIS));
+        summary.setOpaque(false);
+        summary.setAlignmentX(Component.LEFT_ALIGNMENT);
+        summary.setBorder(BorderFactory.createEmptyBorder(4, 0, 8, 0));
+        summary.add(rawDurationValue);
+        summary.add(Box.createVerticalStrut(2));
+        summary.add(actualDurationValue);
+        summary.add(Box.createVerticalStrut(2));
+        summary.add(remainingValue);
+        metaPanel.add(summary);
+
         JScrollPane notesScroll = new JScrollPane(notesArea);
         notesScroll.setPreferredSize(new Dimension(200, 80));
-        metaPanel.add(notesScroll, gc);
-        row++;
+        notesScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        metaPanel.add(stackedField("Set Notes", notesScroll));
 
-        gc.gridx = 1;
-        gc.gridy = row;
-        gc.weighty = 0;
-        gc.fill = GridBagConstraints.NONE;
-        metaPanel.add(lockedCheck, gc);
-        row++;
+        JPanel lockedRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        lockedRow.setOpaque(false);
+        lockedRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        lockedRow.add(lockedCheck);
+        lockedRow.add(saveMetaButton);
+        metaPanel.add(lockedRow);
+        metaPanel.add(Box.createVerticalGlue());
 
-        gc.gridx = 1;
-        gc.gridy = row;
-        saveMetaButton.addActionListener(e -> saveMetadata());
-        metaPanel.add(saveMetaButton, gc);
-
-        metaPanel.setPreferredSize(new Dimension(260, 280));
-        metaPanel.setMinimumSize(new Dimension(180, 120));
+        JScrollPane metaScroll = new JScrollPane(metaPanel);
+        metaScroll.setBorder(BorderFactory.createTitledBorder("Setlist"));
+        metaScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        metaScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        metaScroll.getVerticalScrollBar().setUnitIncrement(16);
+        metaScroll.setPreferredSize(new Dimension(META_SPLIT_DEFAULT, 280));
+        metaScroll.setMinimumSize(new Dimension(META_SPLIT_MIN, 120));
 
         songsPanel.setBorder(BorderFactory.createTitledBorder("Songs"));
         JPanel songToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -329,10 +379,10 @@ public final class SetlistsPanel extends JPanel {
         assignmentPanel.setPreferredSize(new Dimension(400, 220));
         assignmentPanel.setMinimumSize(new Dimension(120, 120));
 
-        JSplitPane topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, metaPanel, songsPanel);
-        topSplit.setResizeWeight(0.28);
+        topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, metaScroll, songsPanel);
+        topSplit.setResizeWeight(0.0);
         topSplit.setContinuousLayout(true);
-        topSplit.setDividerLocation(260);
+        topSplit.setDividerLocation(META_SPLIT_DEFAULT);
 
         JSplitPane editorSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, assignmentPanel);
         editorSplit.setResizeWeight(0.55);
@@ -343,17 +393,47 @@ public final class SetlistsPanel extends JPanel {
         editorPanel.add(editorSplit, BorderLayout.CENTER);
     }
 
-    private static void addLabeled(JPanel panel, GridBagConstraints gc, int row, String label, Component field) {
-        gc.gridx = 0;
-        gc.gridy = row;
-        gc.weightx = 0;
-        gc.weighty = 0;
-        gc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel(label), gc);
-        gc.gridx = 1;
-        gc.fill = GridBagConstraints.HORIZONTAL;
-        gc.weightx = 1;
-        panel.add(field, gc);
+    private static JPanel inlineField(String label, Component field) {
+        JPanel panel = new JPanel(new BorderLayout(8, 0));
+        panel.setOpaque(false);
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(new JLabel(label), BorderLayout.WEST);
+        panel.add(field, BorderLayout.CENTER);
+        int height = Math.max(field.getPreferredSize().height, 24);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, height + 12));
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        return panel;
+    }
+
+    private static JPanel flowRow(JPanel row) {
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height + 12));
+        JPanel wrap = new JPanel(new BorderLayout());
+        wrap.setOpaque(false);
+        wrap.setAlignmentX(Component.LEFT_ALIGNMENT);
+        wrap.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        wrap.add(row, BorderLayout.WEST);
+        wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height + 12));
+        return wrap;
+    }
+
+    private static JPanel stackedField(String label, Component field) {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setOpaque(false);
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel caption = new JLabel(label);
+        caption.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(caption);
+        panel.add(Box.createVerticalStrut(3));
+        if (field instanceof JComponent component) {
+            component.setAlignmentX(Component.LEFT_ALIGNMENT);
+            Dimension preferred = component.getPreferredSize();
+            component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(preferred.height, 24)));
+        }
+        panel.add(field);
+        panel.add(Box.createVerticalStrut(12));
+        return panel;
     }
 
     private void applyDefaultColumnWidths() {
@@ -637,11 +717,14 @@ public final class SetlistsPanel extends JPanel {
 
             @Override
             public int getSourceActions(JComponent c) {
-                return MOVE;
+                return isSelectedSetlistLocked() ? NONE : MOVE;
             }
 
             @Override
             protected Transferable createTransferable(JComponent c) {
+                if (isSelectedSetlistLocked()) {
+                    return null;
+                }
                 dragRows = itemTable.getSelectedRows();
                 Arrays.sort(dragRows);
                 return new StringSelection(Arrays.toString(dragRows));
@@ -652,7 +735,8 @@ public final class SetlistsPanel extends JPanel {
                 return support.isDrop()
                         && support.isDataFlavorSupported(DataFlavor.stringFlavor)
                         && dragRows.length > 0
-                        && selectedSetlist() != null;
+                        && selectedSetlist() != null
+                        && !isSelectedSetlistLocked();
             }
 
             @Override
@@ -678,7 +762,7 @@ public final class SetlistsPanel extends JPanel {
 
     private boolean reorderRows(int[] selectedRows, int dropIndex) {
         SetlistInfo setlist = selectedSetlist();
-        if (setlist == null || setlistRepository == null || selectedRows.length == 0) {
+        if (setlist == null || setlistRepository == null || selectedRows.length == 0 || setlist.locked()) {
             return false;
         }
         List<SetlistItemInfo> current = new ArrayList<>(itemModel.items());
@@ -808,16 +892,24 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void clearEditor() {
-        nameField.setText("");
-        setDateField.setText("");
-        setTimeField.setText("");
-        targetDurationSpinner.setValue(0);
-        defaultChangeSpinner.setValue(0);
-        notesArea.setText("");
-        lockedCheck.setSelected(false);
-        layoutCombo.removeAllItems();
-        layoutCombo.addItem(new LayoutChoice(null, "(none)"));
-        layoutCombo.setSelectedIndex(0);
+        suppressDurationUpdate = true;
+        try {
+            nameField.setText("");
+            datePicker.setIsoDate(null);
+            timeChooser.setHhMm("19:00");
+            targetDurationSpinner.setValue(0);
+            switchDelaySpinner.setValue(SetlistDetailsDialog.DEFAULT_SWITCH_DELAY_SECONDS);
+            notesArea.setText("");
+            lockedCheck.setSelected(false);
+            layoutCombo.removeAllItems();
+            layoutCombo.addItem(new LayoutChoice(null, "(none)"));
+            layoutCombo.setSelectedIndex(0);
+            rawDurationValue.setText("Raw duration (no switch delays): \u2014");
+            actualDurationValue.setText("Actual duration: \u2014");
+            remainingValue.setText("Time remaining: \u2014");
+        } finally {
+            suppressDurationUpdate = false;
+        }
         itemModel.setItems(List.of());
         assignmentPanel.clear();
         revalidate();
@@ -827,32 +919,47 @@ public final class SetlistsPanel extends JPanel {
     private void setEditorEnabled(boolean enabled) {
         nameField.setEnabled(enabled);
         layoutCombo.setEnabled(enabled);
-        setDateField.setEnabled(enabled);
-        setTimeField.setEnabled(enabled);
+        datePicker.setEnabled(enabled);
+        timeChooser.setEnabled(enabled);
         targetDurationSpinner.setEnabled(enabled);
-        defaultChangeSpinner.setEnabled(enabled);
+        switchDelaySpinner.setEnabled(enabled);
         notesArea.setEnabled(enabled);
         lockedCheck.setEnabled(enabled);
         saveMetaButton.setEnabled(enabled);
-        addSongButton.setEnabled(enabled);
-        removeSongButton.setEnabled(enabled);
-        moveUpButton.setEnabled(enabled);
-        moveDownButton.setEnabled(enabled);
+        boolean songsEditable = enabled && !isSelectedSetlistLocked();
+        addSongButton.setEnabled(songsEditable);
+        removeSongButton.setEnabled(songsEditable);
+        moveUpButton.setEnabled(songsEditable);
+        moveDownButton.setEnabled(songsEditable);
         itemTable.setEnabled(enabled);
+        itemTable.setDragEnabled(songsEditable);
         assignmentPanel.setEnabled(enabled);
     }
 
+    private boolean isSelectedSetlistLocked() {
+        SetlistInfo setlist = selectedSetlist();
+        return setlist != null && setlist.locked();
+    }
+
     private void loadSetlistEditor(SetlistInfo setlist) {
-        nameField.setText(nullToEmpty(setlist.name()));
-        setDateField.setText(nullToEmpty(setlist.setDate()));
-        setTimeField.setText(nullToEmpty(setlist.setTime()));
-        targetDurationSpinner.setValue(
-                setlist.targetDurationSeconds() == null ? 0 : setlist.targetDurationSeconds());
-        defaultChangeSpinner.setValue(
-                setlist.defaultChangeDurationSeconds() == null ? 0 : setlist.defaultChangeDurationSeconds());
-        notesArea.setText(nullToEmpty(setlist.notes()));
-        lockedCheck.setSelected(setlist.locked());
-        reloadLayoutChoices(setlist.bandLayoutId());
+        suppressDurationUpdate = true;
+        try {
+            nameField.setText(nullToEmpty(setlist.name()));
+            datePicker.setIsoDate(setlist.setDate());
+            timeChooser.setHhMm(setlist.setTime());
+            targetDurationSpinner.setValue(
+                    setlist.targetDurationSeconds() == null ? 0 : setlist.targetDurationSeconds());
+            switchDelaySpinner.setValue(
+                    setlist.defaultChangeDurationSeconds() == null
+                            ? 0
+                            : setlist.defaultChangeDurationSeconds());
+            notesArea.setText(nullToEmpty(setlist.notes()));
+            lockedCheck.setSelected(setlist.locked());
+            reloadLayoutChoices(setlist.bandLayoutId());
+        } finally {
+            suppressDurationUpdate = false;
+        }
+        setEditorEnabled(true);
         reloadItems(setlist.id());
         revalidate();
         repaint();
@@ -887,6 +994,7 @@ public final class SetlistsPanel extends JPanel {
     private void reloadItems(long setlistId) {
         if (setlistRepository == null) {
             itemModel.setItems(List.of());
+            updateDurationSummary();
             return;
         }
         try {
@@ -896,7 +1004,53 @@ public final class SetlistsPanel extends JPanel {
             showError(ex.getMessage());
             itemModel.setItems(List.of());
         }
+        updateDurationSummary();
         reloadAssignments();
+    }
+
+    private void updateDurationSummary() {
+        List<SetlistItemInfo> items = itemModel.items();
+        if (items.isEmpty()) {
+            rawDurationValue.setText("Raw duration (no switch delays): \u2014");
+            actualDurationValue.setText("Actual duration: \u2014");
+            remainingValue.setText("Time remaining: \u2014");
+            return;
+        }
+        int songSeconds = 0;
+        for (SetlistItemInfo item : items) {
+            Integer duration = item.songDurationSeconds();
+            if (duration != null) {
+                songSeconds += Math.max(0, duration);
+            }
+        }
+        int delay = Math.max(0, ((Number) switchDelaySpinner.getValue()).intValue());
+        int target = Math.max(0, ((Number) targetDurationSpinner.getValue()).intValue());
+        int switchSeconds = items.size() > 1 ? delay * (items.size() - 1) : 0;
+        int actualWithSwitches = songSeconds + switchSeconds;
+        rawDurationValue.setText("Raw duration (no switch delays): "
+                + LibraryDisplayFormats.formatSignedDuration(songSeconds));
+        actualDurationValue.setText("Actual duration: "
+                + LibraryDisplayFormats.formatSignedDuration(actualWithSwitches)
+                + " with switch delays");
+        if (target <= 0) {
+            remainingValue.setText("Time remaining: \u2014");
+        } else {
+            remainingValue.setText("Time remaining: "
+                    + LibraryDisplayFormats.formatSignedDuration(target - actualWithSwitches));
+        }
+    }
+
+    private void restoreMetaSplit() {
+        int divider = META_SPLIT_DEFAULT;
+        if (preferences != null) {
+            List<Integer> saved = asIntegerList(preferences.extras().get(META_SPLIT_PREF_KEY));
+            if (saved != null && !saved.isEmpty() && saved.get(0) != null && saved.get(0) >= META_SPLIT_MIN) {
+                divider = saved.get(0);
+            }
+        }
+        if (topSplit != null) {
+            topSplit.setDividerLocation(divider);
+        }
     }
 
     private void syncPlaybackQueueFromSetlist(long setlistId) {
@@ -1072,13 +1226,13 @@ public final class SetlistsPanel extends JPanel {
         }
         String name = nameField.getText() == null ? "" : nameField.getText().trim();
         if (name.isBlank()) {
-            JOptionPane.showMessageDialog(this, "Name is required.", "Setlist", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Set Name is required.", "Setlist", JOptionPane.WARNING_MESSAGE);
             return;
         }
         LayoutChoice layout = (LayoutChoice) layoutCombo.getSelectedItem();
         Long layoutId = layout == null ? null : layout.id();
         int target = ((Number) targetDurationSpinner.getValue()).intValue();
-        int change = ((Number) defaultChangeSpinner.getValue()).intValue();
+        int delay = ((Number) switchDelaySpinner.getValue()).intValue();
         try {
             setlistRepository.updateSetlist(
                     setlist.id(),
@@ -1087,11 +1241,11 @@ public final class SetlistsPanel extends JPanel {
                     setlist.folderId(),
                     setlist.sortOrder(),
                     lockedCheck.isSelected(),
-                    change,
-                    notesArea.getText(),
-                    blankToNull(setDateField.getText()),
-                    blankToNull(setTimeField.getText()),
-                    target);
+                    delay,
+                    blankToNull(notesArea.getText()),
+                    datePicker.getIsoDate(),
+                    timeChooser.getHhMm(),
+                    target <= 0 ? null : target);
             reload();
             selectSetlistInTree(setlist.id());
         } catch (LibraryException ex) {
@@ -1120,18 +1274,29 @@ public final class SetlistsPanel extends JPanel {
         if (setlistRepository == null) {
             return;
         }
-        String name = JOptionPane.showInputDialog(this, "Setlist name:", "Add setlist", JOptionPane.QUESTION_MESSAGE);
-        if (name == null || name.isBlank()) {
-            return;
-        }
         Long folderId = selectedFolderId();
-        try {
-            long id = setlistRepository.addSetlist(name.trim(), folderId);
-            reload();
-            selectSetlistInTree(id);
-        } catch (LibraryException ex) {
-            showError(ex.getMessage());
-        }
+        SetlistDetailsDialog.showCreate(SwingUtilities.getWindowAncestor(this), bandRepository)
+                .ifPresent(details -> {
+                    try {
+                        long id = setlistRepository.addSetlist(details.name(), folderId);
+                        setlistRepository.updateSetlist(
+                                id,
+                                details.name(),
+                                details.bandLayoutId(),
+                                folderId,
+                                0,
+                                details.locked(),
+                                details.switchDelaySeconds(),
+                                details.notes(),
+                                details.setDate(),
+                                details.setTime(),
+                                details.targetDurationSeconds());
+                        reload();
+                        selectSetlistInTree(id);
+                    } catch (LibraryException ex) {
+                        showError(ex.getMessage());
+                    }
+                });
     }
 
     private void deleteSelected() {
@@ -1177,7 +1342,7 @@ public final class SetlistsPanel extends JPanel {
 
     private void addSong() {
         SetlistInfo setlist = selectedSetlist();
-        if (setlist == null || setlistRepository == null || songRepository == null) {
+        if (setlist == null || setlistRepository == null || songRepository == null || setlist.locked()) {
             return;
         }
         SongPickerDialog.showPicker(SwingUtilities.getWindowAncestor(this), songRepository)
@@ -1199,7 +1364,7 @@ public final class SetlistsPanel extends JPanel {
     private void removeSong() {
         SetlistInfo setlist = selectedSetlist();
         int[] rows = itemTable.getSelectedRows();
-        if (setlist == null || rows.length == 0 || setlistRepository == null) {
+        if (setlist == null || rows.length == 0 || setlistRepository == null || setlist.locked()) {
             return;
         }
         Arrays.sort(rows);
@@ -1217,7 +1382,7 @@ public final class SetlistsPanel extends JPanel {
     private void moveSongs(int delta) {
         SetlistInfo setlist = selectedSetlist();
         int[] selected = itemTable.getSelectedRows();
-        if (setlist == null || setlistRepository == null || selected.length == 0) {
+        if (setlist == null || setlistRepository == null || selected.length == 0 || setlist.locked()) {
             return;
         }
         Arrays.sort(selected);
@@ -1405,6 +1570,13 @@ public final class SetlistsPanel extends JPanel {
         return value.trim();
     }
 
+    private record LayoutChoice(Long id, String label) {
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
     private record FolderNode(SetlistFolderInfo folder) {
         @Override
         public String toString() {
@@ -1416,13 +1588,6 @@ public final class SetlistsPanel extends JPanel {
         @Override
         public String toString() {
             return setlist.name();
-        }
-    }
-
-    private record LayoutChoice(Long id, String label) {
-        @Override
-        public String toString() {
-            return label;
         }
     }
 
