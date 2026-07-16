@@ -205,6 +205,47 @@ public final class SqliteSetlistRepository implements SetlistRepository {
     }
 
     @Override
+    public void moveSetlistToFolder(long setlistId, Long folderId, int sortOrder)
+            throws LibraryException {
+        String now = SqliteTimestamps.now();
+        try {
+            try (PreparedStatement update = database.connection().prepareStatement(
+                    "UPDATE Setlist SET folder_id = ?, sort_order = ?, updated_at = ? WHERE id = ?")) {
+                setNullableLong(update, 1, folderId);
+                update.setInt(2, Math.max(0, sortOrder));
+                update.setString(3, now);
+                update.setLong(4, setlistId);
+                update.executeUpdate();
+            }
+            List<Long> idsInOrder = new ArrayList<>();
+            try (PreparedStatement select = database.connection().prepareStatement(
+                    "SELECT id FROM Setlist WHERE folder_id IS ? AND id != ? ORDER BY sort_order, name")) {
+                setNullableLong(select, 1, folderId);
+                select.setLong(2, setlistId);
+                try (ResultSet rs = select.executeQuery()) {
+                    while (rs.next()) {
+                        idsInOrder.add(rs.getLong(1));
+                    }
+                }
+            }
+            int insertAt = Math.max(0, Math.min(sortOrder, idsInOrder.size()));
+            idsInOrder.add(insertAt, setlistId);
+            try (PreparedStatement renumber = database.connection().prepareStatement(
+                    "UPDATE Setlist SET sort_order = ?, updated_at = ? WHERE id = ? AND folder_id IS ?")) {
+                for (int i = 0; i < idsInOrder.size(); i++) {
+                    renumber.setInt(1, i);
+                    renumber.setString(2, now);
+                    renumber.setLong(3, idsInOrder.get(i));
+                    setNullableLong(renumber, 4, folderId);
+                    renumber.executeUpdate();
+                }
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to move setlist to folder", ex);
+        }
+    }
+
+    @Override
     public void updateSetlist(
             long id,
             String name,

@@ -24,6 +24,13 @@ public interface SetlistRepository {
 
     long addSetlist(String name, Long folderId) throws LibraryException;
 
+    /**
+     * Move a setlist into {@code folderId} (null = Unfiled) at {@code sortOrder},
+     * renumbering other setlists in the target folder. Matches Python
+     * {@code move_setlist_to_folder}.
+     */
+    void moveSetlistToFolder(long setlistId, Long folderId, int sortOrder) throws LibraryException;
+
     void updateSetlist(
             long id,
             String name,

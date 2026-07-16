@@ -133,6 +133,7 @@ public final class SetlistsPanel extends JPanel {
                 onTreeSelection();
             }
         });
+        enableTreeReorder();
 
         itemTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         itemTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
@@ -234,9 +235,12 @@ public final class SetlistsPanel extends JPanel {
     public void reload() {
         Long selectedSetlistId = selectedSetlistId();
         Long selectedFolderId = selectedFolderId();
+        boolean unfiledSelected = isUnfiledFolderSelected();
         rebuildTree();
         if (selectedSetlistId != null) {
             selectSetlistInTree(selectedSetlistId);
+        } else if (unfiledSelected) {
+            selectUnfiledInTree();
         } else if (selectedFolderId != null) {
             selectFolderInTree(selectedFolderId);
         }
@@ -410,6 +414,221 @@ public final class SetlistsPanel extends JPanel {
         return widths;
     }
 
+    private void enableTreeReorder() {
+        tree.setDragEnabled(true);
+        tree.setDropMode(DropMode.ON_OR_INSERT);
+        tree.setTransferHandler(new TransferHandler() {
+            private TreePath dragPath;
+
+            @Override
+            public int getSourceActions(JComponent c) {
+                return MOVE;
+            }
+
+            @Override
+            protected Transferable createTransferable(JComponent c) {
+                dragPath = tree.getSelectionPath();
+                if (dragPath == null) {
+                    return null;
+                }
+                Object last = dragPath.getLastPathComponent();
+                if (!(last instanceof DefaultMutableTreeNode node)) {
+                    return null;
+                }
+                Object user = node.getUserObject();
+                if (user instanceof SetlistNode setlistNode) {
+                    return new StringSelection("setlist:" + setlistNode.setlist().id());
+                }
+                if (user instanceof FolderNode folderNode && folderNode.folder() != null) {
+                    return new StringSelection("folder:" + folderNode.folder().id());
+                }
+                dragPath = null;
+                return null;
+            }
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                if (!support.isDrop()
+                        || !support.isDataFlavorSupported(DataFlavor.stringFlavor)
+                        || setlistRepository == null
+                        || dragPath == null) {
+                    return false;
+                }
+                JTree.DropLocation drop = (JTree.DropLocation) support.getDropLocation();
+                TreePath dropPath = drop.getPath();
+                if (dropPath == null) {
+                    return false;
+                }
+                DefaultMutableTreeNode dragNode = (DefaultMutableTreeNode) dragPath.getLastPathComponent();
+                Object dragUser = dragNode.getUserObject();
+                DefaultMutableTreeNode dropNode = (DefaultMutableTreeNode) dropPath.getLastPathComponent();
+                Object dropUser = dropNode.getUserObject();
+                int childIndex = drop.getChildIndex();
+
+                if (dragUser instanceof SetlistNode) {
+                    if (dropUser instanceof FolderNode) {
+                        return true;
+                    }
+                    if (dropUser instanceof SetlistNode && childIndex < 0) {
+                        return dropNode.getParent() instanceof DefaultMutableTreeNode parent
+                                && parent.getUserObject() instanceof FolderNode;
+                    }
+                    return false;
+                }
+                if (dragUser instanceof FolderNode folderNode && folderNode.folder() != null) {
+                    if (dropNode == treeRoot && childIndex >= 0) {
+                        return true;
+                    }
+                    if (dropUser instanceof FolderNode && childIndex < 0) {
+                        return true;
+                    }
+                    return false;
+                }
+                return false;
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support) || setlistRepository == null || dragPath == null) {
+                    return false;
+                }
+                String payload;
+                try {
+                    payload = (String) support.getTransferable().getTransferData(DataFlavor.stringFlavor);
+                } catch (Exception ex) {
+                    return false;
+                }
+                JTree.DropLocation drop = (JTree.DropLocation) support.getDropLocation();
+                DefaultMutableTreeNode dragNode = (DefaultMutableTreeNode) dragPath.getLastPathComponent();
+                try {
+                    if (payload.startsWith("setlist:")) {
+                        long setlistId = Long.parseLong(payload.substring("setlist:".length()));
+                        return dropSetlist(dragNode, drop, setlistId);
+                    }
+                    if (payload.startsWith("folder:")) {
+                        long folderId = Long.parseLong(payload.substring("folder:".length()));
+                        return dropFolder(dragNode, drop, folderId);
+                    }
+                } catch (NumberFormatException | LibraryException ex) {
+                    showError(ex instanceof LibraryException libraryEx
+                            ? libraryEx.getMessage()
+                            : "Failed to rearrange setlists");
+                    reload();
+                }
+                return false;
+            }
+
+            @Override
+            protected void exportDone(JComponent source, Transferable data, int action) {
+                dragPath = null;
+            }
+        });
+    }
+
+    private boolean dropSetlist(
+            DefaultMutableTreeNode dragNode,
+            JTree.DropLocation drop,
+            long setlistId) throws LibraryException {
+        DefaultMutableTreeNode dropNode = (DefaultMutableTreeNode) drop.getPath().getLastPathComponent();
+        Object dropUser = dropNode.getUserObject();
+        int childIndex = drop.getChildIndex();
+
+        DefaultMutableTreeNode targetFolderNode;
+        int sortOrder;
+        if (dropUser instanceof FolderNode) {
+            targetFolderNode = dropNode;
+            if (childIndex < 0) {
+                sortOrder = targetFolderNode.getChildCount();
+                if (dragNode.getParent() == targetFolderNode) {
+                    sortOrder--;
+                }
+            } else {
+                sortOrder = childIndex;
+                if (dragNode.getParent() == targetFolderNode) {
+                    int fromIndex = targetFolderNode.getIndex(dragNode);
+                    if (fromIndex >= 0 && childIndex > fromIndex) {
+                        sortOrder--;
+                    }
+                }
+            }
+        } else if (dropUser instanceof SetlistNode) {
+            targetFolderNode = (DefaultMutableTreeNode) dropNode.getParent();
+            if (targetFolderNode == null || !(targetFolderNode.getUserObject() instanceof FolderNode)) {
+                return false;
+            }
+            sortOrder = targetFolderNode.getIndex(dropNode) + 1;
+            if (dragNode.getParent() == targetFolderNode) {
+                int fromIndex = targetFolderNode.getIndex(dragNode);
+                if (fromIndex >= 0 && sortOrder > fromIndex) {
+                    sortOrder--;
+                }
+            }
+        } else {
+            return false;
+        }
+
+        FolderNode folderNode = (FolderNode) targetFolderNode.getUserObject();
+        Long folderId = folderNode.folder() == null ? null : folderNode.folder().id();
+        sortOrder = Math.max(0, sortOrder);
+        setlistRepository.moveSetlistToFolder(setlistId, folderId, sortOrder);
+        reload();
+        selectSetlistInTree(setlistId);
+        return true;
+    }
+
+    private boolean dropFolder(
+            DefaultMutableTreeNode dragNode,
+            JTree.DropLocation drop,
+            long folderId) throws LibraryException {
+        DefaultMutableTreeNode dropNode = (DefaultMutableTreeNode) drop.getPath().getLastPathComponent();
+        int childIndex = drop.getChildIndex();
+
+        int insertAmongRoot;
+        if (dropNode == treeRoot && childIndex >= 0) {
+            insertAmongRoot = childIndex;
+        } else if (dropNode.getUserObject() instanceof FolderNode) {
+            insertAmongRoot = treeRoot.getIndex(dropNode);
+            if (insertAmongRoot < 0) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        int fromRootIndex = treeRoot.getIndex(dragNode);
+        if (fromRootIndex < 0) {
+            return false;
+        }
+
+        List<Long> order = new ArrayList<>();
+        for (int i = 0; i < treeRoot.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRoot.getChildAt(i);
+            if (child.getUserObject() instanceof FolderNode folderNode
+                    && folderNode.folder() != null
+                    && folderNode.folder().id() != folderId) {
+                order.add(folderNode.folder().id());
+            }
+        }
+
+        int insertAt = 0;
+        for (int i = 0; i < insertAmongRoot && i < treeRoot.getChildCount(); i++) {
+            if (i == fromRootIndex) {
+                continue;
+            }
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRoot.getChildAt(i);
+            if (child.getUserObject() instanceof FolderNode folderNode && folderNode.folder() != null) {
+                insertAt++;
+            }
+        }
+        insertAt = Math.max(0, Math.min(insertAt, order.size()));
+        order.add(insertAt, folderId);
+
+        setlistRepository.reorderFolders(order);
+        reload();
+        selectFolderInTree(folderId);
+        return true;
+    }
+
     private void enableItemTableReorder() {
         itemTable.setDragEnabled(true);
         itemTable.setDropMode(DropMode.INSERT_ROWS);
@@ -549,26 +768,23 @@ public final class SetlistsPanel extends JPanel {
                 folderNodes.put(folder.id(), node);
                 treeRoot.add(node);
             }
+            // Always show Unfiled so setlists can be dragged out of folders (Python shows it
+            // only when non-empty; empty Unfiled is still a valid drop target here).
             DefaultMutableTreeNode unfiled = new DefaultMutableTreeNode(new FolderNode(null));
-            boolean hasUnfiled = false;
             for (SetlistInfo setlist : setlists) {
                 DefaultMutableTreeNode setlistNode = new DefaultMutableTreeNode(new SetlistNode(setlist));
                 if (setlist.folderId() == null) {
                     unfiled.add(setlistNode);
-                    hasUnfiled = true;
                 } else {
                     DefaultMutableTreeNode parent = folderNodes.get(setlist.folderId());
                     if (parent == null) {
                         unfiled.add(setlistNode);
-                        hasUnfiled = true;
                     } else {
                         parent.add(setlistNode);
                     }
                 }
             }
-            if (hasUnfiled) {
-                treeRoot.add(unfiled);
-            }
+            treeRoot.add(unfiled);
             treeModel.reload();
             for (int i = 0; i < tree.getRowCount(); i++) {
                 tree.expandRow(i);
@@ -1097,12 +1313,19 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private Long selectedFolderId() {
-        SetlistFolderInfo folder = selectedFolder();
-        if (folder != null) {
-            return folder.id();
+        DefaultMutableTreeNode node = selectedTreeNode();
+        if (node != null && node.getUserObject() instanceof FolderNode folderNode) {
+            return folderNode.folder() == null ? null : folderNode.folder().id();
         }
         SetlistInfo setlist = selectedSetlist();
         return setlist == null ? null : setlist.folderId();
+    }
+
+    private boolean isUnfiledFolderSelected() {
+        DefaultMutableTreeNode node = selectedTreeNode();
+        return node != null
+                && node.getUserObject() instanceof FolderNode folderNode
+                && folderNode.folder() == null;
     }
 
     private DefaultMutableTreeNode selectedTreeNode() {
@@ -1129,6 +1352,18 @@ public final class SetlistsPanel extends JPanel {
             if (child.getUserObject() instanceof FolderNode folderNode
                     && folderNode.folder() != null
                     && folderNode.folder().id() == folderId) {
+                TreePath path = new TreePath(child.getPath());
+                tree.setSelectionPath(path);
+                tree.scrollPathToVisible(path);
+                return;
+            }
+        }
+    }
+
+    private void selectUnfiledInTree() {
+        for (int i = 0; i < treeRoot.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRoot.getChildAt(i);
+            if (child.getUserObject() instanceof FolderNode folderNode && folderNode.folder() == null) {
                 TreePath path = new TreePath(child.getPath());
                 tree.setSelectionPath(path);
                 tree.scrollPathToVisible(path);

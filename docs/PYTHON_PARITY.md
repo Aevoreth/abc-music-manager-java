@@ -11,7 +11,7 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Library scanning | Complete | Complete | Preserve behavior | Scan `.abc` under LOTRO Music roots; folder rules; primary vs set-copy; duplicates (Keep existing / Keep new / Separate) |
 | Song metadata | Complete | Partial | Preserve Maestro metadata | Library table reads full indexed row; scan writes Maestro-compatible %%/header fields via `AbcMetadataParser`; inline song edits not started |
 | Filters and search | Complete | Partial | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state |
-| Setlists | Complete | Complete (builder) | Preserve stored data | Folders, order, timing, per-set band layout / part overrides; ABCP import/export deferred |
+| Setlists | Complete | Complete (builder) | Preserve stored data | Folders, tree drag reorder/move between folders, song order, timing, per-set band layout / part overrides; ABCP import/export deferred |
 | ABCP support | Complete | Not started | Preserve interchange | XML playlist import/export compatible with ABC Player workflows |
 | Songbook export | Complete | Not started | Preserve PluginData format | Manual write of `SongbookData.plugindata` (Lua) to account targets |
 | Band management | Complete | Complete | Preserve stored data | Bands, members, layouts, snapped layout grid; Change Player cascades song/setlist assignments |
