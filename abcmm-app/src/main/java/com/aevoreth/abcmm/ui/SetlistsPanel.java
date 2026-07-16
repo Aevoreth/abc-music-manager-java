@@ -1663,7 +1663,7 @@ public final class SetlistsPanel extends JPanel {
             SetlistItemInfo item = items.get(rowIndex);
             return switch (columnIndex) {
                 case 0 -> "";
-                case 1 -> item.position() + 1;
+                case 1 -> rowIndex + 1;
                 case 2 -> item.songTitle();
                 case 3 -> item.partCount();
                 case 4 -> LibraryDisplayFormats.formatDuration(item.songDurationSeconds());
