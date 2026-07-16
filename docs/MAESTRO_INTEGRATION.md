@@ -90,10 +90,15 @@ This prototype does **not** bundle the ~200MB soundfont.
 Via `abcmm-maestro-adapter` only:
 
 - Parse/load ABC through Maestro APIs wrapped as `AbcPlaybackEngine`
-- Drive play / pause / stop / seek / mute / solo / volume
+- Drive play / pause / stop / seek / mute / solo / volume / tempo
 - Rely on `LotroSequencerWrapper.injectPatchChanges` for seek / 16+ channel patch+pan restoration
 
 Public types returned to the app are ABCMM domain objects only.
+
+**Playback wiring:** Production factory `MaestroPlaybackEngines.create()` returns
+`LotroAbcPlaybackEngine` (falls back to `StubAbcPlaybackEngine` only if MIDI is
+unavailable). UI controls live in `PlaybackPanel` and talk to the domain
+`PlaybackSession` / `AbcPlaybackEngine` APIs — Digero widgets are not embedded.
 
 ## How we avoid packaging Maestro applications
 
@@ -111,7 +116,7 @@ Public types returned to the app are ABCMM domain objects only.
 3. Should ABCMM share Maestro’s `MaestroCommon` soundfont cache as-is, or prefer an ABCMM-owned data directory while still calling Maestro loaders?
 4. ~~Exact minimal include/exclude set of Maestro sources if full-tree compile proves too heavy or fragile~~ — **Resolved for bootstrap:** full-tree compile of 210 sources succeeded; revisit excludes only if upstream coupling or build time becomes painful
 5. Headless CI strategy for playback tests without an audio device (deferred)
-6. When to replace `StubAbcPlaybackEngine` with a real `LotroSequencerWrapper`-backed implementation (next playback milestone)
+6. ~~When to replace `StubAbcPlaybackEngine` with a real `LotroSequencerWrapper`-backed implementation (next playback milestone)~~ — **Done:** `LotroAbcPlaybackEngine` is the default from `MaestroPlaybackEngines.create()`.
 
 ## Evaluating future upstream updates
 
@@ -124,12 +129,11 @@ Public types returned to the app are ABCMM domain objects only.
 
 **Maestro source compilation:** Succeeded via `build-helper-maven-plugin`
 (210 upstream `.java` files + resources into `abcmm-maestro-adapter`). Required
-`--add-exports` flags are configured on compiler, Surefire, and `exec:java`.
+`--add-exports` flags are configured on compiler, Surefire, `.mvn/jvm.config` (for `exec:java`), and `exec:exec@run-app`.
 
-**Playback wiring:** Still a deliberate **stub** (`StubAbcPlaybackEngine`). The
-adapter classpath contains Maestro classes, but ABC Music Manager does not yet
-call `AbcToMidi` / `LotroSequencerWrapper` for real audio. The stub must not be
-described as finished Maestro integration.
+**Playback wiring:** `LotroAbcPlaybackEngine` wraps `AbcToMidi` /
+`LotroSequencerWrapper` / `VolumeTransceiver`. The stub remains available via
+`MaestroPlaybackEngines.createStub()` for tests and MIDI-unavailable fallback.
 
 **Packaging:** ABCMM does not run Maestro assembly descriptors. Only
 `com.aevoreth.abcmm.AbcMusicManagerMain` is set as Main-Class on `abcmm-app`.

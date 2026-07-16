@@ -18,7 +18,7 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Player management | Complete | Complete | Preserve stored data | Players + instruments; filters (name/level/class/instrument); searchable layout picker |
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
 | Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor deferred |
-| Playback | Complete (custom TinySoundFont path) | Prototype (adapter boundary) | Use Maestro Java engine | Python ports Maestro ABC→MIDI; Java must use Maestro `java24` implementation |
+| Playback | Complete (custom TinySoundFont path) | Partial (Maestro engine + bottom transport/queue) | Use Maestro Java engine | `LotroAbcPlaybackEngine`; library/setlist play+queue; parts mute/solo popup |
 | Set Play | Complete | Not started | Preserve session semantics | NOW/NEXT/Played/Skip; advance song; play logging |
 | Relay / group playback | Complete | Not started | Preserve protocol where practical | Cloudflare Worker relay; Band Assistant / browser follower |
 | Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays still stubbed; LOTRO Documents auto-detect + Scan Account Targets |
@@ -60,4 +60,4 @@ Completed bandleader library + management slice (playback still deferred):
 7. Player / Band / layout grid management
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
 
-Later: Maestro-backed playback, Set Play / relays, ABCP, songbook export, Band Assistant, portable packaging.
+Later: Set Play / relays, ABCP, songbook export, Band Assistant, portable packaging.

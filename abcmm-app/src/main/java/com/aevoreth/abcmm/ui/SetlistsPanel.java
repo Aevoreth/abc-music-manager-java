@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.DropMode;
@@ -26,8 +27,10 @@ import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
@@ -39,6 +42,7 @@ import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -56,6 +60,9 @@ import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.SongRepository;
+import com.aevoreth.abcmm.domain.playback.PlayQueueItem;
+import com.aevoreth.abcmm.domain.playback.PlaybackException;
+import com.aevoreth.abcmm.domain.playback.PlaybackSession;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
@@ -68,7 +75,7 @@ import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 public final class SetlistsPanel extends JPanel {
 
     static final String COLUMN_WIDTHS_PREF_KEY = "java_setlist_song_column_widths";
-    private static final int[] DEFAULT_COLUMN_WIDTHS = {36, 220, 48, 64, 160};
+    private static final int[] DEFAULT_COLUMN_WIDTHS = {48, 36, 220, 48, 64, 160};
     private static final int MAIN_SPLIT_INITIAL = 200;
     private static final int MAIN_SPLIT_MIN_LEFT = 100;
 
@@ -78,6 +85,9 @@ public final class SetlistsPanel extends JPanel {
     private SongRepository songRepository;
     private SongLayoutRepository songLayoutRepository;
     private Preferences preferences;
+    private PlaybackSession playbackSession;
+    private Consumer<String> playbackErrorReporter = msg -> {
+    };
 
     private final DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode("Setlists");
     private final DefaultTreeModel treeModel = new DefaultTreeModel(treeRoot);
@@ -134,6 +144,7 @@ public final class SetlistsPanel extends JPanel {
         });
         applyDefaultColumnWidths();
         enableItemTableReorder();
+        enableItemTablePlaybackActions();
 
         assignmentPanel.setAssignmentChangedHandler(this::reloadAssignments);
 
@@ -212,6 +223,12 @@ public final class SetlistsPanel extends JPanel {
 
     public void setSongLayoutRepository(SongLayoutRepository songLayoutRepository) {
         this.songLayoutRepository = songLayoutRepository;
+    }
+
+    public void setPlaybackSession(PlaybackSession playbackSession, Consumer<String> errorReporter) {
+        this.playbackSession = playbackSession;
+        this.playbackErrorReporter = errorReporter == null ? msg -> {
+        } : errorReporter;
     }
 
     public void reload() {
@@ -658,11 +675,117 @@ public final class SetlistsPanel extends JPanel {
         }
         try {
             itemModel.setItems(setlistRepository.listItems(setlistId));
+            syncPlaybackQueueFromSetlist(setlistId);
         } catch (LibraryException ex) {
             showError(ex.getMessage());
             itemModel.setItems(List.of());
         }
         reloadAssignments();
+    }
+
+    private void syncPlaybackQueueFromSetlist(long setlistId) {
+        if (playbackSession == null) {
+            return;
+        }
+        List<PlayQueueItem> items = new ArrayList<>();
+        for (SetlistItemInfo item : itemModel.items()) {
+            items.add(PlayQueueItem.ofSetlistItem(
+                    item.songId(), item.songTitle(), setlistId, item.id()));
+        }
+        playbackSession.syncFromSetlistIfActive(setlistId, items);
+    }
+
+    private void enableItemTablePlaybackActions() {
+        itemTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                JLabel label = (JLabel) super.getTableCellRendererComponent(
+                        table, value, isSelected, hasFocus, row, column);
+                label.setIcon(PlaybackIcons.play(14));
+                label.setText("");
+                label.setHorizontalAlignment(JLabel.CENTER);
+                label.setToolTipText("Play setlist from this song");
+                return label;
+            }
+        });
+        itemTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e) || e.getClickCount() != 1) {
+                    return;
+                }
+                int viewRow = itemTable.rowAtPoint(e.getPoint());
+                int viewCol = itemTable.columnAtPoint(e.getPoint());
+                if (viewRow < 0 || viewCol != 0) {
+                    return;
+                }
+                playSetlistFromRow(viewRow);
+            }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                maybeShowItemPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                maybeShowItemPopup(e);
+            }
+        });
+    }
+
+    private void maybeShowItemPopup(java.awt.event.MouseEvent e) {
+        if (!e.isPopupTrigger()) {
+            return;
+        }
+        int viewRow = itemTable.rowAtPoint(e.getPoint());
+        if (viewRow < 0) {
+            return;
+        }
+        if (!itemTable.isRowSelected(viewRow)) {
+            itemTable.setRowSelectionInterval(viewRow, viewRow);
+        }
+        SetlistItemInfo item = itemModel.itemAt(viewRow);
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem play = new JMenuItem("Play setlist from here");
+        play.addActionListener(ev -> playSetlistFromRow(viewRow));
+        JMenuItem enqueue = new JMenuItem("Add to queue");
+        enqueue.addActionListener(ev -> enqueueItem(item));
+        menu.add(play);
+        menu.add(enqueue);
+        menu.show(itemTable, e.getX(), e.getY());
+    }
+
+    private void playSetlistFromRow(int row) {
+        if (playbackSession == null) {
+            return;
+        }
+        SetlistInfo setlist = selectedSetlist();
+        if (setlist == null || row < 0 || row >= itemModel.getRowCount()) {
+            return;
+        }
+        List<PlayQueueItem> items = new ArrayList<>();
+        for (SetlistItemInfo item : itemModel.items()) {
+            items.add(PlayQueueItem.ofSetlistItem(
+                    item.songId(), item.songTitle(), setlist.id(), item.id()));
+        }
+        try {
+            playbackSession.playSetlist(setlist.id(), items, row);
+        } catch (PlaybackException ex) {
+            playbackErrorReporter.accept(ex.getMessage());
+        }
+    }
+
+    private void enqueueItem(SetlistItemInfo item) {
+        if (playbackSession == null || item == null) {
+            return;
+        }
+        try {
+            playbackSession.enqueue(item.songId(), item.songTitle());
+        } catch (PlaybackException ex) {
+            playbackErrorReporter.accept(ex.getMessage());
+        }
     }
 
     private void reloadAssignments() {
@@ -1070,7 +1193,7 @@ public final class SetlistsPanel extends JPanel {
 
     private static final class ItemTableModel extends AbstractTableModel {
         private final List<SetlistItemInfo> items = new ArrayList<>();
-        private final String[] columns = {"#", "Title", "Parts", "Duration", "Composer"};
+        private final String[] columns = {"", "#", "Title", "Parts", "Duration", "Composer"};
 
         void setItems(List<SetlistItemInfo> next) {
             items.clear();
@@ -1106,7 +1229,7 @@ public final class SetlistsPanel extends JPanel {
         @Override
         public Class<?> getColumnClass(int columnIndex) {
             return switch (columnIndex) {
-                case 0, 2 -> Integer.class;
+                case 1, 3 -> Integer.class;
                 default -> String.class;
             };
         }
@@ -1115,11 +1238,12 @@ public final class SetlistsPanel extends JPanel {
         public Object getValueAt(int rowIndex, int columnIndex) {
             SetlistItemInfo item = items.get(rowIndex);
             return switch (columnIndex) {
-                case 0 -> item.position() + 1;
-                case 1 -> item.songTitle();
-                case 2 -> item.partCount();
-                case 3 -> LibraryDisplayFormats.formatDuration(item.songDurationSeconds());
-                case 4 -> item.songComposers();
+                case 0 -> "";
+                case 1 -> item.position() + 1;
+                case 2 -> item.songTitle();
+                case 3 -> item.partCount();
+                case 4 -> LibraryDisplayFormats.formatDuration(item.songDurationSeconds());
+                case 5 -> item.songComposers();
                 default -> "";
             };
         }

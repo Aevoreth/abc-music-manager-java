@@ -34,6 +34,8 @@ import com.aevoreth.abcmm.domain.library.SettingsRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.playback.AbcPlaybackEngine;
+import com.aevoreth.abcmm.domain.playback.PlaybackException;
+import com.aevoreth.abcmm.domain.playback.PlaybackSession;
 import com.aevoreth.abcmm.domain.prefs.LotroPaths;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.prefs.PreferencesException;
@@ -71,6 +73,7 @@ public final class MainFrame extends JFrame {
     private static final String[] NAV_SECTIONS = {"Library", "Setlists", "Bands"};
 
     private final AbcPlaybackEngine playbackEngine;
+    private final PlaybackSession playbackSession;
     private final PreferencesStore preferencesStore;
     private Preferences preferences;
     private SqliteDatabase database;
@@ -88,6 +91,7 @@ public final class MainFrame extends JFrame {
     private final LibraryPanel libraryPanel;
     private final SetlistsPanel setlistsPanel;
     private final BandsPanel bandsPanel;
+    private final PlaybackPanel playbackPanel;
     private final StatusBar statusBar;
     private final JSplitPane verticalSplit;
     private final JTabbedPane navTabs;
@@ -113,6 +117,17 @@ public final class MainFrame extends JFrame {
         this.preferences = preferencesStore.load();
         ensureDefaultLotroRootPersisted();
 
+        this.playbackSession = new PlaybackSession(playbackEngine, songId -> {
+            if (songRepository == null) {
+                return java.util.Optional.empty();
+            }
+            try {
+                return songRepository.resolvePrimaryAbcPath(songId);
+            } catch (LibraryException ex) {
+                return java.util.Optional.empty();
+            }
+        });
+
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setMinimumSize(new Dimension(1000, 650));
         setPreferredSize(new Dimension(
@@ -122,7 +137,7 @@ public final class MainFrame extends JFrame {
         setlistsPanel = new SetlistsPanel();
         setlistsPanel.setPreferences(preferences);
         bandsPanel = new BandsPanel();
-        PlaybackPanel playbackPanel = new PlaybackPanel();
+        playbackPanel = new PlaybackPanel();
         statusBar = new StatusBar();
 
         navTabs = new JTabbedPane(JTabbedPane.TOP);
@@ -164,6 +179,28 @@ public final class MainFrame extends JFrame {
 
         libraryPanel.setFilterListener(this::reloadLibrary);
         libraryPanel.setDefaultFilters(preferences.defaultFilters());
+        libraryPanel.setPlayListener(song -> {
+            try {
+                playbackSession.playSong(song.id(), song.title());
+                statusBar.setMessage("Playing: " + song.title());
+            } catch (PlaybackException ex) {
+                statusBar.setMessage(ex.getMessage());
+            }
+        });
+        libraryPanel.setEnqueueListener(song -> {
+            try {
+                playbackSession.enqueue(song.id(), song.title());
+                statusBar.setMessage("Queued: " + song.title());
+            } catch (PlaybackException ex) {
+                statusBar.setMessage(ex.getMessage());
+            }
+        });
+        setlistsPanel.setPlaybackSession(playbackSession, msg -> statusBar.setMessage(msg));
+        playbackPanel.bind(
+                playbackSession,
+                preferences,
+                msg -> statusBar.setMessage(msg),
+                this::persistPreferencesQuietly);
 
         applyPreferencesToUi(false);
         openDatabaseAndLoad();
@@ -222,6 +259,7 @@ public final class MainFrame extends JFrame {
     }
 
     void shutdown() {
+        playbackSession.close();
         if (songRepository != null) {
             songRepository.close();
             songRepository = null;
@@ -231,6 +269,14 @@ public final class MainFrame extends JFrame {
             database = null;
         }
         playbackEngine.close();
+    }
+
+    private void persistPreferencesQuietly() {
+        try {
+            preferencesStore.save(preferences);
+        } catch (PreferencesException ignored) {
+            // volume/tempo prefs are best-effort
+        }
     }
 
     AbcPlaybackEngine playbackEngine() {
@@ -444,6 +490,7 @@ public final class MainFrame extends JFrame {
     private void applySavedPreferences(Preferences updated) {
         preferences = updated;
         setlistsPanel.setPreferences(preferences);
+        playbackPanel.updatePreferences(preferences);
         try {
             preferencesStore.save(preferences);
         } catch (PreferencesException ex) {

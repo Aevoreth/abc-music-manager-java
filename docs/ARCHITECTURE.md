@@ -131,7 +131,7 @@ Maestro uses internal Java Sound APIs (`com.sun.media.sound`). Required JVM flag
 --add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED
 ```
 
-These flags are preserved in compiler, Surefire, and `exec:java` configuration.
+These flags are preserved in compiler, Surefire, `.mvn/jvm.config`, and `exec:exec@run-app` configuration.
 Do not remove them to “clean up” the build.
 
 Soundfont loading follows Maestro’s established behavior (`SynthesizerFactory`,

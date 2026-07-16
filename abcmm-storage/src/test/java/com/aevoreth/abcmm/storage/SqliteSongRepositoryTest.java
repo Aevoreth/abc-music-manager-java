@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -116,6 +117,24 @@ class SqliteSongRepositoryTest {
             assertEquals("Archive", repository.listFolderRules().get(0).path());
             assertEquals(1, repository.listAccountTargets().size());
             assertEquals("Main", repository.listAccountTargets().get(0).accountName());
+        }
+    }
+
+    @Test
+    void resolvesPrimaryAbcPathAndFindsSongById() throws Exception {
+        Path db = FixtureDatabases.createLibraryFixture(tempDir.resolve("library.sqlite"));
+        try (SqliteDatabase database = SqliteDatabase.openReadOnly(db);
+             SqliteSongRepository repository = new SqliteSongRepository(database)) {
+            Optional<Path> path = repository.resolvePrimaryAbcPath(1);
+            assertTrue(path.isPresent());
+            assertEquals(Path.of("/music/alpha.abc"), path.get());
+
+            Optional<LibrarySong> song = repository.findSongById(1);
+            assertTrue(song.isPresent());
+            assertEquals("Alpha March", song.get().title());
+
+            assertTrue(repository.resolvePrimaryAbcPath(999).isEmpty());
+            assertTrue(repository.findSongById(999).isEmpty());
         }
     }
 

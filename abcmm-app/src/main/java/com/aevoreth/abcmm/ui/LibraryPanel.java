@@ -38,6 +38,7 @@ import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -90,6 +91,10 @@ public final class LibraryPanel extends JPanel {
     private List<StatusInfo> statuses = List.of();
     private DefaultFilters defaultFilters = DefaultFilters.builtins();
     private Consumer<LibraryFilter> filterListener = filter -> {
+    };
+    private Consumer<LibrarySong> playListener = song -> {
+    };
+    private Consumer<LibrarySong> enqueueListener = song -> {
     };
     private boolean suppressEvents;
 
@@ -150,6 +155,16 @@ public final class LibraryPanel extends JPanel {
 
     public void setFilterListener(Consumer<LibraryFilter> filterListener) {
         this.filterListener = Objects.requireNonNullElse(filterListener, filter -> {
+        });
+    }
+
+    public void setPlayListener(Consumer<LibrarySong> playListener) {
+        this.playListener = Objects.requireNonNullElse(playListener, song -> {
+        });
+    }
+
+    public void setEnqueueListener(Consumer<LibrarySong> enqueueListener) {
+        this.enqueueListener = Objects.requireNonNullElse(enqueueListener, song -> {
         });
     }
 
@@ -237,6 +252,10 @@ public final class LibraryPanel extends JPanel {
         tableModel.configureSorter(sorter);
         table.setRowSorter(sorter);
         // Bind by column name so drag-reorder / hide-show keep the right renderers.
+        table.getColumn("Actions").setCellRenderer(new LibraryTableModel.ActionsRenderer());
+        table.getColumn("Actions").setMinWidth(56);
+        table.getColumn("Actions").setPreferredWidth(64);
+        table.getColumn("Actions").setMaxWidth(72);
         table.getColumn("Duration").setCellRenderer(new LibraryTableModel.DurationRenderer());
         table.getColumn("Last played").setCellRenderer(new LibraryTableModel.LastPlayedRenderer());
         table.getColumn("Rating").setCellRenderer(new LibraryTableModel.RatingRenderer());
@@ -257,6 +276,35 @@ public final class LibraryPanel extends JPanel {
                 int modelRow = table.convertRowIndexToModel(viewRow);
                 int modelCol = table.convertColumnIndexToModel(viewCol);
                 table.setToolTipText(tableModel.tooltipAt(modelRow, modelCol));
+            }
+        });
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                int viewRow = table.rowAtPoint(e.getPoint());
+                int viewCol = table.columnAtPoint(e.getPoint());
+                if (viewRow < 0 || viewCol < 0) {
+                    return;
+                }
+                int modelCol = table.convertColumnIndexToModel(viewCol);
+                if (modelCol != LibraryTableModel.COL_ACTIONS) {
+                    return;
+                }
+                int modelRow = table.convertRowIndexToModel(viewRow);
+                LibrarySong song = tableModel.songAt(modelRow);
+                if (song == null) {
+                    return;
+                }
+                java.awt.Rectangle cell = table.getCellRect(viewRow, viewCol, false);
+                int xInCell = e.getX() - cell.x;
+                if (xInCell < cell.width / 2) {
+                    playListener.accept(song);
+                } else {
+                    enqueueListener.accept(song);
+                }
             }
         });
         configureHeaderColumnMenu();
@@ -306,6 +354,9 @@ public final class LibraryPanel extends JPanel {
         for (int i = 0; i < LibraryTableModel.COLUMN_NAMES.length; i++) {
             int modelIndex = i;
             String name = LibraryTableModel.COLUMN_NAMES[i];
+            if (modelIndex == LibraryTableModel.COL_ACTIONS) {
+                continue; // keep actions always visible
+            }
             TableColumn column = table.getColumn(name);
             JCheckBoxMenuItem item = new JCheckBoxMenuItem(name, true);
             item.addActionListener(e -> {

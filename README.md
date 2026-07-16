@@ -68,18 +68,18 @@ mvn verify
 ## Run
 
 ```bash
-# Install sibling modules first (exec:java with -pl alone uses jars from ~/.m2)
-mvn -pl abcmm-app -am install -DskipTests
+# Build modules, then launch (exports come from .mvn/jvm.config)
+mvn -pl abcmm-app -am package -DskipTests
 mvn -pl abcmm-app exec:java
 ```
 
-Or as one reactor command (dependencies stay on the classpath without a prior install):
+Alternatively, spawn a dedicated JVM:
 
 ```bash
-mvn -pl abcmm-app -am package exec:java
+mvn -pl abcmm-app exec:exec@run-app
 ```
 
-Required JVM module exports (already configured for `exec:java` and tests):
+Required JVM module exports (configured in `.mvn/jvm.config`, Surefire, and `exec:exec@run-app`):
 
 ```text
 --add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED

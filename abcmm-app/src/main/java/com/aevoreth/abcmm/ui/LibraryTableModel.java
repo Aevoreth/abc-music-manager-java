@@ -2,11 +2,13 @@ package com.aevoreth.abcmm.ui;
 
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.FlowLayout;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 import javax.swing.JLabel;
+import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -15,12 +17,12 @@ import javax.swing.table.TableRowSorter;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
 
 /**
- * Read-only library table model with Python-aligned columns (inline actions deferred).
- * Cell values are sort-friendly; renderers format display text.
+ * Library table model with play/queue actions and Python-aligned columns.
  */
 final class LibraryTableModel extends AbstractTableModel {
 
     static final String[] COLUMN_NAMES = {
+            "Actions",
             "Title",
             "Composer(s)",
             "Duration",
@@ -31,6 +33,17 @@ final class LibraryTableModel extends AbstractTableModel {
             "Status",
             "Transcriber"
     };
+
+    static final int COL_ACTIONS = 0;
+    static final int COL_TITLE = 1;
+    static final int COL_COMPOSERS = 2;
+    static final int COL_DURATION = 3;
+    static final int COL_LAST_PLAYED = 4;
+    static final int COL_PARTS = 5;
+    static final int COL_RATING = 6;
+    static final int COL_SET = 7;
+    static final int COL_STATUS = 8;
+    static final int COL_TRANSCRIBER = 9;
 
     private final List<LibrarySong> songs = new ArrayList<>();
 
@@ -67,8 +80,9 @@ final class LibraryTableModel extends AbstractTableModel {
     @Override
     public Class<?> getColumnClass(int columnIndex) {
         return switch (columnIndex) {
-            case 2, 4, 5 -> Integer.class;
-            case 6 -> Boolean.class;
+            case COL_ACTIONS -> String.class;
+            case COL_DURATION, COL_PARTS, COL_RATING -> Integer.class;
+            case COL_SET -> Boolean.class;
             default -> String.class;
         };
     }
@@ -82,22 +96,29 @@ final class LibraryTableModel extends AbstractTableModel {
     public Object getValueAt(int rowIndex, int columnIndex) {
         LibrarySong song = songs.get(rowIndex);
         return switch (columnIndex) {
-            case 0 -> song.title();
-            case 1 -> song.composers();
-            case 2 -> song.durationSeconds() == null ? Integer.valueOf(-1) : song.durationSeconds();
-            case 3 -> song.lastPlayedAt() == null ? "" : song.lastPlayedAt();
-            case 4 -> song.partCount();
-            case 5 -> song.rating() == null ? Integer.valueOf(-1) : song.rating();
-            case 6 -> song.inUpcomingSet();
-            case 7 -> song.statusName() == null ? "" : song.statusName();
-            case 8 -> song.transcriber() == null ? "" : song.transcriber();
+            case COL_ACTIONS -> "";
+            case COL_TITLE -> song.title();
+            case COL_COMPOSERS -> song.composers();
+            case COL_DURATION -> song.durationSeconds() == null ? Integer.valueOf(-1) : song.durationSeconds();
+            case COL_LAST_PLAYED -> song.lastPlayedAt() == null ? "" : song.lastPlayedAt();
+            case COL_PARTS -> song.partCount();
+            case COL_RATING -> song.rating() == null ? Integer.valueOf(-1) : song.rating();
+            case COL_SET -> song.inUpcomingSet();
+            case COL_STATUS -> song.statusName() == null ? "" : song.statusName();
+            case COL_TRANSCRIBER -> song.transcriber() == null ? "" : song.transcriber();
             default -> "";
         };
     }
 
     String tooltipAt(int modelRow, int column) {
         LibrarySong song = songAt(modelRow);
-        if (song == null || column != 4) {
+        if (song == null) {
+            return null;
+        }
+        if (column == COL_ACTIONS) {
+            return "Play / Add to queue";
+        }
+        if (column != COL_PARTS) {
             return null;
         }
         List<String> names = song.partNames();
@@ -108,15 +129,16 @@ final class LibraryTableModel extends AbstractTableModel {
     }
 
     void configureSorter(TableRowSorter<LibraryTableModel> sorter) {
-        sorter.setComparator(0, String.CASE_INSENSITIVE_ORDER);
-        sorter.setComparator(1, String.CASE_INSENSITIVE_ORDER);
-        sorter.setComparator(2, Comparator.comparingInt(o -> ((Number) o).intValue()));
-        sorter.setComparator(3, Comparator.comparing(o -> String.valueOf(o)));
-        sorter.setComparator(4, Comparator.comparingInt(o -> ((Number) o).intValue()));
-        sorter.setComparator(5, Comparator.comparingInt(o -> ((Number) o).intValue()));
-        sorter.setComparator(6, Comparator.comparing(o -> (Boolean) o));
-        sorter.setComparator(7, String.CASE_INSENSITIVE_ORDER);
-        sorter.setComparator(8, String.CASE_INSENSITIVE_ORDER);
+        sorter.setSortable(COL_ACTIONS, false);
+        sorter.setComparator(COL_TITLE, String.CASE_INSENSITIVE_ORDER);
+        sorter.setComparator(COL_COMPOSERS, String.CASE_INSENSITIVE_ORDER);
+        sorter.setComparator(COL_DURATION, Comparator.comparingInt(o -> ((Number) o).intValue()));
+        sorter.setComparator(COL_LAST_PLAYED, Comparator.comparing(o -> String.valueOf(o)));
+        sorter.setComparator(COL_PARTS, Comparator.comparingInt(o -> ((Number) o).intValue()));
+        sorter.setComparator(COL_RATING, Comparator.comparingInt(o -> ((Number) o).intValue()));
+        sorter.setComparator(COL_SET, Comparator.comparing(o -> (Boolean) o));
+        sorter.setComparator(COL_STATUS, String.CASE_INSENSITIVE_ORDER);
+        sorter.setComparator(COL_TRANSCRIBER, String.CASE_INSENSITIVE_ORDER);
     }
 
     static final class DurationRenderer extends DefaultTableCellRenderer {
@@ -221,6 +243,29 @@ final class LibraryTableModel extends AbstractTableModel {
                 label.setForeground(nameColor);
             }
             return label;
+        }
+    }
+
+    static final class ActionsRenderer extends DefaultTableCellRenderer {
+        private final JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 0));
+        private final JLabel play = new JLabel(PlaybackIcons.play(14));
+        private final JLabel plus = new JLabel(PlaybackIcons.plus(14));
+
+        ActionsRenderer() {
+            panel.setOpaque(true);
+            play.setToolTipText("Play");
+            plus.setToolTipText("Add to queue");
+            panel.add(play);
+            panel.add(plus);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            panel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+            play.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+            plus.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+            return panel;
         }
     }
 }

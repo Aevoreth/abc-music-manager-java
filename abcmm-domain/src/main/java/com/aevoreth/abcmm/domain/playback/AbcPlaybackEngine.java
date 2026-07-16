@@ -23,11 +23,27 @@ public interface AbcPlaybackEngine extends AutoCloseable {
 
     void setPartSolo(int partIndex, boolean solo) throws PlaybackException;
 
+    boolean isPartMuted(int partIndex);
+
+    boolean isPartSolo(int partIndex);
+
     void setVolume(double volume) throws PlaybackException;
+
+    double getVolume();
+
+    void setTempoFactor(float tempoFactor) throws PlaybackException;
+
+    float getTempoFactor();
 
     PlaybackState getState();
 
     PlaybackPosition getPosition();
+
+    LoadedSong getLoadedSong();
+
+    void addPlaybackListener(PlaybackListener listener);
+
+    void removePlaybackListener(PlaybackListener listener);
 
     /**
      * Releases synthesizer / sequencer resources. Safe to call more than once.

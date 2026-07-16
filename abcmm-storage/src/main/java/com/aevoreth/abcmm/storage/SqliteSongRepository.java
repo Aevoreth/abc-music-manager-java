@@ -1,5 +1,6 @@
 package com.aevoreth.abcmm.storage;
 
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -7,6 +8,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import com.aevoreth.abcmm.domain.library.AccountTargetInfo;
 import com.aevoreth.abcmm.domain.library.FolderRuleInfo;
@@ -103,6 +105,83 @@ public final class SqliteSongRepository implements SongRepository {
             return List.copyOf(transcribers);
         } catch (SQLException ex) {
             throw new LibraryException("Failed to list transcribers", ex);
+        }
+    }
+
+    @Override
+    public Optional<Path> resolvePrimaryAbcPath(long songId) throws LibraryException {
+        String sql = """
+                SELECT file_path FROM SongFile
+                WHERE song_id = ?
+                ORDER BY is_primary_library DESC, is_set_copy ASC, id ASC
+                LIMIT 1
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, songId);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                String path = rs.getString(1);
+                if (path == null || path.isBlank()) {
+                    return Optional.empty();
+                }
+                return Optional.of(Path.of(path));
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to resolve ABC path for song " + songId, ex);
+        }
+    }
+
+    @Override
+    public Optional<LibrarySong> findSongById(long songId) throws LibraryException {
+        // Prefer a direct query so set-only songs still resolve for playback.
+        String sql = """
+                SELECT s.id, s.title, s.composers, s.transcriber, s.duration_seconds,
+                       json_array_length(COALESCE(s.parts, '[]')) AS part_count,
+                       s.parts,
+                       s.last_played_at, s.total_plays, s.rating, s.status_id,
+                       st.name AS status_name, st.color AS status_color,
+                       s.notes, s.lyrics,
+                       EXISTS (
+                           SELECT 1 FROM SetlistItem si JOIN Setlist sl ON sl.id = si.setlist_id
+                           WHERE si.song_id = s.id AND sl.locked = 0
+                       ) AS in_upcoming_set
+                FROM Song s
+                LEFT JOIN Status st ON st.id = s.status_id
+                WHERE s.id = ?
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, songId);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                Integer rating = rs.getObject("rating") == null ? null : rs.getInt("rating");
+                Integer duration = rs.getObject("duration_seconds") == null
+                        ? null
+                        : rs.getInt("duration_seconds");
+                Long statusId = rs.getObject("status_id") == null ? null : rs.getLong("status_id");
+                return Optional.of(new LibrarySong(
+                        rs.getLong("id"),
+                        nullToEmpty(rs.getString("title")),
+                        nullToEmpty(rs.getString("composers")),
+                        blankToNull(rs.getString("transcriber")),
+                        duration,
+                        rs.getInt("part_count"),
+                        rs.getString("parts"),
+                        blankToNull(rs.getString("last_played_at")),
+                        rs.getInt("total_plays"),
+                        rating,
+                        statusId,
+                        rs.getString("status_name"),
+                        rs.getString("status_color"),
+                        blankToNull(rs.getString("notes")),
+                        blankToNull(rs.getString("lyrics")),
+                        rs.getInt("in_upcoming_set") != 0));
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to find song " + songId, ex);
         }
     }
 

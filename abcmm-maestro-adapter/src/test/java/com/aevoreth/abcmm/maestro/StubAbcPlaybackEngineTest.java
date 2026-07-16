@@ -37,7 +37,7 @@ class StubAbcPlaybackEngineTest {
             engine.seek(Duration.ofSeconds(2));
             assertEquals(Duration.ofSeconds(2), engine.getPosition().position());
             engine.setVolume(0.5);
-            assertEquals(0.5, engine.volume());
+            assertEquals(0.5, engine.getVolume());
             engine.stop();
             assertEquals(PlaybackState.STOPPED, engine.getState());
         }

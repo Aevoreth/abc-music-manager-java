@@ -49,14 +49,30 @@
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
         <configuration>
+          <!-- exec:java reuses the Maven JVM; exports come from .mvn/jvm.config -->
           <mainClass>com.aevoreth.abcmm.AbcMusicManagerMain</mainClass>
-          <commandlineArgs></commandlineArgs>
-          <additionalClasspathElements/>
-          <jvmArgs>
-            <jvmArg>--add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED</jvmArg>
-            <jvmArg>--add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED</jvmArg>
-          </jvmArgs>
         </configuration>
+        <executions>
+          <execution>
+            <id>run-app</id>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <!-- Fresh JVM with the same module exports (for exec:exec@run-app) -->
+              <executable>java</executable>
+              <arguments>
+                <argument>--add-exports</argument>
+                <argument>java.desktop/com.sun.media.sound=ALL-UNNAMED</argument>
+                <argument>--add-exports</argument>
+                <argument>java.desktop/sun.awt.shell=ALL-UNNAMED</argument>
+                <argument>-classpath</argument>
+                <classpath/>
+                <argument>com.aevoreth.abcmm.AbcMusicManagerMain</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
