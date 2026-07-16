@@ -1117,6 +1117,8 @@ public final class SetlistsPanel extends JPanel {
             itemTable.setRowSelectionInterval(viewRow, viewRow);
         }
         SetlistItemInfo item = itemModel.itemAt(viewRow);
+        SetlistInfo currentSetlist = selectedSetlist();
+        Long currentSetlistId = currentSetlist == null ? null : currentSetlist.id();
         JPopupMenu menu = new JPopupMenu();
         JMenuItem play = new JMenuItem("Play setlist from here");
         play.addActionListener(ev -> playSetlistFromRow(viewRow));
@@ -1124,7 +1126,29 @@ public final class SetlistsPanel extends JPanel {
         enqueue.addActionListener(ev -> enqueueItem(item));
         menu.add(play);
         menu.add(enqueue);
+        menu.addSeparator();
+        menu.add(AddToSetlistMenu.build(
+                setlistRepository,
+                currentSetlistId,
+                target -> addSongToSetlist(item, target)));
         menu.show(itemTable, e.getX(), e.getY());
+    }
+
+    private void addSongToSetlist(SetlistItemInfo item, SetlistInfo target) {
+        if (item == null || target == null || setlistRepository == null || target.locked()) {
+            return;
+        }
+        try {
+            int position = setlistRepository.listItems(target.id()).size();
+            setlistRepository.addItem(target.id(), item.songId(), position, null, null);
+            SetlistInfo current = selectedSetlist();
+            if (current != null && current.id() == target.id()) {
+                reloadItems(target.id());
+            }
+            playbackErrorReporter.accept("Added \"" + item.songTitle() + "\" to " + target.name());
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+        }
     }
 
     private void playSetlistFromRow(int row) {

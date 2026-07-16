@@ -16,9 +16,7 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -31,7 +29,6 @@ import javax.swing.JCheckBox;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
-import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -49,12 +46,10 @@ import javax.swing.event.DocumentListener;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
 
-import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.LibraryFilter;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
-import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 
@@ -401,50 +396,9 @@ public final class LibraryPanel extends JPanel {
         menu.add(play);
         menu.add(enqueue);
         menu.addSeparator();
-        menu.add(buildAddToSetlistMenu(song));
+        menu.add(AddToSetlistMenu.build(
+                setlistRepository, null, setlist -> addToSetlistListener.accept(song, setlist)));
         menu.show(table, e.getX(), e.getY());
-    }
-
-    private JMenu buildAddToSetlistMenu(LibrarySong song) {
-        JMenu addToSetlist = new JMenu("Add to setlist");
-        if (setlistRepository == null) {
-            JMenuItem unavailable = new JMenuItem("Unavailable");
-            unavailable.setEnabled(false);
-            addToSetlist.add(unavailable);
-            return addToSetlist;
-        }
-        try {
-            Map<Long, String> folderNames = new HashMap<>();
-            for (SetlistFolderInfo folder : setlistRepository.listFolders()) {
-                folderNames.put(folder.id(), folder.name());
-            }
-            int added = 0;
-            for (SetlistInfo setlist : setlistRepository.listSetlists()) {
-                if (setlist.locked()) {
-                    continue;
-                }
-                String folderName = setlist.folderId() == null
-                        ? "Unfiled"
-                        : folderNames.getOrDefault(setlist.folderId(), "Unfiled");
-                String setName = setlist.name() == null || setlist.name().isBlank()
-                        ? ("#" + setlist.id())
-                        : setlist.name();
-                JMenuItem item = new JMenuItem(folderName + " / " + setName);
-                item.addActionListener(ev -> addToSetlistListener.accept(song, setlist));
-                addToSetlist.add(item);
-                added++;
-            }
-            if (added == 0) {
-                JMenuItem empty = new JMenuItem("No unlocked setlists");
-                empty.setEnabled(false);
-                addToSetlist.add(empty);
-            }
-        } catch (LibraryException ex) {
-            JMenuItem error = new JMenuItem("Failed to load setlists");
-            error.setEnabled(false);
-            addToSetlist.add(error);
-        }
-        return addToSetlist;
     }
 
     /** Right-click a column header to show or hide columns. */
