@@ -49,6 +49,14 @@ public final class LotroInstrumentDefaults {
             "jaunty hand-knells",
             "jaunty hand-knell");
 
+    /**
+     * UI-only spelling overrides. Keys are normalized (lowercase); values are display labels.
+     * DB / schema names stay as stored (see docs/SCHEMA_ISSUES.md).
+     */
+    private static final Map<String, String> DISPLAY_SPELLINGS = Map.of(
+            "traveler's trusty fiddle", "Traveller's Trusty Fiddle",
+            "traveller's trusty fiddle", "Traveller's Trusty Fiddle");
+
     private enum UseSkill {
         LUTE,
         THEORBO,
@@ -80,19 +88,31 @@ public final class LotroInstrumentDefaults {
     }
 
     /**
-     * Display label with a purple festival or gold coffer bullet when applicable.
+     * Canonical UI label for an instrument name (corrects known schema misspellings for display).
      */
-    public static String displayName(String instrumentName) {
+    public static String uiName(String instrumentName) {
         if (instrumentName == null || instrumentName.isBlank()) {
             return "";
         }
+        String display = DISPLAY_SPELLINGS.get(normalize(instrumentName));
+        return display != null ? display : instrumentName;
+    }
+
+    /**
+     * Display label with a purple festival or gold coffer bullet when applicable.
+     */
+    public static String displayName(String instrumentName) {
+        String label = uiName(instrumentName);
+        if (label.isEmpty()) {
+            return "";
+        }
         if (isFestivalInstrument(instrumentName)) {
-            return FESTIVAL_PREFIX + instrumentName;
+            return FESTIVAL_PREFIX + label;
         }
         if (isCofferInstrument(instrumentName)) {
-            return COFFER_PREFIX + instrumentName;
+            return COFFER_PREFIX + label;
         }
-        return instrumentName;
+        return label;
     }
 
     /**

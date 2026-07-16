@@ -1,9 +1,11 @@
 package com.aevoreth.abcmm.storage;
 
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -14,11 +16,16 @@ import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
 import com.aevoreth.abcmm.domain.band.PlayerInfo;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 
 /**
  * JDBC implementation of {@link BandRepository}. Does not close the shared database.
  */
 public final class SqliteBandRepository implements BandRepository {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final SqliteDatabase database;
 
@@ -464,6 +471,319 @@ public final class SqliteBandRepository implements BandRepository {
             }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to replace layout slots", ex);
+        }
+    }
+
+    @Override
+    public void replacePlayerInBandLayout(
+            long bandLayoutId,
+            long bandId,
+            long oldPlayerId,
+            long newPlayerId) throws LibraryException {
+        if (oldPlayerId == newPlayerId) {
+            throw new LibraryException("old and new player must differ");
+        }
+        List<BandLayoutSlotInfo> slots = listSlots(bandLayoutId);
+        BandLayoutSlotInfo oldSlot = null;
+        for (BandLayoutSlotInfo slot : slots) {
+            if (slot.playerId() == oldPlayerId) {
+                oldSlot = slot;
+            }
+            if (slot.playerId() == newPlayerId) {
+                throw new LibraryException("Player " + newPlayerId + " already on layout " + bandLayoutId);
+            }
+        }
+        if (oldSlot == null) {
+            throw new LibraryException("Player " + oldPlayerId + " not on layout " + bandLayoutId);
+        }
+
+        Connection connection = database.connection();
+        String now = SqliteTimestamps.now();
+        boolean previousAutoCommit;
+        try {
+            previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to begin replace-player transaction", ex);
+        }
+        try {
+            transferSongLayoutAssignments(connection, bandLayoutId, oldPlayerId, newPlayerId, now);
+            transferSetlistBandAssignments(connection, bandLayoutId, oldPlayerId, newPlayerId, now);
+            rewriteExportColumnOrder(connection, bandLayoutId, oldPlayerId, newPlayerId, now);
+
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM BandLayoutSlot WHERE band_layout_id = ? AND player_id = ?")) {
+                delete.setLong(1, bandLayoutId);
+                delete.setLong(2, oldPlayerId);
+                delete.executeUpdate();
+            }
+            try (PreparedStatement insert = connection.prepareStatement(
+                    """
+                    INSERT INTO BandLayoutSlot
+                    (band_layout_id, player_id, x, y, width_units, height_units, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """)) {
+                insert.setLong(1, bandLayoutId);
+                insert.setLong(2, newPlayerId);
+                insert.setInt(3, oldSlot.x());
+                insert.setInt(4, oldSlot.y());
+                insert.setInt(5, oldSlot.widthUnits());
+                insert.setInt(6, oldSlot.heightUnits());
+                insert.setString(7, now);
+                insert.setString(8, now);
+                insert.executeUpdate();
+            }
+            try (PreparedStatement member = connection.prepareStatement(
+                    "INSERT OR IGNORE INTO BandMember (band_id, player_id) VALUES (?, ?)")) {
+                member.setLong(1, bandId);
+                member.setLong(2, newPlayerId);
+                member.executeUpdate();
+            }
+
+            connection.commit();
+        } catch (Exception ex) {
+            try {
+                connection.rollback();
+            } catch (SQLException ignored) {
+                // best-effort
+            }
+            if (ex instanceof LibraryException libraryEx) {
+                throw libraryEx;
+            }
+            throw new LibraryException("Failed to replace player on band layout", ex);
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException ignored) {
+                // best-effort
+            }
+        }
+    }
+
+    private static void transferSongLayoutAssignments(
+            Connection connection,
+            long bandLayoutId,
+            long oldPlayerId,
+            long newPlayerId,
+            String now) throws SQLException {
+        List<long[]> rows = new ArrayList<>();
+        try (PreparedStatement select = connection.prepareStatement(
+                """
+                SELECT sla.song_layout_id, sla.part_number
+                FROM SongLayoutAssignment sla
+                JOIN SongLayout sl ON sl.id = sla.song_layout_id
+                WHERE sl.band_layout_id = ? AND sla.player_id = ?
+                """)) {
+            select.setLong(1, bandLayoutId);
+            select.setLong(2, oldPlayerId);
+            try (ResultSet rs = select.executeQuery()) {
+                while (rs.next()) {
+                    long songLayoutId = rs.getLong(1);
+                    Integer partNumber = rs.getObject(2) == null ? null : rs.getInt(2);
+                    rows.add(new long[] {
+                            songLayoutId,
+                            partNumber == null ? Long.MIN_VALUE : partNumber.longValue()
+                    });
+                }
+            }
+        }
+        for (long[] row : rows) {
+            long songLayoutId = row[0];
+            Integer partNumber = row[1] == Long.MIN_VALUE ? null : (int) row[1];
+            upsertSongLayoutAssignment(connection, songLayoutId, newPlayerId, partNumber, now);
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM SongLayoutAssignment WHERE song_layout_id = ? AND player_id = ?")) {
+                delete.setLong(1, songLayoutId);
+                delete.setLong(2, oldPlayerId);
+                delete.executeUpdate();
+            }
+        }
+    }
+
+    private static void transferSetlistBandAssignments(
+            Connection connection,
+            long bandLayoutId,
+            long oldPlayerId,
+            long newPlayerId,
+            String now) throws SQLException {
+        List<long[]> rows = new ArrayList<>();
+        try (PreparedStatement select = connection.prepareStatement(
+                """
+                SELECT sba.setlist_item_id, sba.part_number
+                FROM SetlistBandAssignment sba
+                JOIN SetlistItem si ON si.id = sba.setlist_item_id
+                JOIN SongLayout sl ON sl.id = si.song_layout_id
+                WHERE sl.band_layout_id = ? AND sba.player_id = ?
+                """)) {
+            select.setLong(1, bandLayoutId);
+            select.setLong(2, oldPlayerId);
+            try (ResultSet rs = select.executeQuery()) {
+                while (rs.next()) {
+                    long setlistItemId = rs.getLong(1);
+                    Integer partNumber = rs.getObject(2) == null ? null : rs.getInt(2);
+                    rows.add(new long[] {
+                            setlistItemId,
+                            partNumber == null ? Long.MIN_VALUE : partNumber.longValue()
+                    });
+                }
+            }
+        }
+        for (long[] row : rows) {
+            long setlistItemId = row[0];
+            Integer partNumber = row[1] == Long.MIN_VALUE ? null : (int) row[1];
+            upsertSetlistBandAssignment(connection, setlistItemId, newPlayerId, partNumber, now);
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM SetlistBandAssignment WHERE setlist_item_id = ? AND player_id = ?")) {
+                delete.setLong(1, setlistItemId);
+                delete.setLong(2, oldPlayerId);
+                delete.executeUpdate();
+            }
+        }
+    }
+
+    private static void upsertSongLayoutAssignment(
+            Connection connection,
+            long songLayoutId,
+            long playerId,
+            Integer partNumber,
+            String now) throws SQLException {
+        Long existingId = null;
+        try (PreparedStatement find = connection.prepareStatement(
+                "SELECT id FROM SongLayoutAssignment WHERE song_layout_id = ? AND player_id = ?")) {
+            find.setLong(1, songLayoutId);
+            find.setLong(2, playerId);
+            try (ResultSet rs = find.executeQuery()) {
+                if (rs.next()) {
+                    existingId = rs.getLong(1);
+                }
+            }
+        }
+        if (existingId != null) {
+            try (PreparedStatement update = connection.prepareStatement(
+                    "UPDATE SongLayoutAssignment SET part_number = ?, updated_at = ? WHERE id = ?")) {
+                setNullableInt(update, 1, partNumber);
+                update.setString(2, now);
+                update.setLong(3, existingId);
+                update.executeUpdate();
+            }
+        } else {
+            try (PreparedStatement insert = connection.prepareStatement(
+                    """
+                    INSERT INTO SongLayoutAssignment
+                    (song_layout_id, player_id, part_number, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """)) {
+                insert.setLong(1, songLayoutId);
+                insert.setLong(2, playerId);
+                setNullableInt(insert, 3, partNumber);
+                insert.setString(4, now);
+                insert.setString(5, now);
+                insert.executeUpdate();
+            }
+        }
+    }
+
+    private static void upsertSetlistBandAssignment(
+            Connection connection,
+            long setlistItemId,
+            long playerId,
+            Integer partNumber,
+            String now) throws SQLException {
+        Long existingId = null;
+        try (PreparedStatement find = connection.prepareStatement(
+                "SELECT id FROM SetlistBandAssignment WHERE setlist_item_id = ? AND player_id = ?")) {
+            find.setLong(1, setlistItemId);
+            find.setLong(2, playerId);
+            try (ResultSet rs = find.executeQuery()) {
+                if (rs.next()) {
+                    existingId = rs.getLong(1);
+                }
+            }
+        }
+        if (existingId != null) {
+            try (PreparedStatement update = connection.prepareStatement(
+                    "UPDATE SetlistBandAssignment SET part_number = ?, updated_at = ? WHERE id = ?")) {
+                setNullableInt(update, 1, partNumber);
+                update.setString(2, now);
+                update.setLong(3, existingId);
+                update.executeUpdate();
+            }
+        } else {
+            try (PreparedStatement insert = connection.prepareStatement(
+                    """
+                    INSERT INTO SetlistBandAssignment
+                    (setlist_item_id, player_id, part_number, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """)) {
+                insert.setLong(1, setlistItemId);
+                insert.setLong(2, playerId);
+                setNullableInt(insert, 3, partNumber);
+                insert.setString(4, now);
+                insert.setString(5, now);
+                insert.executeUpdate();
+            }
+        }
+    }
+
+    private static void rewriteExportColumnOrder(
+            Connection connection,
+            long bandLayoutId,
+            long oldPlayerId,
+            long newPlayerId,
+            String now) throws SQLException, LibraryException {
+        String exportJson;
+        try (PreparedStatement select = connection.prepareStatement(
+                "SELECT export_column_order FROM BandLayout WHERE id = ?")) {
+            select.setLong(1, bandLayoutId);
+            try (ResultSet rs = select.executeQuery()) {
+                if (!rs.next()) {
+                    return;
+                }
+                exportJson = rs.getString(1);
+            }
+        }
+        if (exportJson == null || exportJson.isBlank()) {
+            return;
+        }
+        try {
+            JsonNode root = JSON.readTree(exportJson);
+            if (!root.isArray()) {
+                return;
+            }
+            boolean changed = false;
+            ArrayNode rewritten = JSON.createArrayNode();
+            for (JsonNode node : root) {
+                long playerId = node.asLong();
+                if (playerId == oldPlayerId) {
+                    rewritten.add(newPlayerId);
+                    changed = true;
+                } else {
+                    rewritten.add(playerId);
+                }
+            }
+            if (!changed) {
+                return;
+            }
+            try (PreparedStatement update = connection.prepareStatement(
+                    "UPDATE BandLayout SET export_column_order = ?, updated_at = ? WHERE id = ?")) {
+                update.setString(1, JSON.writeValueAsString(rewritten));
+                update.setString(2, now);
+                update.setLong(3, bandLayoutId);
+                update.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new LibraryException("Failed to rewrite export_column_order", ex);
+        }
+    }
+
+    private static void setNullableInt(PreparedStatement statement, int index, Integer value)
+            throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.INTEGER);
+        } else {
+            statement.setInt(index, value);
         }
     }
 

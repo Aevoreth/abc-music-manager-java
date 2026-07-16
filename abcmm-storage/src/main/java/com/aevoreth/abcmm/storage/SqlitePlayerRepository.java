@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Objects;
 
 import com.aevoreth.abcmm.domain.band.InstrumentInfo;
+import com.aevoreth.abcmm.domain.band.PlayerFilter;
 import com.aevoreth.abcmm.domain.band.PlayerInfo;
 import com.aevoreth.abcmm.domain.band.PlayerInstrumentInfo;
 import com.aevoreth.abcmm.domain.band.PlayerRepository;
@@ -27,18 +28,62 @@ public final class SqlitePlayerRepository implements PlayerRepository {
 
     @Override
     public List<PlayerInfo> listPlayers() throws LibraryException {
-        String sql = """
+        return listPlayers(PlayerFilter.none());
+    }
+
+    @Override
+    public List<PlayerInfo> listPlayers(PlayerFilter filter) throws LibraryException {
+        PlayerFilter effective = filter == null ? PlayerFilter.none() : filter;
+        StringBuilder sql = new StringBuilder(
+                """
                 SELECT id, name, level, "class"
                 FROM Player
-                ORDER BY name
-                """;
-        try (PreparedStatement statement = database.connection().prepareStatement(sql);
-             ResultSet rs = statement.executeQuery()) {
-            List<PlayerInfo> players = new ArrayList<>();
-            while (rs.next()) {
-                players.add(mapPlayer(rs));
+                WHERE 1 = 1
+                """);
+        List<Object> params = new ArrayList<>();
+        if (effective.nameSubstring() != null && !effective.nameSubstring().isBlank()) {
+            sql.append(" AND name LIKE ?");
+            params.add("%" + effective.nameSubstring().strip() + "%");
+        }
+        if (effective.levelMin() != null) {
+            sql.append(" AND (level IS NOT NULL AND level >= ?)");
+            params.add(effective.levelMin());
+        }
+        if (effective.levelMax() != null) {
+            sql.append(" AND (level IS NOT NULL AND level <= ?)");
+            params.add(effective.levelMax());
+        }
+        if (effective.classSubstring() != null && !effective.classSubstring().isBlank()) {
+            sql.append(" AND \"class\" LIKE ?");
+            params.add("%" + effective.classSubstring().strip() + "%");
+        }
+        if (effective.instrumentIds() != null && !effective.instrumentIds().isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(
+                    effective.instrumentIds().size(), "?"));
+            sql.append(" AND id IN (SELECT player_id FROM PlayerInstrument WHERE instrument_id IN (")
+                    .append(placeholders)
+                    .append(") AND has_instrument = 1)");
+            params.addAll(effective.instrumentIds());
+        }
+        sql.append(" ORDER BY name");
+        try (PreparedStatement statement = database.connection().prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) {
+                Object param = params.get(i);
+                if (param instanceof Integer integer) {
+                    statement.setInt(i + 1, integer);
+                } else if (param instanceof Long longValue) {
+                    statement.setLong(i + 1, longValue);
+                } else {
+                    statement.setString(i + 1, param.toString());
+                }
             }
-            return List.copyOf(players);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<PlayerInfo> players = new ArrayList<>();
+                while (rs.next()) {
+                    players.add(mapPlayer(rs));
+                }
+                return List.copyOf(players);
+            }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to list players", ex);
         }
@@ -123,14 +168,22 @@ public final class SqlitePlayerRepository implements PlayerRepository {
 
     @Override
     public List<InstrumentInfo> listInstruments() throws LibraryException {
-        String sql = "SELECT id, name FROM Instrument ORDER BY name";
-        try (PreparedStatement statement = database.connection().prepareStatement(sql);
-             ResultSet rs = statement.executeQuery()) {
+        // Players tab uses the fixed v12 catalog order (same as Python PLAYER_INSTRUMENTS),
+        // not every Instrument row that ABC scanning may have created.
+        String sql = "SELECT id, name FROM Instrument WHERE name = ?";
+        try {
             List<InstrumentInfo> instruments = new ArrayList<>();
-            while (rs.next()) {
-                instruments.add(new InstrumentInfo(
-                        rs.getLong("id"),
-                        nullToEmpty(rs.getString("name"))));
+            try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+                for (String name : SchemaMigrator.PLAYER_INSTRUMENTS) {
+                    statement.setString(1, name);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        if (rs.next()) {
+                            instruments.add(new InstrumentInfo(
+                                    rs.getLong("id"),
+                                    nullToEmpty(rs.getString("name"))));
+                        }
+                    }
+                }
             }
             return List.copyOf(instruments);
         } catch (SQLException ex) {

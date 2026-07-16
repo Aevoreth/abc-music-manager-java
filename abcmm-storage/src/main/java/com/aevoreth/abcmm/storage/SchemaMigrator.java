@@ -57,6 +57,7 @@ final class SchemaMigrator {
         runMigrations(connection);
         seedDefaults(connection);
         seedPlayerInstruments(connection);
+        mergeKnownInstrumentDuplicates(connection);
         backfillSongStatusIds(connection);
     }
 
@@ -352,7 +353,7 @@ final class SchemaMigrator {
             current = 11;
         }
         if (current < 12) {
-            migrateStudentFiddleRename(connection);
+            mergeInstrumentInto(connection, "Student Fiddle", "Student's Fiddle");
             setSchemaVersion(connection, 12);
         }
     }
@@ -406,6 +407,32 @@ final class SchemaMigrator {
             }
         }
         connection.commit();
+    }
+
+    /**
+     * Collapse ABC/scan spelling variants into the v12 catalog names.
+     * Idempotent; safe to run on every open.
+     */
+    static void mergeKnownInstrumentDuplicates(Connection connection) throws SQLException {
+        // Case-only duplicates of catalog names (e.g. Maestro "Jaunty Hand-knells").
+        for (String canonical : PLAYER_INSTRUMENTS) {
+            List<String> variants = new ArrayList<>();
+            try (PreparedStatement select = connection.prepareStatement(
+                    "SELECT name FROM Instrument WHERE LOWER(name) = LOWER(?) AND name != ?")) {
+                select.setString(1, canonical);
+                select.setString(2, canonical);
+                try (ResultSet rs = select.executeQuery()) {
+                    while (rs.next()) {
+                        variants.add(rs.getString(1));
+                    }
+                }
+            }
+            for (String variant : variants) {
+                mergeInstrumentInto(connection, variant, canonical);
+            }
+        }
+        // Distinct spelling kept for ABC↔DB parity (see docs/SCHEMA_ISSUES.md).
+        mergeInstrumentInto(connection, "Traveller's Trusty Fiddle", "Traveler's Trusty Fiddle");
     }
 
     static void backfillSongStatusIds(Connection connection) throws SQLException {
@@ -634,9 +661,14 @@ final class SchemaMigrator {
         connection.commit();
     }
 
-    private static void migrateStudentFiddleRename(Connection connection) throws SQLException {
-        String oldName = "Student Fiddle";
-        String newName = "Student's Fiddle";
+    /**
+     * Rename {@code oldName} to {@code newName}, or merge into an existing {@code newName} row.
+     */
+    private static void mergeInstrumentInto(Connection connection, String oldName, String newName)
+            throws SQLException {
+        if (oldName == null || newName == null || oldName.equals(newName)) {
+            return;
+        }
         String now = Instant.now().toString();
 
         Long oldId = null;

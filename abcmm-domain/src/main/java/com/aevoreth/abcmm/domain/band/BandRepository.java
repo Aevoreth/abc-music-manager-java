@@ -56,4 +56,15 @@ public interface BandRepository {
     void deleteSlot(long bandLayoutId, long playerId) throws LibraryException;
 
     void replaceSlots(long bandLayoutId, List<BandLayoutSlotInfo> slots) throws LibraryException;
+
+    /**
+     * Replace {@code oldPlayerId} with {@code newPlayerId} on this band layout and transfer
+     * song/setlist part assignments scoped to the layout. Does not modify {@code PlayerInstrument}.
+     * Adds the new player to {@code BandMember} (does not remove the old member), matching Python.
+     */
+    void replacePlayerInBandLayout(
+            long bandLayoutId,
+            long bandId,
+            long oldPlayerId,
+            long newPlayerId) throws LibraryException;
 }

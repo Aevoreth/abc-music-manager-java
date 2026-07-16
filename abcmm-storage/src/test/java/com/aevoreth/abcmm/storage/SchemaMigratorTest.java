@@ -70,4 +70,37 @@ class SchemaMigratorTest {
             assertEquals(3, statuses.getInt(1));
         }
     }
+
+    @Test
+    void openMergesCaseVariantInstrumentDuplicates() throws Exception {
+        Path db = tempDir.resolve("dup-instruments.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
+             Connection connection = database.connection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO Instrument (name, alternative_names, created_at, updated_at)
+                    VALUES ('Jaunty Hand-knells', NULL, '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z')
+                    """);
+        }
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
+             Connection connection = database.connection();
+             Statement statement = connection.createStatement()) {
+            try (ResultSet knells = statement.executeQuery(
+                    "SELECT COUNT(*) FROM Instrument WHERE LOWER(name) = 'jaunty hand-knells'")) {
+                assertTrue(knells.next());
+                assertEquals(1, knells.getInt(1));
+            }
+            try (ResultSet canonical = statement.executeQuery(
+                    "SELECT COUNT(*) FROM Instrument WHERE name = 'Jaunty Hand-Knells'")) {
+                assertTrue(canonical.next());
+                assertEquals(1, canonical.getInt(1));
+            }
+            try (ResultSet traveler = statement.executeQuery(
+                    "SELECT name FROM Instrument WHERE LOWER(name) LIKE '%trusty fiddle%'")) {
+                assertTrue(traveler.next());
+                assertEquals("Traveler's Trusty Fiddle", traveler.getString(1));
+                assertTrue(!traveler.next());
+            }
+        }
+    }
 }

@@ -11,6 +11,12 @@ public interface PlayerRepository {
 
     List<PlayerInfo> listPlayers() throws LibraryException;
 
+    /**
+     * List players sorted by name, with optional filters (name/class substring, level range,
+     * possession of any of the given instruments).
+     */
+    List<PlayerInfo> listPlayers(PlayerFilter filter) throws LibraryException;
+
     PlayerInfo getPlayer(long id) throws LibraryException;
 
     long addPlayer(String name, Integer level, String characterClass) throws LibraryException;

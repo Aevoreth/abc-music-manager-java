@@ -91,6 +91,8 @@ public final class MainFrame extends JFrame {
     private final StatusBar statusBar;
     private final JSplitPane verticalSplit;
     private final JTabbedPane navTabs;
+    private int currentNavIndex;
+    private boolean suppressNavChange;
 
     public MainFrame() {
         this(MaestroPlaybackEngines.create(), JsonPreferencesStore.atDefaultLocation());
@@ -111,7 +113,7 @@ public final class MainFrame extends JFrame {
         this.preferences = preferencesStore.load();
         ensureDefaultLotroRootPersisted();
 
-        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setMinimumSize(new Dimension(1000, 650));
         setPreferredSize(new Dimension(
                 Preferences.DEFAULT_WINDOW_WIDTH, Preferences.DEFAULT_WINDOW_HEIGHT));
@@ -126,8 +128,28 @@ public final class MainFrame extends JFrame {
         navTabs.addTab(NAV_SECTIONS[0], libraryPanel);
         navTabs.addTab(NAV_SECTIONS[1], setlistsPanel);
         navTabs.addTab(NAV_SECTIONS[2], bandsPanel);
-        navTabs.addChangeListener(e ->
-                preferences.extras().put("java_nav_section", navTabs.getSelectedIndex()));
+        currentNavIndex = 0;
+        navTabs.addChangeListener(e -> {
+            if (suppressNavChange) {
+                return;
+            }
+            int selected = navTabs.getSelectedIndex();
+            if (selected == currentNavIndex) {
+                preferences.extras().put("java_nav_section", selected);
+                return;
+            }
+            if (!confirmLeavePageWithUnsaved(selected)) {
+                suppressNavChange = true;
+                try {
+                    navTabs.setSelectedIndex(currentNavIndex);
+                } finally {
+                    suppressNavChange = false;
+                }
+                return;
+            }
+            currentNavIndex = selected;
+            preferences.extras().put("java_nav_section", selected);
+        });
 
         verticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, navTabs, playbackPanel);
         verticalSplit.setResizeWeight(0.72);
@@ -148,7 +170,11 @@ public final class MainFrame extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                if (!confirmLeavePageWithUnsaved(-1)) {
+                    return;
+                }
                 persistWindowState();
+                dispose();
             }
 
             @Override
@@ -162,6 +188,36 @@ public final class MainFrame extends JFrame {
             setLocationRelativeTo(null);
         }
         restoreNavSelection();
+    }
+
+    private boolean pageHasUnsavedChanges(int pageIndex) {
+        if (pageIndex < 0 || pageIndex >= navTabs.getTabCount()) {
+            return false;
+        }
+        if (navTabs.getComponentAt(pageIndex) instanceof BandsPanel bands) {
+            return bands.hasUnsavedChanges();
+        }
+        return false;
+    }
+
+    /**
+     * @param targetIndex destination tab, or {@code -1} when closing the window
+     * @return true if navigation/close may proceed
+     */
+    private boolean confirmLeavePageWithUnsaved(int targetIndex) {
+        if (currentNavIndex == targetIndex) {
+            return true;
+        }
+        if (!pageHasUnsavedChanges(currentNavIndex)) {
+            return true;
+        }
+        int reply = JOptionPane.showConfirmDialog(
+                this,
+                "You have unsaved changes. Are you sure you want to leave?",
+                "Unsaved changes",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        return reply == JOptionPane.YES_OPTION;
     }
 
     void shutdown() {
@@ -197,6 +253,9 @@ public final class MainFrame extends JFrame {
         settings.addActionListener(e -> openSettings());
         JMenuItem exit = new JMenuItem("Exit");
         exit.addActionListener(e -> {
+            if (!confirmLeavePageWithUnsaved(-1)) {
+                return;
+            }
             persistWindowState();
             dispose();
         });
@@ -213,7 +272,13 @@ public final class MainFrame extends JFrame {
         Object stored = preferences.extras().get("java_nav_section");
         Integer index = asInt(stored);
         if (index != null && index >= 0 && index < NAV_SECTIONS.length) {
-            navTabs.setSelectedIndex(index);
+            suppressNavChange = true;
+            try {
+                navTabs.setSelectedIndex(index);
+                currentNavIndex = index;
+            } finally {
+                suppressNavChange = false;
+            }
         }
     }
 

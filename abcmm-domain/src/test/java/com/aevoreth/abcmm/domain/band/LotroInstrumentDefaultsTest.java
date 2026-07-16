@@ -47,6 +47,17 @@ class LotroInstrumentDefaultsTest {
     }
 
     @Test
+    void travelerFiddleDisplaysBritishSpelling() {
+        assertEquals(
+                "Traveller's Trusty Fiddle",
+                LotroInstrumentDefaults.uiName("Traveler's Trusty Fiddle"));
+        assertTrue(LotroInstrumentDefaults.displayName("Traveler's Trusty Fiddle")
+                .endsWith("Traveller's Trusty Fiddle"));
+        assertTrue(LotroInstrumentDefaults.displayName("Traveler's Trusty Fiddle")
+                .startsWith(LotroInstrumentDefaults.FESTIVAL_PREFIX));
+    }
+
+    @Test
     void classesMatchWikiTableHeaders() {
         assertEquals(12, LotroInstrumentDefaults.CHARACTER_CLASSES.size());
         assertTrue(LotroInstrumentDefaults.CHARACTER_CLASSES.contains("Minstrel"));
