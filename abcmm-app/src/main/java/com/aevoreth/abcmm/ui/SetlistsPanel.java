@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -42,6 +43,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableColumnModel;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
@@ -80,10 +82,18 @@ public final class SetlistsPanel extends JPanel {
     static final String COLUMN_WIDTHS_PREF_KEY = "java_setlist_song_column_widths";
     /** Shared with Python edition preferences key. */
     static final String META_SPLIT_PREF_KEY = "setlists_top_split_state";
-    /** #, Play, Warning, Title, Parts, Duration, Composer */
-    private static final int[] DEFAULT_COLUMN_WIDTHS = {36, 48, 28, 220, 48, 64, 160};
+    /** #, Play, Warning stay fixed; Title / Parts / Duration / Composer are flexible. */
+    private static final int FIXED_COLUMN_COUNT = 3;
+    private static final int COL_INDEX = 0;
     private static final int COL_PLAY = 1;
     private static final int COL_WARNING = 2;
+    private static final int COL_TITLE = 3;
+    private static final int COL_PARTS = 4;
+    private static final int COL_DURATION = 5;
+    private static final int COL_COMPOSER = 6;
+    private static final int DEFAULT_TITLE_WIDTH = 220;
+    private static final int DEFAULT_COMPOSER_WIDTH = 160;
+    private static final int HEADER_PAD = 16;
     private static final Color WARNING_RED = new Color(0xFF4444);
     private static final int MAIN_SPLIT_INITIAL = 200;
     private static final int MAIN_SPLIT_MIN_LEFT = 100;
@@ -163,17 +173,24 @@ public final class SetlistsPanel extends JPanel {
         enableTreeReorder();
 
         itemTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        itemTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        itemTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         itemTable.setFillsViewportHeight(true);
         itemTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 reloadAssignments();
             }
         });
+        installItemTableColumnModel();
         applyDefaultColumnWidths();
         enableItemTableReorder();
         enableItemTablePlaybackActions();
         enableItemTableWarningColumn();
+        TableColumn indexColumn = columnByModelIndex(COL_INDEX);
+        if (indexColumn != null) {
+            DefaultTableCellRenderer indexRenderer = new DefaultTableCellRenderer();
+            indexRenderer.setHorizontalAlignment(JLabel.CENTER);
+            indexColumn.setCellRenderer(indexRenderer);
+        }
 
         assignmentPanel.setAssignmentChangedHandler(this::reloadAssignments);
 
@@ -237,7 +254,7 @@ public final class SetlistsPanel extends JPanel {
         if (preferences == null) {
             return;
         }
-        preferences.extras().put(COLUMN_WIDTHS_PREF_KEY, captureColumnWidths());
+        preferences.extras().put(COLUMN_WIDTHS_PREF_KEY, captureColumnState());
         if (topSplit != null) {
             int left = topSplit.getDividerLocation();
             int right = Math.max(0, topSplit.getWidth() - left - topSplit.getDividerSize());
@@ -454,46 +471,161 @@ public final class SetlistsPanel extends JPanel {
         return wrap;
     }
 
+    private void installItemTableColumnModel() {
+        DefaultTableColumnModel columnModel = new DefaultTableColumnModel() {
+            @Override
+            public void moveColumn(int columnIndex, int newIndex) {
+                if (columnIndex < FIXED_COLUMN_COUNT || newIndex < FIXED_COLUMN_COUNT) {
+                    return;
+                }
+                super.moveColumn(columnIndex, newIndex);
+            }
+        };
+        itemTable.setColumnModel(columnModel);
+        itemTable.createDefaultColumnsFromModel();
+        itemTable.getTableHeader().setReorderingAllowed(true);
+    }
+
     private void applyDefaultColumnWidths() {
-        TableColumnModel columns = itemTable.getColumnModel();
-        for (int i = 0; i < DEFAULT_COLUMN_WIDTHS.length && i < columns.getColumnCount(); i++) {
-            columns.getColumn(i).setPreferredWidth(DEFAULT_COLUMN_WIDTHS[i]);
+        int fixedWidth = fixedLeadingColumnWidth();
+        for (int modelIndex = 0; modelIndex < FIXED_COLUMN_COUNT; modelIndex++) {
+            lockFixedColumn(columnByModelIndex(modelIndex), fixedWidth);
         }
+
+        FontMetrics headerMetrics = itemTable.getTableHeader().getFontMetrics(itemTable.getTableHeader().getFont());
+        setFlexiblePreferredWidth(
+                columnByModelIndex(COL_PARTS),
+                headerMetrics.stringWidth("Parts") + HEADER_PAD);
+        setFlexiblePreferredWidth(
+                columnByModelIndex(COL_DURATION),
+                headerMetrics.stringWidth("Duration") + HEADER_PAD);
+        setFlexiblePreferredWidth(columnByModelIndex(COL_TITLE), DEFAULT_TITLE_WIDTH);
+        setFlexiblePreferredWidth(columnByModelIndex(COL_COMPOSER), DEFAULT_COMPOSER_WIDTH);
+    }
+
+    private int fixedLeadingColumnWidth() {
+        FontMetrics bodyMetrics = itemTable.getFontMetrics(itemTable.getFont());
+        FontMetrics headerMetrics = itemTable.getTableHeader().getFontMetrics(itemTable.getTableHeader().getFont());
+        int digits = bodyMetrics.stringWidth("000");
+        int hash = headerMetrics.stringWidth("#");
+        return Math.max(digits, hash) + HEADER_PAD;
+    }
+
+    private static void lockFixedColumn(TableColumn column, int width) {
+        if (column == null) {
+            return;
+        }
+        int safe = Math.max(width, 24);
+        column.setMinWidth(safe);
+        column.setPreferredWidth(safe);
+        column.setMaxWidth(safe);
+        column.setResizable(false);
+    }
+
+    private static void setFlexiblePreferredWidth(TableColumn column, int width) {
+        if (column == null) {
+            return;
+        }
+        int safe = Math.max(width, 28);
+        column.setResizable(true);
+        column.setMinWidth(28);
+        column.setMaxWidth(Integer.MAX_VALUE);
+        column.setPreferredWidth(safe);
+        column.setWidth(safe);
+    }
+
+    private TableColumn columnByModelIndex(int modelIndex) {
+        TableColumnModel columns = itemTable.getColumnModel();
+        for (int i = 0; i < columns.getColumnCount(); i++) {
+            TableColumn column = columns.getColumn(i);
+            if (column.getModelIndex() == modelIndex) {
+                return column;
+            }
+        }
+        return null;
     }
 
     private void restoreColumnWidths() {
         if (preferences == null) {
-            return;
-        }
-        Object raw = preferences.extras().get(COLUMN_WIDTHS_PREF_KEY);
-        List<Integer> widths = asIntegerList(raw);
-        if (widths == null || widths.isEmpty()) {
             applyDefaultColumnWidths();
             return;
         }
-        // Prefs saved before the warning column: insert its default width after Play.
-        if (widths.size() == 6 && DEFAULT_COLUMN_WIDTHS.length == 7) {
-            widths = new ArrayList<>(widths);
-            widths.add(COL_WARNING, DEFAULT_COLUMN_WIDTHS[COL_WARNING]);
+        Object raw = preferences.extras().get(COLUMN_WIDTHS_PREF_KEY);
+        List<Integer> widthsByModel = null;
+        List<Integer> order = null;
+        if (raw instanceof Map<?, ?> map) {
+            widthsByModel = asIntegerList(map.get("widths"));
+            order = asIntegerList(map.get("order"));
+        } else {
+            // Legacy: plain width list in default model order / view order.
+            widthsByModel = asIntegerList(raw);
+            if (widthsByModel != null && widthsByModel.size() == 6 && itemModel.getColumnCount() == 7) {
+                widthsByModel = new ArrayList<>(widthsByModel);
+                widthsByModel.add(COL_WARNING, fixedLeadingColumnWidth());
+            }
         }
-        TableColumnModel columns = itemTable.getColumnModel();
-        for (int i = 0; i < widths.size() && i < columns.getColumnCount(); i++) {
-            Integer width = widths.get(i);
+        if (widthsByModel == null || widthsByModel.isEmpty()) {
+            applyDefaultColumnWidths();
+            return;
+        }
+
+        restoreColumnOrder(order);
+        applyDefaultColumnWidths();
+        for (int modelIndex = FIXED_COLUMN_COUNT;
+                modelIndex < widthsByModel.size() && modelIndex < itemModel.getColumnCount();
+                modelIndex++) {
+            Integer width = widthsByModel.get(modelIndex);
             if (width != null && width > 0) {
-                TableColumn column = columns.getColumn(i);
-                column.setPreferredWidth(width);
-                column.setWidth(width);
+                setFlexiblePreferredWidth(columnByModelIndex(modelIndex), width);
             }
         }
     }
 
-    private List<Integer> captureColumnWidths() {
-        TableColumnModel columns = itemTable.getColumnModel();
-        List<Integer> widths = new ArrayList<>(columns.getColumnCount());
-        for (int i = 0; i < columns.getColumnCount(); i++) {
-            widths.add(columns.getColumn(i).getWidth());
+    private void restoreColumnOrder(List<Integer> order) {
+        if (order == null || order.size() != itemModel.getColumnCount()) {
+            return;
         }
-        return widths;
+        // Fixed leading columns must stay at view indices 0..FIXED-1 in model order.
+        for (int i = 0; i < FIXED_COLUMN_COUNT; i++) {
+            if (order.get(i) == null || order.get(i) != i) {
+                return;
+            }
+        }
+        for (int viewIndex = FIXED_COLUMN_COUNT; viewIndex < order.size(); viewIndex++) {
+            Integer modelIndex = order.get(viewIndex);
+            if (modelIndex == null
+                    || modelIndex < FIXED_COLUMN_COUNT
+                    || modelIndex >= itemModel.getColumnCount()) {
+                continue;
+            }
+            int currentView = itemTable.convertColumnIndexToView(modelIndex);
+            if (currentView >= FIXED_COLUMN_COUNT && currentView != viewIndex) {
+                itemTable.moveColumn(currentView, viewIndex);
+            }
+        }
+    }
+
+    private Map<String, Object> captureColumnState() {
+        TableColumnModel columns = itemTable.getColumnModel();
+        int modelCount = itemModel.getColumnCount();
+        Integer[] widthsByModel = new Integer[modelCount];
+        List<Integer> order = new ArrayList<>(columns.getColumnCount());
+        for (int viewIndex = 0; viewIndex < columns.getColumnCount(); viewIndex++) {
+            TableColumn column = columns.getColumn(viewIndex);
+            int modelIndex = column.getModelIndex();
+            order.add(modelIndex);
+            if (modelIndex >= 0 && modelIndex < modelCount) {
+                widthsByModel[modelIndex] = column.getWidth();
+            }
+        }
+        List<Integer> widths = new ArrayList<>(modelCount);
+        for (int i = 0; i < modelCount; i++) {
+            widths.add(widthsByModel[i] != null ? widthsByModel[i] : 0);
+        }
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("widths", widths);
+        state.put("order", order);
+        return state;
     }
 
     private static List<Integer> asIntegerList(Object value) {
@@ -1121,19 +1253,22 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void enableItemTablePlaybackActions() {
-        itemTable.getColumnModel().getColumn(COL_PLAY).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel) super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
-                label.setIcon(PlaybackIcons.play(14));
-                label.setText("");
-                label.setHorizontalAlignment(JLabel.CENTER);
-                label.setToolTipText("Play setlist from this song");
-                return label;
-            }
-        });
+        TableColumn playColumn = columnByModelIndex(COL_PLAY);
+        if (playColumn != null) {
+            playColumn.setCellRenderer(new DefaultTableCellRenderer() {
+                @Override
+                public Component getTableCellRendererComponent(
+                        JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                    JLabel label = (JLabel) super.getTableCellRendererComponent(
+                            table, value, isSelected, hasFocus, row, column);
+                    label.setIcon(PlaybackIcons.play(14));
+                    label.setText("");
+                    label.setHorizontalAlignment(JLabel.CENTER);
+                    label.setToolTipText("Play setlist from this song");
+                    return label;
+                }
+            });
+        }
         itemTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -1165,29 +1300,32 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void enableItemTableWarningColumn() {
-        itemTable.getColumnModel().getColumn(COL_WARNING).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel) super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
-                int modelRow = table.convertRowIndexToModel(row);
-                String warning = itemModel.warningAt(modelRow);
-                if (warning != null && !warning.isBlank()) {
-                    label.setText("\u26A0");
-                    label.setForeground(WARNING_RED);
-                    Font base = label.getFont();
-                    label.setFont(base.deriveFont(Font.BOLD, base.getSize2D() + 4f));
-                    label.setToolTipText(warning);
-                } else {
-                    label.setText("");
-                    label.setToolTipText(null);
+        TableColumn warningColumn = columnByModelIndex(COL_WARNING);
+        if (warningColumn != null) {
+            warningColumn.setCellRenderer(new DefaultTableCellRenderer() {
+                @Override
+                public Component getTableCellRendererComponent(
+                        JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                    JLabel label = (JLabel) super.getTableCellRendererComponent(
+                            table, value, isSelected, hasFocus, row, column);
+                    int modelRow = table.convertRowIndexToModel(row);
+                    String warning = itemModel.warningAt(modelRow);
+                    if (warning != null && !warning.isBlank()) {
+                        label.setText("\u26A0");
+                        label.setForeground(WARNING_RED);
+                        Font base = label.getFont();
+                        label.setFont(base.deriveFont(Font.BOLD, base.getSize2D() + 4f));
+                        label.setToolTipText(warning);
+                    } else {
+                        label.setText("");
+                        label.setToolTipText(null);
+                    }
+                    label.setHorizontalAlignment(JLabel.CENTER);
+                    label.setIcon(null);
+                    return label;
                 }
-                label.setHorizontalAlignment(JLabel.CENTER);
-                label.setIcon(null);
-                return label;
-            }
-        });
+            });
+        }
     }
 
     /**
