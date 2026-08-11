@@ -1074,7 +1074,13 @@ public final class SetlistsPanel extends JPanel {
         List<PlayQueueItem> items = new ArrayList<>();
         for (SetlistItemInfo item : itemModel.items()) {
             items.add(PlayQueueItem.ofSetlistItem(
-                    item.songId(), item.songTitle(), setlistId, item.id()));
+                    item.songId(),
+                    item.songTitle(),
+                    item.songComposers(),
+                    item.songDurationSeconds(),
+                    item.partCount(),
+                    setlistId,
+                    item.id()));
         }
         playbackSession.syncFromSetlistIfActive(setlistId, items);
     }
@@ -1287,7 +1293,13 @@ public final class SetlistsPanel extends JPanel {
         List<PlayQueueItem> items = new ArrayList<>();
         for (SetlistItemInfo item : itemModel.items()) {
             items.add(PlayQueueItem.ofSetlistItem(
-                    item.songId(), item.songTitle(), setlist.id(), item.id()));
+                    item.songId(),
+                    item.songTitle(),
+                    item.songComposers(),
+                    item.songDurationSeconds(),
+                    item.partCount(),
+                    setlist.id(),
+                    item.id()));
         }
         try {
             playbackSession.playSetlist(setlist.id(), items, row);
@@ -1301,7 +1313,12 @@ public final class SetlistsPanel extends JPanel {
             return;
         }
         try {
-            playbackSession.enqueue(item.songId(), item.songTitle());
+            playbackSession.enqueue(PlayQueueItem.ofSong(
+                    item.songId(),
+                    item.songTitle(),
+                    item.songComposers(),
+                    item.songDurationSeconds(),
+                    item.partCount()));
         } catch (PlaybackException ex) {
             playbackErrorReporter.accept(ex.getMessage());
         }

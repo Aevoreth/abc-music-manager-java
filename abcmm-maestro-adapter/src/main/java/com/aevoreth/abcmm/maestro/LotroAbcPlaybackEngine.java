@@ -328,7 +328,7 @@ public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
                 name = "Part " + i;
             }
             String instrument = info.getPartInstrument(i).friendlyName;
-            parts.add(new PartInfo(i, name, instrument));
+            parts.add(new PartInfo(i, info.getPartNumber(i), name, instrument));
         }
         long micros = song.getMicrosecondLength();
         return new LoadedSong(

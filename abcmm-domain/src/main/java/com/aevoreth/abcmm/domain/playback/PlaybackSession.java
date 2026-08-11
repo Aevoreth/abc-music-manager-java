@@ -68,9 +68,10 @@ public final class PlaybackSession implements AutoCloseable {
     /**
      * Replaces the playlist with a single song and starts playback.
      */
-    public void playSong(long songId, String title) throws PlaybackException {
+    public void playSong(PlayQueueItem item) throws PlaybackException {
+        Objects.requireNonNull(item, "item");
         queue.clear();
-        queue.add(PlayQueueItem.ofSong(songId, title));
+        queue.add(item);
         source = QueueSource.SINGLE;
         setlistId = null;
         currentIndex = 0;
@@ -100,7 +101,8 @@ public final class PlaybackSession implements AutoCloseable {
     /**
      * Appends a song without replacing the playlist. Starts playback if nothing is loaded.
      */
-    public void enqueue(long songId, String title) throws PlaybackException {
+    public void enqueue(PlayQueueItem item) throws PlaybackException {
+        Objects.requireNonNull(item, "item");
         boolean wasEmpty = queue.isEmpty();
         if (source == QueueSource.SETLIST || source == QueueSource.SINGLE) {
             source = QueueSource.CUSTOM;
@@ -108,7 +110,7 @@ public final class PlaybackSession implements AutoCloseable {
         } else if (source == QueueSource.NONE) {
             source = QueueSource.CUSTOM;
         }
-        queue.add(PlayQueueItem.ofSong(songId, title));
+        queue.add(item);
         fireSessionChanged();
         if (wasEmpty || engine.getLoadedSong() == null) {
             currentIndex = queue.size() - 1;

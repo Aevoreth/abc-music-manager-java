@@ -8,6 +8,9 @@ import java.util.Objects;
 public record PlayQueueItem(
         long songId,
         String title,
+        String composers,
+        Integer durationSeconds,
+        int partCount,
         Long setlistId,
         Long setlistItemId) {
 
@@ -16,14 +19,29 @@ public record PlayQueueItem(
             throw new IllegalArgumentException("songId must be positive");
         }
         title = title == null ? "" : title;
+        composers = composers == null ? "" : composers;
+        partCount = Math.max(0, partCount);
     }
 
-    public static PlayQueueItem ofSong(long songId, String title) {
-        return new PlayQueueItem(songId, title, null, null);
+    public static PlayQueueItem ofSong(
+            long songId,
+            String title,
+            String composers,
+            Integer durationSeconds,
+            int partCount) {
+        return new PlayQueueItem(songId, title, composers, durationSeconds, partCount, null, null);
     }
 
-    public static PlayQueueItem ofSetlistItem(long songId, String title, long setlistId, long setlistItemId) {
+    public static PlayQueueItem ofSetlistItem(
+            long songId,
+            String title,
+            String composers,
+            Integer durationSeconds,
+            int partCount,
+            long setlistId,
+            long setlistItemId) {
         Objects.requireNonNull(title, "title");
-        return new PlayQueueItem(songId, title, setlistId, setlistItemId);
+        return new PlayQueueItem(
+                songId, title, composers, durationSeconds, partCount, setlistId, setlistItemId);
     }
 }

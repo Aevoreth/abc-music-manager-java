@@ -12,6 +12,7 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Window;
+import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
@@ -19,6 +20,7 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,21 +32,23 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
-import javax.swing.JCheckBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
-import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSlider;
 import javax.swing.JSplitPane;
+import javax.swing.JTable;
 import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.ChangeListener;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 
 import com.aevoreth.abcmm.domain.playback.AbcPlaybackEngine;
 import com.aevoreth.abcmm.domain.playback.LoadedSong;
@@ -70,11 +74,20 @@ public final class PlaybackPanel extends JPanel {
     private static final int TEMPO_SNAP_THRESHOLD = 3;
     /** Java-only extras key for the parts/playlist dialog size. */
     static final String LIST_SIZE_PREF_KEY = "java_playback_parts_playlist_size";
-    private static final int DEFAULT_LIST_WIDTH = 520;
+    private static final int DEFAULT_LIST_WIDTH = 640;
     private static final int DEFAULT_LIST_HEIGHT = 280;
     private static final int DEFAULT_PARTS_DIVIDER = 260;
     private static final int MIN_LIST_WIDTH = 320;
     private static final int MIN_LIST_HEIGHT = 160;
+    private static final int COL_NOW = 0;
+    private static final int COL_TITLE = 1;
+    private static final int COL_COMPOSER = 2;
+    private static final int COL_DURATION = 3;
+    private static final int COL_PARTS = 4;
+    /** Maestro {@code ColorTable.PARTS_LIST_MUTE}. */
+    private static final Color PARTS_MUTE_COLOR = Color.decode("#ff7777");
+    /** Maestro {@code ColorTable.PARTS_LIST_SOLO}. */
+    private static final Color PARTS_SOLO_COLOR = Color.decode("#7e7eff");
 
     private PlaybackSession session;
     private Preferences preferences;
@@ -98,7 +111,8 @@ public final class PlaybackPanel extends JPanel {
     private final JLabel volumeLabel = new JLabel("Volume: 100", SwingConstants.CENTER);
 
     private final JPanel partsPanel = new JPanel();
-    private final JList<String> playlistList = new JList<>();
+    private final PlaylistTableModel playlistModel = new PlaylistTableModel();
+    private final JTable playlistTable = new JTable(playlistModel);
     private JDialog listDialog;
     private JSplitPane listSplit;
     private final Timer listSizePersistTimer;
@@ -246,28 +260,44 @@ public final class PlaybackPanel extends JPanel {
         partsPanel.setLayout(new BoxLayout(partsPanel, BoxLayout.Y_AXIS));
         partsPanel.setBorder(BorderFactory.createTitledBorder("Parts"));
 
-        playlistList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        playlistList.setVisibleRowCount(8);
-        playlistList.addMouseListener(new MouseAdapter() {
+        playlistTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        playlistTable.setFillsViewportHeight(true);
+        playlistTable.setRowHeight(Math.max(22, playlistTable.getRowHeight()));
+        playlistTable.setAutoCreateRowSorter(false);
+        playlistTable.getTableHeader().setReorderingAllowed(false);
+        playlistTable.getColumnModel().getColumn(COL_NOW).setPreferredWidth(28);
+        playlistTable.getColumnModel().getColumn(COL_NOW).setMaxWidth(36);
+        playlistTable.getColumnModel().getColumn(COL_TITLE).setPreferredWidth(160);
+        playlistTable.getColumnModel().getColumn(COL_COMPOSER).setPreferredWidth(120);
+        playlistTable.getColumnModel().getColumn(COL_DURATION).setPreferredWidth(56);
+        playlistTable.getColumnModel().getColumn(COL_DURATION).setMaxWidth(72);
+        playlistTable.getColumnModel().getColumn(COL_PARTS).setPreferredWidth(44);
+        playlistTable.getColumnModel().getColumn(COL_PARTS).setMaxWidth(56);
+        DefaultTableCellRenderer center = new DefaultTableCellRenderer();
+        center.setHorizontalAlignment(SwingConstants.CENTER);
+        playlistTable.getColumnModel().getColumn(COL_NOW).setCellRenderer(center);
+        playlistTable.getColumnModel().getColumn(COL_DURATION).setCellRenderer(center);
+        playlistTable.getColumnModel().getColumn(COL_PARTS).setCellRenderer(center);
+        playlistTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2 && session != null) {
-                    int index = playlistList.locationToIndex(e.getPoint());
-                    if (index >= 0) {
-                        runSafe(() -> session.playAt(index));
+                    int row = playlistTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        runSafe(() -> session.playAt(row));
                     }
                 }
             }
         });
-        JScrollPane playlistScroll = new JScrollPane(playlistList);
+        JScrollPane playlistScroll = new JScrollPane(playlistTable);
         playlistScroll.setBorder(BorderFactory.createTitledBorder("Playlist"));
-        playlistScroll.setPreferredSize(new Dimension(240, 220));
+        playlistScroll.setPreferredSize(new Dimension(360, 220));
 
         JScrollPane partsScroll = new JScrollPane(partsPanel);
         partsScroll.setPreferredSize(new Dimension(DEFAULT_PARTS_DIVIDER, 220));
 
         listSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, partsScroll, playlistScroll);
-        listSplit.setResizeWeight(0.5);
+        listSplit.setResizeWeight(0.4);
         listSplit.setContinuousLayout(true);
         listSplit.setBorder(new EmptyBorder(8, 8, 8, 8));
         listSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
@@ -519,35 +549,103 @@ public final class PlaybackPanel extends JPanel {
             c.insets = new Insets(1, 2, 1, 2);
             c.gridy = 0;
 
-            JCheckBox mute = new JCheckBox(part.name() + (part.instrument().isBlank()
-                    ? ""
-                    : " (" + part.instrument() + ")"));
-            mute.setSelected(!session.engine().isPartMuted(part.index()));
-            mute.setToolTipText("Mute / unmute part");
-            mute.addActionListener(e -> runSafe(() ->
-                    session.engine().setPartMuted(part.index(), !mute.isSelected())));
+            String label = part.number() + ". " + part.name()
+                    + (part.instrument().isBlank() ? "" : " (" + part.instrument() + ")");
+            JLabel name = new JLabel(label);
+            name.setBorder(BorderFactory.createEmptyBorder(0, 3, 0, 0));
 
-            JToggleButton solo = new JToggleButton("S");
-            solo.setMargin(new Insets(2, 6, 2, 6));
-            solo.setToolTipText("Solo");
-            solo.setSelected(session.engine().isPartSolo(part.index()));
-            solo.addActionListener(e -> runSafe(() ->
-                    session.engine().setPartSolo(part.index(), solo.isSelected())));
+            boolean soloed = session.engine().isPartSolo(part.index());
+            boolean muted = session.engine().isPartMuted(part.index());
+            int buttonSide = name.getPreferredSize().height + 4;
+            Dimension buttonSize = new Dimension(buttonSide, buttonSide);
+
+            // Maestro PartsListItem order: title | S | M
+            JButton solo = createMuteSoloButton(
+                    soloed, "S", PARTS_SOLO_COLOR, buttonSize,
+                    "Solo / unsolo part (Shift+click: unsolo all)");
+            solo.addActionListener(e -> runSafe(() -> {
+                boolean next = !session.engine().isPartSolo(part.index());
+                if ((e.getModifiers() & ActionEvent.SHIFT_MASK) != 0) {
+                    clearAllPartSolos(song);
+                }
+                session.engine().setPartSolo(part.index(), next);
+            }));
+
+            JButton mute = createMuteSoloButton(
+                    muted, "M", PARTS_MUTE_COLOR, buttonSize,
+                    "Mute / unmute part (Shift+click: unmute all)");
+            mute.addActionListener(e -> runSafe(() -> {
+                boolean next = !session.engine().isPartMuted(part.index());
+                if ((e.getModifiers() & ActionEvent.SHIFT_MASK) != 0) {
+                    clearAllPartMutes(song);
+                }
+                session.engine().setPartMuted(part.index(), next);
+            }));
 
             c.gridx = 0;
             c.weightx = 1;
             c.fill = GridBagConstraints.HORIZONTAL;
             c.anchor = GridBagConstraints.WEST;
-            row.add(mute, c);
+            row.add(name, c);
             c.gridx = 1;
             c.weightx = 0;
             c.fill = GridBagConstraints.NONE;
             row.add(solo, c);
+            c.gridx = 2;
+            row.add(mute, c);
             row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
             partsPanel.add(row);
         }
         partsPanel.revalidate();
         partsPanel.repaint();
+    }
+
+    /** Square M/S control matching Maestro's parts-list mute/solo buttons. */
+    private static JButton createMuteSoloButton(
+            boolean active, String letter, Color activeColor, Dimension size, String tip) {
+        JButton button = new JButton(active
+                ? "<html><b>" + letter + "</b></html>"
+                : "<html>" + letter + "</html>");
+        button.setToolTipText(tip);
+        button.setPreferredSize(size);
+        button.setMinimumSize(size);
+        button.setMargin(new Insets(0, 0, 0, 0));
+        button.setFocusable(false);
+        applyMuteSoloColor(button, active, activeColor);
+        return button;
+    }
+
+    private static void applyMuteSoloColor(JButton button, boolean active, Color activeColor) {
+        if (active) {
+            String hex = String.format("#%02x%02x%02x",
+                    activeColor.getRed(), activeColor.getGreen(), activeColor.getBlue());
+            button.putClientProperty("FlatLaf.style",
+                    "background: " + hex
+                            + "; focusedBackground: " + hex
+                            + "; hoverBackground: " + hex
+                            + "; pressedBackground: " + hex);
+            button.setBackground(activeColor);
+        } else {
+            button.putClientProperty("FlatLaf.style", null);
+            Color fallback = UIManager.getColor("Button.background");
+            button.setBackground(fallback != null ? fallback : new JButton().getBackground());
+        }
+    }
+
+    private void clearAllPartSolos(LoadedSong song) throws PlaybackException {
+        for (PartInfo part : song.parts()) {
+            if (session.engine().isPartSolo(part.index())) {
+                session.engine().setPartSolo(part.index(), false);
+            }
+        }
+    }
+
+    private void clearAllPartMutes(LoadedSong song) throws PlaybackException {
+        for (PartInfo part : song.parts()) {
+            if (session.engine().isPartMuted(part.index())) {
+                session.engine().setPartMuted(part.index(), false);
+            }
+        }
     }
 
     private void refreshFromEngine() {
@@ -600,16 +698,14 @@ public final class PlaybackPanel extends JPanel {
         if (session == null) {
             return;
         }
-        List<PlayQueueItem> queue = session.queue();
-        String[] labels = new String[queue.size()];
-        for (int i = 0; i < queue.size(); i++) {
-            String mark = i == session.currentIndex() ? "▶ " : "   ";
-            labels[i] = mark + queue.get(i).title();
-        }
-        playlistList.setListData(labels);
-        if (session.currentIndex() >= 0 && session.currentIndex() < labels.length) {
-            playlistList.setSelectedIndex(session.currentIndex());
-            playlistList.ensureIndexIsVisible(session.currentIndex());
+        playlistModel.setItems(session.queue(), session.currentIndex());
+        if (session.currentIndex() >= 0 && session.currentIndex() < playlistModel.getRowCount()) {
+            playlistTable.getSelectionModel().setSelectionInterval(
+                    session.currentIndex(), session.currentIndex());
+            playlistTable.scrollRectToVisible(
+                    playlistTable.getCellRect(session.currentIndex(), 0, true));
+        } else {
+            playlistTable.clearSelection();
         }
         prevButton.setEnabled(session.hasPrevious());
         nextButton.setEnabled(session.hasNext());
@@ -690,8 +786,59 @@ public final class PlaybackPanel extends JPanel {
         return min + ":" + (sec < 10 ? "0" : "") + sec;
     }
 
+    private static String formatDurationSeconds(Integer seconds) {
+        if (seconds == null || seconds < 0) {
+            return "—";
+        }
+        return formatTime(seconds * 1000L);
+    }
+
     @FunctionalInterface
     private interface ThrowingAction {
         void run() throws PlaybackException;
+    }
+
+    private static final class PlaylistTableModel extends AbstractTableModel {
+        private static final String[] COLUMNS = {"", "Title", "Composer", "Dur", "Parts"};
+
+        private final List<PlayQueueItem> items = new ArrayList<>();
+        private int currentIndex = -1;
+
+        void setItems(List<PlayQueueItem> queue, int currentIndex) {
+            items.clear();
+            if (queue != null) {
+                items.addAll(queue);
+            }
+            this.currentIndex = currentIndex;
+            fireTableDataChanged();
+        }
+
+        @Override
+        public int getRowCount() {
+            return items.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return COLUMNS.length;
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return COLUMNS[column];
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            PlayQueueItem item = items.get(rowIndex);
+            return switch (columnIndex) {
+                case COL_NOW -> rowIndex == currentIndex ? "▶" : "";
+                case COL_TITLE -> item.title();
+                case COL_COMPOSER -> item.composers();
+                case COL_DURATION -> formatDurationSeconds(item.durationSeconds());
+                case COL_PARTS -> item.partCount() > 0 ? Integer.toString(item.partCount()) : "—";
+                default -> "";
+            };
+        }
     }
 }

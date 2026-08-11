@@ -13,18 +13,19 @@ class DomainPlaybackTypesTest {
 
     @Test
     void loadedSongCopiesPartsAndDefaultsNullStrings() {
-        LoadedSong song = new LoadedSong(null, null, null, List.of(new PartInfo(0, "Lead", "lute")));
+        LoadedSong song = new LoadedSong(null, null, null, List.of(new PartInfo(0, 1, "Lead", "lute")));
         assertEquals("", song.title());
         assertEquals("", song.composer());
         assertEquals(Duration.ZERO, song.duration());
         assertEquals(1, song.partCount());
+        assertEquals(1, song.parts().get(0).number());
         assertEquals("Lead", song.parts().get(0).name());
         assertEquals("lute", song.parts().get(0).instrument());
     }
 
     @Test
     void partInfoRejectsNegativeIndex() {
-        assertThrows(IllegalArgumentException.class, () -> new PartInfo(-1, "x", "y"));
+        assertThrows(IllegalArgumentException.class, () -> new PartInfo(-1, 1, "x", "y"));
     }
 
     @Test

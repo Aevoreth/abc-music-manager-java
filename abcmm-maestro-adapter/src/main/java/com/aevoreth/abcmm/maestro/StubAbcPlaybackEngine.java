@@ -47,7 +47,7 @@ public final class StubAbcPlaybackEngine implements AbcPlaybackEngine {
                 title,
                 "",
                 Duration.ofSeconds(60),
-                List.of(new PartInfo(0, "Part 1", "")));
+                List.of(new PartInfo(0, 1, "Part 1", "")));
         position = Duration.ZERO;
         state = PlaybackState.LOADED;
         fire(PlaybackEventType.SONG_LOADED);

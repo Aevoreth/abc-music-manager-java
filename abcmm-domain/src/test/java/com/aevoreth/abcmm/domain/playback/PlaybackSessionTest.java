@@ -25,8 +25,8 @@ class PlaybackSessionTest {
         FakeEngine engine = new FakeEngine();
         PlaybackSession session = new PlaybackSession(engine, id -> Optional.of(abc));
 
-        session.enqueue(2, "Two");
-        session.playSong(1, "One");
+        session.enqueue(PlayQueueItem.ofSong(2, "Two", "", null, 0));
+        session.playSong(PlayQueueItem.ofSong(1, "One", "", null, 0));
 
         assertEquals(QueueSource.SINGLE, session.source());
         assertEquals(1, session.queue().size());
@@ -42,8 +42,8 @@ class PlaybackSessionTest {
         FakeEngine engine = new FakeEngine();
         PlaybackSession session = new PlaybackSession(engine, id -> Optional.of(abc));
 
-        session.playSong(1, "One");
-        session.enqueue(2, "Two");
+        session.playSong(PlayQueueItem.ofSong(1, "One", "", null, 0));
+        session.enqueue(PlayQueueItem.ofSong(2, "Two", "", null, 0));
 
         assertEquals(2, session.queue().size());
         assertEquals(QueueSource.CUSTOM, session.source());
@@ -60,9 +60,9 @@ class PlaybackSessionTest {
         PlaybackSession session = new PlaybackSession(engine, id -> Optional.of(abc));
 
         session.playSetlist(9, List.of(
-                PlayQueueItem.ofSetlistItem(1, "A", 9, 100),
-                PlayQueueItem.ofSetlistItem(2, "B", 9, 101),
-                PlayQueueItem.ofSetlistItem(3, "C", 9, 102)), 0);
+                PlayQueueItem.ofSetlistItem(1, "A", "", null, 0, 9, 100),
+                PlayQueueItem.ofSetlistItem(2, "B", "", null, 0, 9, 101),
+                PlayQueueItem.ofSetlistItem(3, "C", "", null, 0, 9, 102)), 0);
 
         assertTrue(session.hasNext());
         assertFalse(session.hasPrevious());
@@ -87,14 +87,14 @@ class PlaybackSessionTest {
         PlaybackSession session = new PlaybackSession(engine, id -> Optional.of(abc));
 
         session.playSetlist(5, List.of(
-                PlayQueueItem.ofSetlistItem(1, "A", 5, 10),
-                PlayQueueItem.ofSetlistItem(2, "B", 5, 11),
-                PlayQueueItem.ofSetlistItem(3, "C", 5, 12)), 1);
+                PlayQueueItem.ofSetlistItem(1, "A", "", null, 0, 5, 10),
+                PlayQueueItem.ofSetlistItem(2, "B", "", null, 0, 5, 11),
+                PlayQueueItem.ofSetlistItem(3, "C", "", null, 0, 5, 12)), 1);
 
         session.syncFromSetlistIfActive(5, List.of(
-                PlayQueueItem.ofSetlistItem(3, "C", 5, 12),
-                PlayQueueItem.ofSetlistItem(2, "B", 5, 11),
-                PlayQueueItem.ofSetlistItem(1, "A", 5, 10)));
+                PlayQueueItem.ofSetlistItem(3, "C", "", null, 0, 5, 12),
+                PlayQueueItem.ofSetlistItem(2, "B", "", null, 0, 5, 11),
+                PlayQueueItem.ofSetlistItem(1, "A", "", null, 0, 5, 10)));
 
         assertEquals(QueueSource.SETLIST, session.source());
         assertEquals(3, session.queue().size());
@@ -118,7 +118,7 @@ class PlaybackSessionTest {
         @Override
         public LoadedSong load(Path abcFile) {
             loaded = new LoadedSong(abcFile.getFileName().toString(), "", Duration.ofSeconds(10),
-                    List.of(new PartInfo(0, "Part 1", "")));
+                    List.of(new PartInfo(0, 1, "Part 1", "")));
             state = PlaybackState.LOADED;
             return loaded;
         }

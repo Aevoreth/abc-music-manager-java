@@ -38,6 +38,7 @@ import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.playback.AbcPlaybackEngine;
 import com.aevoreth.abcmm.domain.playback.PlaybackException;
 import com.aevoreth.abcmm.domain.playback.PlaybackSession;
+import com.aevoreth.abcmm.domain.playback.PlayQueueItem;
 import com.aevoreth.abcmm.domain.prefs.LotroPaths;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.prefs.PreferencesException;
@@ -186,7 +187,12 @@ public final class MainFrame extends JFrame {
         libraryPanel.setDefaultFilters(preferences.defaultFilters());
         libraryPanel.setPlayListener(song -> {
             try {
-                playbackSession.playSong(song.id(), song.title());
+                playbackSession.playSong(PlayQueueItem.ofSong(
+                        song.id(),
+                        song.title(),
+                        song.composers(),
+                        song.durationSeconds(),
+                        song.partCount()));
                 statusBar.setMessage("Playing: " + song.title());
             } catch (PlaybackException ex) {
                 statusBar.setMessage(ex.getMessage());
@@ -194,7 +200,12 @@ public final class MainFrame extends JFrame {
         });
         libraryPanel.setEnqueueListener(song -> {
             try {
-                playbackSession.enqueue(song.id(), song.title());
+                playbackSession.enqueue(PlayQueueItem.ofSong(
+                        song.id(),
+                        song.title(),
+                        song.composers(),
+                        song.durationSeconds(),
+                        song.partCount()));
                 statusBar.setMessage("Queued: " + song.title());
             } catch (PlaybackException ex) {
                 statusBar.setMessage(ex.getMessage());
