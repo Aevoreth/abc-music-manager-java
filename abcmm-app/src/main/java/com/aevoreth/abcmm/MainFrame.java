@@ -6,6 +6,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
 import com.aevoreth.abcmm.domain.band.BandRepository;
+import com.aevoreth.abcmm.domain.band.InstrumentInfo;
+import com.aevoreth.abcmm.domain.band.LotroInstrumentDefaults;
 import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.AccountTargetInfo;
@@ -379,6 +382,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.setSetlistRepository(setlistRepository);
             libraryPanel.setSongRepository(songRepository);
             libraryPanel.setPlayLogRepository(playLogRepository);
+            libraryPanel.setInstrumentNames(loadInstrumentNames());
 
             refreshEntityCaches();
             libraryPanel.setStatuses(statuses);
@@ -405,6 +409,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.setSetlistRepository(null);
             libraryPanel.setSongRepository(null);
             libraryPanel.setPlayLogRepository(null);
+            libraryPanel.setInstrumentNames(Map.of());
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
             statusBar.setMessage(ex.getMessage());
@@ -434,6 +439,17 @@ public final class MainFrame extends JFrame {
         statuses = songRepository.listStatuses();
         folderRules = songRepository.listFolderRules();
         accountTargets = songRepository.listAccountTargets();
+    }
+
+    private Map<Long, String> loadInstrumentNames() throws LibraryException {
+        if (playerRepository == null) {
+            return Map.of();
+        }
+        Map<Long, String> names = new HashMap<>();
+        for (InstrumentInfo instrument : playerRepository.listInstruments()) {
+            names.put(instrument.id(), LotroInstrumentDefaults.uiName(instrument.name()));
+        }
+        return names;
     }
 
     private void reloadLibrary(LibraryFilter filter) {
@@ -497,6 +513,9 @@ public final class MainFrame extends JFrame {
                     try {
                         if (songRepository != null) {
                             libraryPanel.setTranscribers(songRepository.listUniqueTranscribers());
+                        }
+                        if (playerRepository != null) {
+                            libraryPanel.setInstrumentNames(loadInstrumentNames());
                         }
                         libraryPanel.applyDefaultFilters();
                         statusBar.setMessage("Library scan finished.");

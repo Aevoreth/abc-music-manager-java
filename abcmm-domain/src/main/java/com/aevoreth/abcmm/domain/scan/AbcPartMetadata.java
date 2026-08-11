@@ -7,5 +7,6 @@ public record AbcPartMetadata(
         int partNumber,
         String partName,
         Long instrumentId,
+        String madeFor,
         String titleFromT) {
 }

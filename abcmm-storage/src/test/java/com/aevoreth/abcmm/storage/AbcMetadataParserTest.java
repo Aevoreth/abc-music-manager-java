@@ -40,6 +40,7 @@ class AbcMetadataParserTest {
         assertEquals(1, part.partNumber());
         assertEquals("Melody", part.partName());
         assertEquals(42L, part.instrumentId());
+        assertEquals("Basic Lute", part.madeFor());
         assertEquals("Part Track", part.titleFromT());
     }
 
@@ -84,8 +85,10 @@ class AbcMetadataParserTest {
         assertEquals(2, meta.parts().size());
         assertEquals(1, meta.parts().get(0).partNumber());
         assertNull(meta.parts().get(0).instrumentId());
+        assertEquals("Basic Harp", meta.parts().get(0).madeFor());
         assertEquals(3, meta.parts().get(1).partNumber());
         assertEquals("Three", meta.parts().get(1).partName());
+        assertNull(meta.parts().get(1).madeFor());
     }
 
     @Test

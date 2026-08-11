@@ -8,7 +8,9 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -53,6 +55,7 @@ final class LibraryTableModel extends AbstractTableModel {
     static final int COL_EDIT = 11;
 
     private final List<LibrarySong> songs = new ArrayList<>();
+    private Map<Long, String> instrumentNames = Map.of();
 
     void setSongs(List<LibrarySong> songs) {
         this.songs.clear();
@@ -60,6 +63,12 @@ final class LibraryTableModel extends AbstractTableModel {
             this.songs.addAll(songs);
         }
         fireTableDataChanged();
+    }
+
+    void setInstrumentNames(Map<Long, String> instrumentNames) {
+        this.instrumentNames = instrumentNames == null || instrumentNames.isEmpty()
+                ? Map.of()
+                : Map.copyOf(new HashMap<>(instrumentNames));
     }
 
     LibrarySong songAt(int modelRow) {
@@ -127,7 +136,7 @@ final class LibraryTableModel extends AbstractTableModel {
             case COL_HISTORY -> "Played Now — Set… date/time — History: playback log";
             case COL_EDIT -> "Edit song";
             case COL_PARTS -> {
-                List<String> names = song.partNames();
+                List<String> names = song.partNames(instrumentNames);
                 yield names.isEmpty() ? null : "Parts:\n" + String.join("\n", names);
             }
             case COL_SET -> song.inUpcomingSet() ? "Go to setlist" : null;

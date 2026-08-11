@@ -510,6 +510,11 @@ public final class SqliteSongRepository implements SongRepository {
             } else {
                 node.put("instrument_id", part.instrumentId());
             }
+            if (part.madeFor() == null) {
+                node.putNull("made_for");
+            } else {
+                node.put("made_for", part.madeFor());
+            }
             if (part.titleFromT() == null) {
                 node.putNull("title_from_t");
             } else {

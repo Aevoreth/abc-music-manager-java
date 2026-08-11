@@ -2,6 +2,7 @@ package com.aevoreth.abcmm.domain.library;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * One row in the main library table (indexed song, not an on-disk ABC load).
@@ -33,9 +34,18 @@ public record LibrarySong(
     }
 
     /**
-     * Part display names for the Parts-column tooltip (part_name or "Part N").
+     * Parts-column tooltip lines: {@code 51: Basic Flute 1 (Basic Flute)}.
+     * Uses {@code part_number}, {@code part_name}, and {@code made_for} from parts JSON.
+     * When {@code made_for} is missing, {@code instrumentNames} may resolve {@code instrument_id}.
      */
     public List<String> partNames() {
+        return partNames(Map.of());
+    }
+
+    /**
+     * @param instrumentNames catalog names by instrument id (for songs scanned before made_for was stored)
+     */
+    public List<String> partNames(Map<Long, String> instrumentNames) {
         if (partsJson == null || partsJson.isBlank()) {
             return List.of();
         }
@@ -43,8 +53,8 @@ public record LibrarySong(
         if (!trimmed.startsWith("[")) {
             return List.of();
         }
-        List<String> names = new ArrayList<>();
-        // Lightweight parse of objects with optional part_name / part_number — avoids a JSON dependency in domain.
+        List<String> lines = new ArrayList<>();
+        // Lightweight parse — avoids a JSON dependency in domain.
         int index = 0;
         while (index < trimmed.length()) {
             int objStart = trimmed.indexOf('{', index);
@@ -56,16 +66,35 @@ public record LibrarySong(
                 break;
             }
             String object = trimmed.substring(objStart, objEnd + 1);
+            Integer partNumber = extractJsonInt(object, "part_number");
+            int displayNumber = partNumber == null ? lines.size() + 1 : partNumber;
             String partName = extractJsonString(object, "part_name");
-            if (partName != null && !partName.isBlank()) {
-                names.add(partName.trim());
+            if (partName == null || partName.isBlank()) {
+                partName = "Part " + displayNumber;
             } else {
-                Integer partNumber = extractJsonInt(object, "part_number");
-                names.add("Part " + (partNumber == null ? names.size() + 1 : partNumber));
+                partName = partName.trim();
+            }
+            String madeFor = extractJsonString(object, "made_for");
+            if (madeFor != null) {
+                madeFor = madeFor.trim();
+            }
+            if (madeFor == null || madeFor.isBlank()) {
+                Long instrumentId = extractJsonLong(object, "instrument_id");
+                if (instrumentId != null && instrumentNames != null) {
+                    String resolved = instrumentNames.get(instrumentId);
+                    if (resolved != null && !resolved.isBlank()) {
+                        madeFor = resolved.trim();
+                    }
+                }
+            }
+            if (madeFor == null || madeFor.isBlank()) {
+                lines.add(displayNumber + ": " + partName);
+            } else {
+                lines.add(displayNumber + ": " + partName + " (" + madeFor + ")");
             }
             index = objEnd + 1;
         }
-        return List.copyOf(names);
+        return List.copyOf(lines);
     }
 
     private static String extractJsonString(String object, String key) {
@@ -76,6 +105,13 @@ public record LibrarySong(
         }
         int colon = object.indexOf(':', keyIndex + needle.length());
         if (colon < 0) {
+            return null;
+        }
+        int i = colon + 1;
+        while (i < object.length() && Character.isWhitespace(object.charAt(i))) {
+            i++;
+        }
+        if (i < object.length() && object.regionMatches(true, i, "null", 0, 4)) {
             return null;
         }
         int firstQuote = object.indexOf('"', colon + 1);
@@ -90,6 +126,14 @@ public record LibrarySong(
     }
 
     private static Integer extractJsonInt(String object, String key) {
+        Long value = extractJsonLong(object, key);
+        if (value == null || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            return null;
+        }
+        return value.intValue();
+    }
+
+    private static Long extractJsonLong(String object, String key) {
         String needle = "\"" + key + "\"";
         int keyIndex = object.indexOf(needle);
         if (keyIndex < 0) {
@@ -103,6 +147,9 @@ public record LibrarySong(
         while (i < object.length() && Character.isWhitespace(object.charAt(i))) {
             i++;
         }
+        if (i < object.length() && object.regionMatches(true, i, "null", 0, 4)) {
+            return null;
+        }
         int start = i;
         while (i < object.length() && (Character.isDigit(object.charAt(i)) || object.charAt(i) == '-')) {
             i++;
@@ -111,7 +158,7 @@ public record LibrarySong(
             return null;
         }
         try {
-            return Integer.parseInt(object.substring(start, i));
+            return Long.parseLong(object.substring(start, i));
         } catch (NumberFormatException ex) {
             return null;
         }

@@ -229,6 +229,10 @@ public final class LibraryPanel extends JPanel {
         this.songRepository = songRepository;
     }
 
+    public void setInstrumentNames(Map<Long, String> instrumentNames) {
+        tableModel.setInstrumentNames(instrumentNames);
+    }
+
     public void setPlayLogRepository(PlayLogRepository playLogRepository) {
         this.playLogRepository = playLogRepository;
     }

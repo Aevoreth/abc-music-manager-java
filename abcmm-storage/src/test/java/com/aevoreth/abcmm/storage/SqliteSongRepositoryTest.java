@@ -35,7 +35,7 @@ class SqliteSongRepositoryTest {
             assertEquals("Ada", songs.get(0).transcriber());
             assertEquals(180, songs.get(0).durationSeconds());
             assertTrue(songs.get(0).inUpcomingSet());
-            assertEquals(List.of("Melody", "Part 2", "Part 3"), songs.get(0).partNames());
+            assertEquals(List.of("1: Melody", "2: Part 2", "3: Part 3"), songs.get(0).partNames());
         }
     }
 

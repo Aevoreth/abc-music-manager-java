@@ -166,7 +166,7 @@ public final class AbcMetadataParser {
                 if (madeFor != null && instrumentResolver != null) {
                     instrumentId = instrumentResolver.apply(madeFor);
                 }
-                parts.add(new AbcPartMetadata(partNum, partName, instrumentId, titleFromT));
+                parts.add(new AbcPartMetadata(partNum, partName, instrumentId, madeFor, titleFromT));
                 continue;
             }
             i++;
