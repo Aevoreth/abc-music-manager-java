@@ -1,51 +1,71 @@
 package com.aevoreth.abcmm.ui;
 
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Window;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import javax.swing.BorderFactory;
+import javax.swing.DropMode;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
+import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
+import javax.swing.TransferHandler;
+import javax.swing.table.AbstractTableModel;
 
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.library.PartNameFormatter;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SongAppMetadataUpdate;
 import com.aevoreth.abcmm.domain.library.SongDetailInfo;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
+import com.aevoreth.abcmm.domain.prefs.LotroPaths;
+import com.aevoreth.abcmm.domain.prefs.Preferences;
+import com.aevoreth.abcmm.domain.prefs.PreferencesException;
+import com.aevoreth.abcmm.domain.prefs.PreferencesStore;
 import com.aevoreth.abcmm.domain.scan.AbcFileMetadata;
+import com.aevoreth.abcmm.domain.scan.AbcPartMetadata;
 import com.aevoreth.abcmm.storage.AbcMetadataParser;
 import com.aevoreth.abcmm.storage.AbcMetadataRewriter;
 
 /**
- * Song detail: Basic Info, Notes/Lyrics, Raw ABC (no layouts tab).
+ * Song detail: Basic Info, Parts, Notes/Lyrics, Raw ABC.
  */
 public final class SongDetailDialog extends JDialog {
 
     private final SongRepository songRepository;
     private final PlayLogRepository playLogRepository;
+    private final Preferences preferences;
+    private final PreferencesStore preferencesStore;
     private final long songId;
     private final List<StatusInfo> statuses;
 
@@ -73,22 +93,35 @@ public final class SongDetailDialog extends JDialog {
             "<html><b>Warning:</b> Editing raw ABC can make a song unplayable. "
                     + "Only edit if you know what you are doing.</html>");
 
+    private final JTextField partNamePatternField = new JTextField(40);
+    private final JComboBox<String> whitespaceReplaceCombo =
+            new JComboBox<>(PartNameFormatter.SPACE_REPLACE_LABELS);
+    private final PartsTableModel partsModel = new PartsTableModel();
+    private final JTable partsTable = new JTable(partsModel);
+
     private Path filePath;
     private String fileMtimeWhenLoaded;
     private String loadedTitle = "";
     private String loadedComposers = "";
     private String loadedFileName = "";
+    private String loadedTranscriber = "";
+    private Integer loadedDurationSeconds;
     private boolean saved;
+    private boolean partsDirty;
 
     public SongDetailDialog(
             Window owner,
             SongRepository songRepository,
             PlayLogRepository playLogRepository,
+            Preferences preferences,
+            PreferencesStore preferencesStore,
             long songId,
             List<StatusInfo> statuses) {
         super(owner, "Song detail", ModalityType.APPLICATION_MODAL);
         this.songRepository = songRepository;
         this.playLogRepository = playLogRepository;
+        this.preferences = Objects.requireNonNull(preferences, "preferences");
+        this.preferencesStore = Objects.requireNonNull(preferencesStore, "preferencesStore");
         this.songId = songId;
         this.statuses = statuses == null ? List.of() : List.copyOf(statuses);
 
@@ -105,8 +138,13 @@ public final class SongDetailDialog extends JDialog {
             statusCombo.addItem(status);
         }
 
+        partNamePatternField.setText(preferences.partNamePattern());
+        whitespaceReplaceCombo.setSelectedIndex(
+                PartNameFormatter.spaceReplaceIndex(preferences.partNameWhitespaceReplace()));
+
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Basic Info", buildBasicInfoTab());
+        tabs.addTab("Parts", buildPartsTab());
         tabs.addTab("Notes and Lyrics", buildNotesTab());
         tabs.addTab("Raw ABC", buildAbcTab());
 
@@ -127,8 +165,8 @@ public final class SongDetailDialog extends JDialog {
         root.add(tabs, BorderLayout.CENTER);
         root.add(buttons, BorderLayout.SOUTH);
         setContentPane(root);
-        setMinimumSize(new java.awt.Dimension(640, 520));
-        setSize(700, 560);
+        setMinimumSize(new Dimension(720, 560));
+        setSize(780, 620);
         setLocationRelativeTo(owner);
         loadSong();
     }
@@ -171,6 +209,166 @@ public final class SongDetailDialog extends JDialog {
         wrap.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         wrap.add(form, BorderLayout.NORTH);
         return wrap;
+    }
+
+    private JPanel buildPartsTab() {
+        JPanel template = new JPanel(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.insets = new Insets(4, 4, 4, 4);
+        c.anchor = GridBagConstraints.WEST;
+
+        c.gridx = 0;
+        c.gridy = 0;
+        template.add(new JLabel("Part name pattern:"), c);
+        c.gridx = 1;
+        c.weightx = 1;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        template.add(partNamePatternField, c);
+
+        c.gridx = 0;
+        c.gridy = 1;
+        c.weightx = 0;
+        c.fill = GridBagConstraints.NONE;
+        template.add(new JLabel("Replace spaces in variables with:"), c);
+        c.gridx = 1;
+        template.add(whitespaceReplaceCombo, c);
+
+        JButton applyPattern = new JButton("Apply pattern");
+        applyPattern.addActionListener(e -> applyPartNamePattern());
+        c.gridx = 1;
+        c.gridy = 2;
+        template.add(applyPattern, c);
+
+        String[] varColumns = {"Variable", "Description"};
+        Object[][] varRows = PartNameFormatter.variableDescriptions().entrySet().stream()
+                .map(entry -> new Object[] {entry.getKey(), entry.getValue()})
+                .toArray(Object[][]::new);
+        JTable variablesTable = new JTable(varRows, varColumns);
+        variablesTable.setEnabled(false);
+        variablesTable.setRowSelectionAllowed(false);
+        variablesTable.setFocusable(false);
+        variablesTable.setPreferredScrollableViewportSize(new Dimension(100, 120));
+
+        partsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        partsTable.setFillsViewportHeight(true);
+        partsTable.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
+        partsTable.getColumnModel().getColumn(0).setPreferredWidth(80);
+        partsTable.getColumnModel().getColumn(1).setPreferredWidth(220);
+        partsTable.getColumnModel().getColumn(2).setPreferredWidth(160);
+        enablePartsTableReorder();
+
+        JPanel north = new JPanel(new BorderLayout(0, 8));
+        north.add(template, BorderLayout.NORTH);
+        north.add(new JScrollPane(variablesTable), BorderLayout.CENTER);
+
+        JPanel root = new JPanel(new BorderLayout(0, 8));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        root.add(north, BorderLayout.NORTH);
+        root.add(new JScrollPane(partsTable), BorderLayout.CENTER);
+        root.add(new JLabel("Drag rows to change part order in the ABC file."), BorderLayout.SOUTH);
+        return root;
+    }
+
+    private void enablePartsTableReorder() {
+        partsTable.setDragEnabled(true);
+        partsTable.setDropMode(DropMode.INSERT_ROWS);
+        partsTable.setTransferHandler(new TransferHandler() {
+            private int dragRow = -1;
+
+            @Override
+            public int getSourceActions(JComponent c) {
+                return MOVE;
+            }
+
+            @Override
+            protected Transferable createTransferable(JComponent c) {
+                dragRow = partsTable.getSelectedRow();
+                if (dragRow < 0) {
+                    return null;
+                }
+                return new StringSelection(Integer.toString(dragRow));
+            }
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return support.isDrop()
+                        && support.isDataFlavorSupported(DataFlavor.stringFlavor)
+                        && dragRow >= 0;
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support) || !(support.getDropLocation() instanceof JTable.DropLocation drop)) {
+                    return false;
+                }
+                int dropIndex = drop.getRow();
+                if (dropIndex < 0) {
+                    dropIndex = partsModel.getRowCount();
+                }
+                boolean moved = partsModel.moveRow(dragRow, dropIndex);
+                dragRow = -1;
+                if (moved) {
+                    partsDirty = true;
+                }
+                return moved;
+            }
+
+            @Override
+            protected void exportDone(JComponent source, Transferable data, int action) {
+                dragRow = -1;
+            }
+        });
+    }
+
+    private void applyPartNamePattern() {
+        if (partsTable.isEditing()) {
+            partsTable.getCellEditor().stopCellEditing();
+        }
+        persistPartNameTemplate();
+        PartNameFormatter.SongContext song = songContextForTemplate();
+        String pattern = partNamePatternField.getText();
+        String whitespace = selectedWhitespaceReplace();
+        for (int i = 0; i < partsModel.getRowCount(); i++) {
+            PartRow row = partsModel.rowAt(i);
+            String formatted = PartNameFormatter.format(
+                    pattern,
+                    whitespace,
+                    song,
+                    new PartNameFormatter.PartContext(row.partNumber, row.partName, row.madeFor));
+            partsModel.setPartName(i, formatted);
+        }
+        partsDirty = true;
+    }
+
+    private PartNameFormatter.SongContext songContextForTemplate() {
+        Path lotroMusic = LotroPaths.musicRoot(LotroPaths.effectiveLotroRootString(preferences)).orElse(null);
+        return new PartNameFormatter.SongContext(
+                titleField.getText(),
+                composersField.getText(),
+                loadedTranscriber,
+                loadedDurationSeconds,
+                partsModel.getRowCount(),
+                loadedFileName,
+                filePath,
+                lotroMusic);
+    }
+
+    private String selectedWhitespaceReplace() {
+        int index = whitespaceReplaceCombo.getSelectedIndex();
+        if (index < 0 || index >= PartNameFormatter.SPACE_REPLACE_CHARS.length) {
+            return Preferences.DEFAULT_PART_NAME_WHITESPACE_REPLACE;
+        }
+        return PartNameFormatter.SPACE_REPLACE_CHARS[index];
+    }
+
+    private void persistPartNameTemplate() {
+        preferences.setPartNamePattern(partNamePatternField.getText());
+        preferences.setPartNameWhitespaceReplace(selectedWhitespaceReplace());
+        try {
+            preferencesStore.save(preferences);
+        } catch (PreferencesException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Song detail", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private JPanel buildNotesTab() {
@@ -237,6 +435,8 @@ public final class SongDetailDialog extends JDialog {
             SongDetailInfo data = detail.get();
             loadedTitle = data.title() == null ? "" : data.title();
             loadedComposers = data.composers() == null ? "" : data.composers();
+            loadedTranscriber = data.transcriber() == null ? "" : data.transcriber();
+            loadedDurationSeconds = data.durationSeconds();
             titleField.setEnabled(true);
             composersField.setEnabled(true);
             titleField.setText(loadedTitle);
@@ -267,6 +467,8 @@ public final class SongDetailDialog extends JDialog {
                 filenameField.setText("");
                 filenameField.setToolTipText("No primary ABC file for this song");
             }
+            partsModel.setParts(data.parts());
+            partsDirty = false;
             loadAbcContent();
         } catch (LibraryException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Song detail", JOptionPane.ERROR_MESSAGE);
@@ -337,6 +539,10 @@ public final class SongDetailDialog extends JDialog {
     }
 
     private void saveAppMetadata() {
+        if (partsTable.isEditing()) {
+            partsTable.getCellEditor().stopCellEditing();
+        }
+
         String newTitle = titleField.getText() == null ? "" : titleField.getText().strip();
         String newComposers = composersField.getText() == null ? "" : composersField.getText().strip();
         String newFileName = filenameField.getText() == null ? "" : filenameField.getText().strip();
@@ -348,10 +554,27 @@ public final class SongDetailDialog extends JDialog {
         boolean titleChanged = !newTitle.equals(loadedTitle);
         boolean composersChanged = !newComposers.equals(loadedComposers);
         boolean filenameChanged = filenameField.isEnabled() && !newFileName.equals(loadedFileName);
+        boolean partsChanged = partsDirty || partsModel.isDirty();
+
+        persistPartNameTemplate();
 
         try {
             if ((titleChanged || composersChanged) && filePath != null && Files.isRegularFile(filePath)) {
                 if (!writeTitleComposerToAbc(newTitle, newComposers, titleChanged, composersChanged)) {
+                    return;
+                }
+            }
+
+            if (partsChanged) {
+                if (filePath == null || !Files.isRegularFile(filePath)) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Cannot save part changes: no primary ABC file for this song.",
+                            "Song detail",
+                            JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                if (!writePartsToAbc()) {
                     return;
                 }
             }
@@ -433,11 +656,55 @@ public final class SongDetailDialog extends JDialog {
             String hash = fileHash(filePath);
             songRepository.updateSongFromParsedFile(songId, filePath, metadata, mtime, hash);
             fileMtimeWhenLoaded = mtime;
-            // Keep Raw ABC tab in sync if it was showing the old file.
             if (abcArea.isEnabled()) {
                 abcArea.setText(rewritten);
                 abcArea.setCaretPosition(0);
             }
+        }
+        return true;
+    }
+
+    private boolean writePartsToAbc() throws IOException, LibraryException {
+        String currentMtime = fileMtime(filePath);
+        if (fileMtimeWhenLoaded != null && currentMtime != null && !currentMtime.equals(fileMtimeWhenLoaded)) {
+            int reply = JOptionPane.showOptionDialog(
+                    this,
+                    "The ABC file was modified on disk. Overwrite with part changes anyway?",
+                    "File changed",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    new Object[] {"Yes", "No", "Cancel"},
+                    "No");
+            if (reply == JOptionPane.CANCEL_OPTION || reply == JOptionPane.CLOSED_OPTION) {
+                return false;
+            }
+            if (reply == JOptionPane.NO_OPTION) {
+                loadAbcContent();
+                return false;
+            }
+        }
+
+        String content = Files.readString(filePath, StandardCharsets.UTF_8);
+        List<AbcMetadataRewriter.PartRewrite> edits = new ArrayList<>();
+        for (int i = 0; i < partsModel.getRowCount(); i++) {
+            PartRow row = partsModel.rowAt(i);
+            edits.add(new AbcMetadataRewriter.PartRewrite(
+                    row.sourceBlockIndex, row.partNumber, row.partName, row.madeFor));
+        }
+        String rewritten = AbcMetadataRewriter.applyParts(content, edits);
+        Files.writeString(filePath, rewritten, StandardCharsets.UTF_8);
+        AbcFileMetadata metadata = new AbcMetadataParser().parse(rewritten, filePath.getFileName().toString());
+        String mtime = fileMtime(filePath);
+        String hash = fileHash(filePath);
+        songRepository.updateSongFromParsedFile(songId, filePath, metadata, mtime, hash);
+        fileMtimeWhenLoaded = mtime;
+        partsDirty = false;
+        partsModel.clearDirty();
+        partsLabel.setText(String.valueOf(metadata.parts().size()));
+        if (abcArea.isEnabled()) {
+            abcArea.setText(rewritten);
+            abcArea.setCaretPosition(0);
         }
         return true;
     }
@@ -522,6 +789,158 @@ public final class SongDetailDialog extends JDialog {
             return HexFormat.of().formatHex(digest.digest(bytes));
         } catch (IOException | NoSuchAlgorithmException ex) {
             return null;
+        }
+    }
+
+    private static final class PartRow {
+        final int sourceBlockIndex;
+        int partNumber;
+        String partName;
+        String madeFor;
+
+        PartRow(int sourceBlockIndex, int partNumber, String partName, String madeFor) {
+            this.sourceBlockIndex = sourceBlockIndex;
+            this.partNumber = partNumber;
+            this.partName = partName == null ? "" : partName;
+            this.madeFor = madeFor == null ? "" : madeFor;
+        }
+    }
+
+    private final class PartsTableModel extends AbstractTableModel {
+        private final List<PartRow> rows = new ArrayList<>();
+        private boolean dirty;
+
+        void setParts(List<AbcPartMetadata> parts) {
+            rows.clear();
+            if (parts != null) {
+                for (int i = 0; i < parts.size(); i++) {
+                    AbcPartMetadata part = parts.get(i);
+                    rows.add(new PartRow(i, part.partNumber(), part.partName(), part.madeFor()));
+                }
+            }
+            dirty = false;
+            fireTableDataChanged();
+        }
+
+        PartRow rowAt(int index) {
+            return rows.get(index);
+        }
+
+        void setPartName(int rowIndex, String name) {
+            rows.get(rowIndex).partName = name == null ? "" : name;
+            dirty = true;
+            fireTableCellUpdated(rowIndex, 1);
+        }
+
+        boolean isDirty() {
+            return dirty;
+        }
+
+        void clearDirty() {
+            dirty = false;
+        }
+
+        boolean moveRow(int fromIndex, int dropIndex) {
+            if (fromIndex < 0 || fromIndex >= rows.size()) {
+                return false;
+            }
+            int target = dropIndex;
+            if (target > rows.size()) {
+                target = rows.size();
+            }
+            if (fromIndex < target) {
+                target--;
+            }
+            if (fromIndex == target) {
+                return false;
+            }
+            PartRow moved = rows.remove(fromIndex);
+            rows.add(target, moved);
+            dirty = true;
+            fireTableDataChanged();
+            partsTable.getSelectionModel().setSelectionInterval(target, target);
+            return true;
+        }
+
+        @Override
+        public int getRowCount() {
+            return rows.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return 3;
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return switch (column) {
+                case 0 -> "Part number";
+                case 1 -> "Part name";
+                case 2 -> "Instrument (Made-for)";
+                default -> "";
+            };
+        }
+
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            return columnIndex == 0 ? Integer.class : String.class;
+        }
+
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            return true;
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            PartRow row = rows.get(rowIndex);
+            return switch (columnIndex) {
+                case 0 -> row.partNumber;
+                case 1 -> row.partName;
+                case 2 -> row.madeFor;
+                default -> null;
+            };
+        }
+
+        @Override
+        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+            PartRow row = rows.get(rowIndex);
+            switch (columnIndex) {
+                case 0 -> {
+                    int number;
+                    if (aValue instanceof Number n) {
+                        number = n.intValue();
+                    } else {
+                        try {
+                            number = Integer.parseInt(String.valueOf(aValue).strip());
+                        } catch (NumberFormatException ex) {
+                            return;
+                        }
+                    }
+                    if (row.partNumber != number) {
+                        row.partNumber = number;
+                        dirty = true;
+                    }
+                }
+                case 1 -> {
+                    String name = aValue == null ? "" : String.valueOf(aValue);
+                    if (!row.partName.equals(name)) {
+                        row.partName = name;
+                        dirty = true;
+                    }
+                }
+                case 2 -> {
+                    String madeFor = aValue == null ? "" : String.valueOf(aValue);
+                    if (!row.madeFor.equals(madeFor)) {
+                        row.madeFor = madeFor;
+                        dirty = true;
+                    }
+                }
+                default -> {
+                }
+            }
+            fireTableCellUpdated(rowIndex, columnIndex);
         }
     }
 }

@@ -216,7 +216,8 @@ public final class SqliteSongRepository implements SongRepository {
                     return Optional.empty();
                 }
                 String partsJson = rs.getString("parts");
-                int partCount = countParts(partsJson);
+                List<AbcPartMetadata> parts = parsePartsFromJson(partsJson);
+                int partCount = parts.isEmpty() ? countParts(partsJson) : parts.size();
                 Integer rating = rs.getObject("rating") == null ? null : rs.getInt("rating");
                 Integer duration = rs.getObject("duration_seconds") == null
                         ? null
@@ -229,6 +230,7 @@ public final class SqliteSongRepository implements SongRepository {
                         blankToNull(rs.getString("transcriber")),
                         duration,
                         partCount,
+                        parts,
                         rating,
                         statusId,
                         rs.getString("status_name"),
@@ -652,6 +654,38 @@ public final class SqliteSongRepository implements SongRepository {
             return JSON.readTree(partsJson).size();
         } catch (Exception ex) {
             return 0;
+        }
+    }
+
+    private static List<AbcPartMetadata> parsePartsFromJson(String partsJson) {
+        if (partsJson == null || partsJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            var root = JSON.readTree(partsJson);
+            if (!root.isArray()) {
+                return List.of();
+            }
+            List<AbcPartMetadata> parts = new ArrayList<>();
+            for (var node : root) {
+                int partNumber = node.path("part_number").asInt(parts.size() + 1);
+                String partName = node.path("part_name").isNull() || node.path("part_name").asText("").isBlank()
+                        ? null
+                        : node.path("part_name").asText();
+                Long instrumentId = node.path("instrument_id").isNull() || node.path("instrument_id").isMissingNode()
+                        ? null
+                        : node.path("instrument_id").asLong();
+                String madeFor = node.path("made_for").isNull() || node.path("made_for").asText("").isBlank()
+                        ? null
+                        : node.path("made_for").asText();
+                String titleFromT = node.path("title_from_t").isNull() || node.path("title_from_t").asText("").isBlank()
+                        ? null
+                        : node.path("title_from_t").asText();
+                parts.add(new AbcPartMetadata(partNumber, partName, instrumentId, madeFor, titleFromT));
+            }
+            return List.copyOf(parts);
+        } catch (Exception ex) {
+            return List.of();
         }
     }
 

@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
 class AbcMetadataRewriterTest {
@@ -108,5 +110,80 @@ class AbcMetadataRewriterTest {
         String abc = "%%song-title Old\n%%song-composer X\n";
         String out = AbcMetadataRewriter.applyTitleAndComposer(abc, "Old", "New", "X", "Y");
         assertEquals("%%song-title       New\n%%song-composer    Y\n", out);
+    }
+
+    @Test
+    void updatesPartNumberNameAndMadeForInPlace() {
+        String abc = """
+                %%song-title       Tune
+                X:51
+                T: Tune Flute
+                %%part-name       Old Flute
+                %%made-for        Basic Flute
+                ABC
+                """;
+        String out = AbcMetadataRewriter.applyParts(
+                abc,
+                List.of(new AbcMetadataRewriter.PartRewrite(0, 52, "New Flute", "Basic Clarinet")));
+        assertEquals("""
+                %%song-title       Tune
+                X:52
+                T: Tune Flute
+                %%part-name        New Flute
+                %%made-for         Basic Clarinet
+                ABC
+                """, out);
+    }
+
+    @Test
+    void insertsMissingPartTagsAfterXLine() {
+        String abc = """
+                X:1
+                T: Solo
+                notes
+                """;
+        String out = AbcMetadataRewriter.applyParts(
+                abc,
+                List.of(new AbcMetadataRewriter.PartRewrite(0, 1, "Solo Part", "Lute")));
+        assertEquals("""
+                X:1
+                %%part-name        Solo Part
+                %%made-for         Lute
+                T: Solo
+                notes
+                """, out);
+    }
+
+    @Test
+    void reordersEntireXBlocksPreservingPreamble() {
+        String abc = """
+                %%song-title       Duo
+                X:51
+                T: Flute
+                %%part-name       Flute 1
+                F notes
+                X:52
+                T: Harp
+                %%part-name       Harp 1
+                H notes
+                """;
+        String out = AbcMetadataRewriter.applyParts(
+                abc,
+                List.of(
+                        new AbcMetadataRewriter.PartRewrite(1, 52, "Harp 1", "Basic Harp"),
+                        new AbcMetadataRewriter.PartRewrite(0, 51, "Flute 1", "Basic Flute")));
+        assertEquals("""
+                %%song-title       Duo
+                X:52
+                T: Harp
+                %%part-name        Harp 1
+                %%made-for         Basic Harp
+                H notes
+                X:51
+                T: Flute
+                %%part-name        Flute 1
+                %%made-for         Basic Flute
+                F notes
+                """, out);
     }
 }

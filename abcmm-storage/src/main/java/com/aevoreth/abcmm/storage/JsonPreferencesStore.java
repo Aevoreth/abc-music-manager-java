@@ -96,6 +96,14 @@ public final class JsonPreferencesStore implements PreferencesStore {
         prefs.setPlaybackStereoSlider(asInteger(remaining.remove("playback_stereo_slider")));
         prefs.setSetPlayRelays(asRelayList(remaining.remove("set_play_relays")));
         prefs.setSetPlaySelectedRelayId(asString(remaining.remove("set_play_selected_relay_id")));
+        String partNamePattern = asString(remaining.remove("part_name_pattern"));
+        if (partNamePattern != null) {
+            prefs.setPartNamePattern(partNamePattern);
+        }
+        String partNameWhitespace = asString(remaining.remove("part_name_whitespace_replace"));
+        if (partNameWhitespace != null) {
+            prefs.setPartNameWhitespaceReplace(partNameWhitespace);
+        }
 
         prefs.extras().putAll(remaining);
         return prefs;
@@ -134,6 +142,8 @@ public final class JsonPreferencesStore implements PreferencesStore {
         } else {
             map.remove("set_play_selected_relay_id");
         }
+        map.put("part_name_pattern", preferences.partNamePattern());
+        map.put("part_name_whitespace_replace", preferences.partNameWhitespaceReplace());
         return map;
     }
 

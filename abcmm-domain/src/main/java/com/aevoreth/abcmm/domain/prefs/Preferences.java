@@ -14,6 +14,8 @@ public final class Preferences {
 
     public static final int DEFAULT_WINDOW_WIDTH = 1100;
     public static final int DEFAULT_WINDOW_HEIGHT = 720;
+    public static final String DEFAULT_PART_NAME_PATTERN = "$SongTitle ($SongLength) - $PartName";
+    public static final String DEFAULT_PART_NAME_WHITESPACE_REPLACE = " ";
 
     private String theme = AppearanceOptions.FLAT_LIGHT_THEME;
     private Integer baseFontSize = AppearanceOptions.DEFAULT_FONT_SIZE;
@@ -30,6 +32,8 @@ public final class Preferences {
     private Integer playbackStereoSlider = 0;
     private List<Map<String, Object>> setPlayRelays = List.of();
     private String setPlaySelectedRelayId;
+    private String partNamePattern = DEFAULT_PART_NAME_PATTERN;
+    private String partNameWhitespaceReplace = DEFAULT_PART_NAME_WHITESPACE_REPLACE;
     private final Map<String, Object> extras = new LinkedHashMap<>();
 
     public Preferences copy() {
@@ -49,6 +53,8 @@ public final class Preferences {
         copy.playbackStereoSlider = playbackStereoSlider;
         copy.setPlayRelays = copyRelays(setPlayRelays);
         copy.setPlaySelectedRelayId = setPlaySelectedRelayId;
+        copy.partNamePattern = partNamePattern;
+        copy.partNameWhitespaceReplace = partNameWhitespaceReplace;
         copy.extras.putAll(extras);
         return copy;
     }
@@ -193,6 +199,26 @@ public final class Preferences {
 
     public void setSetPlaySelectedRelayId(String setPlaySelectedRelayId) {
         this.setPlaySelectedRelayId = setPlaySelectedRelayId;
+    }
+
+    public String partNamePattern() {
+        return partNamePattern;
+    }
+
+    public void setPartNamePattern(String partNamePattern) {
+        this.partNamePattern = partNamePattern == null || partNamePattern.isBlank()
+                ? DEFAULT_PART_NAME_PATTERN
+                : partNamePattern;
+    }
+
+    public String partNameWhitespaceReplace() {
+        return partNameWhitespaceReplace;
+    }
+
+    public void setPartNameWhitespaceReplace(String partNameWhitespaceReplace) {
+        this.partNameWhitespaceReplace = partNameWhitespaceReplace == null
+                ? DEFAULT_PART_NAME_WHITESPACE_REPLACE
+                : partNameWhitespaceReplace;
     }
 
     public Map<String, Object> extras() {
