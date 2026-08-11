@@ -11,15 +11,31 @@ import java.awt.geom.Path2D;
 import javax.swing.Icon;
 
 /**
- * Small vector icons for playback transport controls.
+ * Vector icons for playback transport controls.
+ * Play / pause / stop colors match ABC Player's {@code play.png}, {@code pause.png},
+ * and {@code stop.png} glyphs.
  */
 final class PlaybackIcons {
+
+    /** Lime green — ABC Player {@code play.png}. */
+    static final Color PLAY_COLOR = new Color(132, 221, 11);
+    /** Yellow — ABC Player {@code pause.png}. */
+    static final Color PAUSE_COLOR = new Color(255, 216, 60);
+    /** Orange-red — ABC Player {@code stop.png}. */
+    static final Color STOP_COLOR = new Color(255, 77, 0);
+    /** Sky blue — previous / next transport buttons. */
+    static final Color SKIP_COLOR = new Color(56, 176, 240);
 
     private PlaybackIcons() {
     }
 
     static Icon play(int size) {
-        return new GlyphIcon(size, (g, s) -> {
+        return play(size, null);
+    }
+
+    /** Play triangle tinted like ABC Player (or theme foreground when {@code color} is null). */
+    static Icon play(int size, Color color) {
+        return new GlyphIcon(size, color, (g, s) -> {
             Path2D path = new Path2D.Float();
             float left = s * 0.28f;
             float top = s * 0.2f;
@@ -34,7 +50,12 @@ final class PlaybackIcons {
     }
 
     static Icon pause(int size) {
-        return new GlyphIcon(size, (g, s) -> {
+        return pause(size, null);
+    }
+
+    /** Pause bars tinted like ABC Player (or theme foreground when {@code color} is null). */
+    static Icon pause(int size, Color color) {
+        return new GlyphIcon(size, color, (g, s) -> {
             int barW = Math.max(2, s / 5);
             int gap = Math.max(2, s / 6);
             int left = (s - (barW * 2 + gap)) / 2;
@@ -46,14 +67,23 @@ final class PlaybackIcons {
     }
 
     static Icon stop(int size) {
-        return new GlyphIcon(size, (g, s) -> {
+        return stop(size, null);
+    }
+
+    /** Stop square tinted like ABC Player (or theme foreground when {@code color} is null). */
+    static Icon stop(int size, Color color) {
+        return new GlyphIcon(size, color, (g, s) -> {
             int pad = s / 4;
             g.fillRect(pad, pad, s - pad * 2, s - pad * 2);
         });
     }
 
     static Icon previous(int size) {
-        return new GlyphIcon(size, (g, s) -> {
+        return previous(size, null);
+    }
+
+    static Icon previous(int size, Color color) {
+        return new GlyphIcon(size, color, (g, s) -> {
             int barW = Math.max(2, s / 8);
             g.fillRect(s / 5, s / 5, barW, s - s / 5 * 2);
             Path2D path = new Path2D.Float();
@@ -66,7 +96,11 @@ final class PlaybackIcons {
     }
 
     static Icon next(int size) {
-        return new GlyphIcon(size, (g, s) -> {
+        return next(size, null);
+    }
+
+    static Icon next(int size, Color color) {
+        return new GlyphIcon(size, color, (g, s) -> {
             int barW = Math.max(2, s / 8);
             g.fillRect(s - s / 5 - barW, s / 5, barW, s - s / 5 * 2);
             Path2D path = new Path2D.Float();
@@ -79,7 +113,7 @@ final class PlaybackIcons {
     }
 
     static Icon list(int size) {
-        return new GlyphIcon(size, (g, s) -> {
+        return new GlyphIcon(size, null, (g, s) -> {
             g.setStroke(new BasicStroke(Math.max(1.5f, s / 10f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             int left = s / 4;
             int right = s - s / 5;
@@ -93,7 +127,7 @@ final class PlaybackIcons {
     }
 
     static Icon plus(int size) {
-        return new GlyphIcon(size, (g, s) -> {
+        return new GlyphIcon(size, null, (g, s) -> {
             g.setStroke(new BasicStroke(Math.max(1.8f, s / 8f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             int mid = s / 2;
             int pad = s / 4;
@@ -109,10 +143,12 @@ final class PlaybackIcons {
 
     private static final class GlyphIcon implements Icon {
         private final int size;
+        private final Color fixedColor;
         private final Painter painter;
 
-        GlyphIcon(int size, Painter painter) {
+        GlyphIcon(int size, Color fixedColor, Painter painter) {
             this.size = size;
+            this.fixedColor = fixedColor;
             this.painter = painter;
         }
 
@@ -122,7 +158,14 @@ final class PlaybackIcons {
             try {
                 g2.translate(x, y);
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Color color = c != null && c.isEnabled() ? c.getForeground() : Color.GRAY;
+                Color color;
+                if (c != null && !c.isEnabled()) {
+                    color = Color.GRAY;
+                } else if (fixedColor != null) {
+                    color = fixedColor;
+                } else {
+                    color = c != null ? c.getForeground() : Color.BLACK;
+                }
                 g2.setColor(color);
                 painter.paint(g2, size);
             } finally {

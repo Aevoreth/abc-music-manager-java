@@ -52,7 +52,8 @@ import com.aevoreth.abcmm.domain.prefs.Preferences;
  */
 public final class PlaybackPanel extends JPanel {
 
-    private static final int ICON_SIZE = 16;
+    /** Transport glyph size; ABC Player's play/stop PNGs are 24×24. */
+    private static final int ICON_SIZE = 24;
     private static final int SCRUB_MAX = 1000;
 
     private PlaybackSession session;
@@ -67,10 +68,11 @@ public final class PlaybackPanel extends JPanel {
     private final JLabel timeLabel = new JLabel("0:00 / 0:00");
     private final JSlider tempoSlider = new JSlider(50, 200, 100);
     private final JLabel tempoLabel = new JLabel("100%");
-    private final JButton prevButton = new JButton(PlaybackIcons.previous(ICON_SIZE));
-    private final JButton playPauseButton = new JButton(PlaybackIcons.play(ICON_SIZE));
-    private final JButton stopButton = new JButton(PlaybackIcons.stop(ICON_SIZE));
-    private final JButton nextButton = new JButton(PlaybackIcons.next(ICON_SIZE));
+    private final JButton prevButton = new JButton(
+            PlaybackIcons.previous(ICON_SIZE, PlaybackIcons.SKIP_COLOR));
+    private final JButton playPauseButton = new JButton(PlaybackIcons.play(ICON_SIZE, PlaybackIcons.PLAY_COLOR));
+    private final JButton stopButton = new JButton(PlaybackIcons.stop(ICON_SIZE, PlaybackIcons.STOP_COLOR));
+    private final JButton nextButton = new JButton(PlaybackIcons.next(ICON_SIZE, PlaybackIcons.SKIP_COLOR));
     private final JButton listButton = new JButton(PlaybackIcons.list(ICON_SIZE));
     private final JSlider volumeSlider = new JSlider(0, 100, 100);
 
@@ -393,7 +395,9 @@ public final class PlaybackPanel extends JPanel {
         nowPlayingLabel.setText(song.title() + (song.composer().isBlank() ? "" : " — " + song.composer()));
         setTransportEnabled(true);
         boolean playing = engine.getState() == PlaybackState.PLAYING;
-        playPauseButton.setIcon(playing ? PlaybackIcons.pause(ICON_SIZE) : PlaybackIcons.play(ICON_SIZE));
+        playPauseButton.setIcon(playing
+                ? PlaybackIcons.pause(ICON_SIZE, PlaybackIcons.PAUSE_COLOR)
+                : PlaybackIcons.play(ICON_SIZE, PlaybackIcons.PLAY_COLOR));
         playPauseButton.setToolTipText(playing ? "Pause" : "Play");
         prevButton.setEnabled(session.hasPrevious());
         nextButton.setEnabled(session.hasNext());
@@ -490,7 +494,8 @@ public final class PlaybackPanel extends JPanel {
     private void styleTransportButton(JButton button, String tip) {
         button.setToolTipText(tip);
         button.setFocusable(false);
-        button.setMargin(new Insets(6, 14, 6, 14));
+        // Match ABC Player play-control margins (Insets(5, 20, 5, 20)).
+        button.setMargin(new Insets(5, 20, 5, 20));
     }
 
     private void runSafe(ThrowingAction action) {
