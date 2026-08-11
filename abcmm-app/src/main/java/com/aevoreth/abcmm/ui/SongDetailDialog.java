@@ -27,6 +27,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
@@ -36,6 +37,7 @@ import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.scan.AbcFileMetadata;
 import com.aevoreth.abcmm.storage.AbcMetadataParser;
+import com.aevoreth.abcmm.storage.AbcMetadataRewriter;
 
 /**
  * Song detail: Basic Info, Notes/Lyrics, Raw ABC (no layouts tab).
@@ -47,8 +49,9 @@ public final class SongDetailDialog extends JDialog {
     private final long songId;
     private final List<StatusInfo> statuses;
 
-    private final JLabel titleLabel = new JLabel();
-    private final JLabel composersLabel = new JLabel();
+    private final JTextField titleField = new JTextField(32);
+    private final JTextField composersField = new JTextField(32);
+    private final JTextField filenameField = new JTextField(32);
     private final JLabel transcriberLabel = new JLabel();
     private final JLabel durationLabel = new JLabel();
     private final JLabel exportLabel = new JLabel();
@@ -72,6 +75,9 @@ public final class SongDetailDialog extends JDialog {
 
     private Path filePath;
     private String fileMtimeWhenLoaded;
+    private String loadedTitle = "";
+    private String loadedComposers = "";
+    private String loadedFileName = "";
     private boolean saved;
 
     public SongDetailDialog(
@@ -138,8 +144,9 @@ public final class SongDetailDialog extends JDialog {
         c.insets = new Insets(4, 4, 4, 4);
         c.anchor = GridBagConstraints.WEST;
         int y = 0;
-        y = addRow(form, c, y, "Title:", titleLabel);
-        y = addRow(form, c, y, "Composer(s):", composersLabel);
+        y = addRow(form, c, y, "Title:", titleField);
+        y = addRow(form, c, y, "Composer(s):", composersField);
+        y = addRow(form, c, y, "Filename:", filenameField);
         y = addRow(form, c, y, "Transcriber:", transcriberLabel);
         y = addRow(form, c, y, "Duration:", durationLabel);
         y = addRow(form, c, y, "Export timestamp:", exportLabel);
@@ -206,10 +213,13 @@ public final class SongDetailDialog extends JDialog {
         c.gridx = 0;
         c.gridy = y;
         c.weightx = 0;
+        c.fill = GridBagConstraints.NONE;
         form.add(new JLabel(label), c);
         c.gridx = 1;
         c.weightx = 1;
+        c.fill = field instanceof JTextField ? GridBagConstraints.HORIZONTAL : GridBagConstraints.NONE;
         form.add(field, c);
+        c.fill = GridBagConstraints.NONE;
         return y + 1;
     }
 
@@ -217,13 +227,20 @@ public final class SongDetailDialog extends JDialog {
         try {
             Optional<SongDetailInfo> detail = songRepository.getSongForDetail(songId);
             if (detail.isEmpty()) {
-                titleLabel.setText("(not found)");
+                titleField.setText("(not found)");
+                titleField.setEnabled(false);
+                composersField.setEnabled(false);
+                filenameField.setEnabled(false);
                 setTitle("Song detail — (not found)");
                 return;
             }
             SongDetailInfo data = detail.get();
-            titleLabel.setText(data.title());
-            composersLabel.setText(data.composers());
+            loadedTitle = data.title() == null ? "" : data.title();
+            loadedComposers = data.composers() == null ? "" : data.composers();
+            titleField.setEnabled(true);
+            composersField.setEnabled(true);
+            titleField.setText(loadedTitle);
+            composersField.setText(loadedComposers);
             transcriberLabel.setText(blankDash(data.transcriber()));
             durationLabel.setText(LibraryDisplayFormats.formatDuration(data.durationSeconds()));
             exportLabel.setText(blankDash(data.exportTimestamp()));
@@ -233,12 +250,23 @@ public final class SongDetailDialog extends JDialog {
             selectStatus(data.statusId());
             notesArea.setText(data.notes() == null ? "" : data.notes());
             lyricsArea.setText(data.lyrics() == null ? "" : data.lyrics());
-            setTitle("Song detail — " + data.title() + " — "
-                    + (data.composers().isBlank() ? "\u2014" : data.composers())
+            setTitle("Song detail — " + loadedTitle + " — "
+                    + (loadedComposers.isBlank() ? "\u2014" : loadedComposers)
                     + " — " + data.partCount() + " parts");
             refreshPlayHistorySummary();
             Optional<Path> path = songRepository.resolvePrimaryAbcPath(songId);
             filePath = path.orElse(null);
+            if (filePath != null) {
+                loadedFileName = filePath.getFileName() == null ? "" : filePath.getFileName().toString();
+                filenameField.setEnabled(true);
+                filenameField.setText(loadedFileName);
+                filenameField.setToolTipText(filePath.toString());
+            } else {
+                loadedFileName = "";
+                filenameField.setEnabled(false);
+                filenameField.setText("");
+                filenameField.setToolTipText("No primary ABC file for this song");
+            }
             loadAbcContent();
         } catch (LibraryException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Song detail", JOptionPane.ERROR_MESSAGE);
@@ -301,7 +329,7 @@ public final class SongDetailDialog extends JDialog {
         if (playLogRepository == null) {
             return;
         }
-        PlayHistoryDialog dialog = new PlayHistoryDialog(this, playLogRepository, songId, titleLabel.getText());
+        PlayHistoryDialog dialog = new PlayHistoryDialog(this, playLogRepository, songId, titleField.getText());
         if (dialog.showDialog()) {
             refreshPlayHistorySummary();
             saved = true;
@@ -309,23 +337,109 @@ public final class SongDetailDialog extends JDialog {
     }
 
     private void saveAppMetadata() {
+        String newTitle = titleField.getText() == null ? "" : titleField.getText().strip();
+        String newComposers = composersField.getText() == null ? "" : composersField.getText().strip();
+        String newFileName = filenameField.getText() == null ? "" : filenameField.getText().strip();
+        if (newTitle.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Title cannot be empty.", "Song detail", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        boolean titleChanged = !newTitle.equals(loadedTitle);
+        boolean composersChanged = !newComposers.equals(loadedComposers);
+        boolean filenameChanged = filenameField.isEnabled() && !newFileName.equals(loadedFileName);
+
         try {
+            if ((titleChanged || composersChanged) && filePath != null && Files.isRegularFile(filePath)) {
+                if (!writeTitleComposerToAbc(newTitle, newComposers, titleChanged, composersChanged)) {
+                    return;
+                }
+            }
+
+            if (filenameChanged) {
+                if (newFileName.isEmpty()) {
+                    JOptionPane.showMessageDialog(
+                            this, "Filename cannot be empty.", "Song detail", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                Path renamed = songRepository.renamePrimaryAbcFile(songId, newFileName);
+                filePath = renamed;
+                loadedFileName = renamed.getFileName() == null ? newFileName : renamed.getFileName().toString();
+                filenameField.setText(loadedFileName);
+                filenameField.setToolTipText(renamed.toString());
+                fileMtimeWhenLoaded = fileMtime(renamed);
+            }
+
             int rating = ratingCombo.getSelectedIndex();
             Integer ratingValue = rating <= 0 ? 0 : rating;
             StatusInfo status = (StatusInfo) statusCombo.getSelectedItem();
             Long statusId = status == null ? null : status.id();
-            songRepository.updateSongAppMetadata(
-                    songId,
-                    SongAppMetadataUpdate.full(
-                            ratingValue,
-                            statusId,
-                            notesArea.getText(),
-                            lyricsArea.getText()));
+            SongAppMetadataUpdate update = SongAppMetadataUpdate.full(
+                    ratingValue,
+                    statusId,
+                    notesArea.getText(),
+                    lyricsArea.getText());
+            if (titleChanged || composersChanged) {
+                update.title(newTitle).composers(newComposers);
+            }
+            songRepository.updateSongAppMetadata(songId, update);
             saved = true;
             dispose();
-        } catch (LibraryException ex) {
+        } catch (LibraryException | IOException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Song detail", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /**
+     * Rewrites title/composer Maestro tags and related T:/C: lines, then refreshes Song + SongFile
+     * from the parsed file. Returns false if the user cancelled a conflict prompt.
+     */
+    private boolean writeTitleComposerToAbc(
+            String newTitle,
+            String newComposers,
+            boolean titleChanged,
+            boolean composersChanged) throws IOException, LibraryException {
+        String currentMtime = fileMtime(filePath);
+        if (fileMtimeWhenLoaded != null && currentMtime != null && !currentMtime.equals(fileMtimeWhenLoaded)) {
+            int reply = JOptionPane.showOptionDialog(
+                    this,
+                    "The ABC file was modified on disk. Overwrite with title/composer changes anyway?",
+                    "File changed",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    new Object[] {"Yes", "No", "Cancel"},
+                    "No");
+            if (reply == JOptionPane.CANCEL_OPTION || reply == JOptionPane.CLOSED_OPTION) {
+                return false;
+            }
+            if (reply == JOptionPane.NO_OPTION) {
+                loadAbcContent();
+                return false;
+            }
+        }
+
+        String content = Files.readString(filePath, StandardCharsets.UTF_8);
+        String rewritten = AbcMetadataRewriter.applyTitleAndComposer(
+                content,
+                titleChanged ? loadedTitle : null,
+                titleChanged ? newTitle : null,
+                composersChanged ? loadedComposers : null,
+                composersChanged ? newComposers : null);
+        if (!rewritten.equals(content)) {
+            Files.writeString(filePath, rewritten, StandardCharsets.UTF_8);
+            AbcFileMetadata metadata = new AbcMetadataParser().parse(rewritten, filePath.getFileName().toString());
+            String mtime = fileMtime(filePath);
+            String hash = fileHash(filePath);
+            songRepository.updateSongFromParsedFile(songId, filePath, metadata, mtime, hash);
+            fileMtimeWhenLoaded = mtime;
+            // Keep Raw ABC tab in sync if it was showing the old file.
+            if (abcArea.isEnabled()) {
+                abcArea.setText(rewritten);
+                abcArea.setCaretPosition(0);
+            }
+        }
+        return true;
     }
 
     private void loadAbcContent() {

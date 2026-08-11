@@ -139,8 +139,55 @@ class SqliteSongRepositoryTest {
     }
 
     @Test
-    void fixtureFileExists() throws Exception {
-        Path db = FixtureDatabases.createLibraryFixture(tempDir.resolve("library.sqlite"));
-        assertTrue(Files.isRegularFile(db));
+    void renamePrimaryAbcFileMovesDiskAndUpdatesDb() throws Exception {
+        Path music = tempDir.resolve("music");
+        Files.createDirectories(music);
+        Path oldFile = music.resolve("old-name.abc");
+        Files.writeString(oldFile, "%%song-title       Tune\nX:1\n");
+
+        Path db = tempDir.resolve("rename.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db)) {
+            String now = "2024-01-01T00:00:00Z";
+            try (var insertSong = database.connection().prepareStatement(
+                    """
+                            INSERT INTO Song (title, composers, duration_seconds, parts, created_at, updated_at)
+                            VALUES ('Tune', 'Ada', 60, '[]', ?, ?)
+                            """);
+                 var insertFile = database.connection().prepareStatement(
+                         """
+                                 INSERT INTO SongFile (song_id, file_path, is_primary_library, is_set_copy,
+                                    scan_excluded, created_at, updated_at)
+                                 VALUES (1, ?, 1, 0, 0, ?, ?)
+                                 """)) {
+                insertSong.setString(1, now);
+                insertSong.setString(2, now);
+                insertSong.executeUpdate();
+                insertFile.setString(1, oldFile.toString());
+                insertFile.setString(2, now);
+                insertFile.setString(3, now);
+                insertFile.executeUpdate();
+            }
+
+            SqliteSongRepository repository = new SqliteSongRepository(database, false);
+            Path renamed = repository.renamePrimaryAbcFile(1, "new-name.abc");
+            assertEquals(music.resolve("new-name.abc"), renamed);
+            assertTrue(Files.isRegularFile(renamed));
+            assertTrue(Files.notExists(oldFile));
+            assertEquals(Optional.of(renamed), repository.resolvePrimaryAbcPath(1));
+
+            // No-op when only missing .abc extension would be appended to same stem.
+            Path again = repository.renamePrimaryAbcFile(1, "new-name");
+            assertEquals(renamed, again);
+        }
+    }
+
+    @Test
+    void sanitizeAbcFileNameRejectsPathsAndAppendsExtension() throws Exception {
+        assertEquals("song.abc", SqliteSongRepository.sanitizeAbcFileName("song"));
+        assertEquals("song.abc", SqliteSongRepository.sanitizeAbcFileName("song.abc"));
+        assertEquals("C:/x/a.abc", SqliteSongRepository.replaceFileName("C:/x/old.abc", "a.abc"));
+        assertEquals("C:\\x\\a.abc", SqliteSongRepository.replaceFileName("C:\\x\\old.abc", "a.abc"));
+        assertThrows(LibraryException.class, () -> SqliteSongRepository.sanitizeAbcFileName("a/b.abc"));
+        assertThrows(LibraryException.class, () -> SqliteSongRepository.sanitizeAbcFileName("bad:name.abc"));
     }
 }

@@ -77,12 +77,16 @@ class SqlitePlayLogRepositoryTest {
             SqliteSongRepository songs = new SqliteSongRepository(database, false);
             songs.updateSongAppMetadata(1, SongAppMetadataUpdate.ratingOnly(4));
             songs.updateSongAppMetadata(1, SongAppMetadataUpdate.full(4, 2L, "n1", "l1"));
+            songs.updateSongAppMetadata(
+                    1, new SongAppMetadataUpdate().title("Renamed").composers("New Composer"));
 
             var detail = songs.getSongForDetail(1).orElseThrow();
             assertEquals(4, detail.rating());
             assertEquals(2L, detail.statusId());
             assertEquals("n1", detail.notes());
             assertEquals("l1", detail.lyrics());
+            assertEquals("Renamed", detail.title());
+            assertEquals("New Composer", detail.composers());
             assertEquals(1, songs.listUnlockedSetlistsContainingSong(1).size());
             assertEquals("Gig", songs.listUnlockedSetlistsContainingSong(1).get(0).name());
         }

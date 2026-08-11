@@ -34,7 +34,7 @@ public interface SongRepository extends AutoCloseable {
     Optional<SongDetailInfo> getSongForDetail(long songId) throws LibraryException;
 
     /**
-     * Updates app-managed Song fields (rating, status, notes, lyrics).
+     * Updates app-managed Song fields (rating, status, notes, lyrics, and optionally title/composers).
      */
     void updateSongAppMetadata(long songId, SongAppMetadataUpdate update) throws LibraryException;
 
@@ -47,6 +47,14 @@ public interface SongRepository extends AutoCloseable {
             AbcFileMetadata metadata,
             String fileMtime,
             String fileHash) throws LibraryException;
+
+    /**
+     * Renames the primary ABC file on disk and updates {@code SongFile.file_path}.
+     * {@code newFileName} is the file name only (same directory); {@code .abc} is appended if missing.
+     *
+     * @return the new absolute/normalized path as stored after rename
+     */
+    Path renamePrimaryAbcFile(long songId, String newFileName) throws LibraryException;
 
     /**
      * Unlocked setlists that contain this song (Library Set-column navigation).

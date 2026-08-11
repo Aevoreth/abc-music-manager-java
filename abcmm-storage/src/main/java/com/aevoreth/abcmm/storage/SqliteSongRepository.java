@@ -1,5 +1,7 @@
 package com.aevoreth.abcmm.storage;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -8,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -274,6 +277,22 @@ public final class SqliteSongRepository implements SongRepository {
             }
             sql.append("lyrics = ?");
             args.add(update.lyrics());
+            first = false;
+        }
+        if (update.updateTitle()) {
+            if (!first) {
+                sql.append(", ");
+            }
+            sql.append("title = ?");
+            args.add(update.title());
+            first = false;
+        }
+        if (update.updateComposers()) {
+            if (!first) {
+                sql.append(", ");
+            }
+            sql.append("composers = ?");
+            args.add(update.composers());
         }
         sql.append(", updated_at = ? WHERE id = ?");
         args.add(SqliteTimestamps.now());
@@ -373,6 +392,147 @@ public final class SqliteSongRepository implements SongRepository {
             }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to refresh song metadata from file for song " + songId, ex);
+        }
+    }
+
+    @Override
+    public Path renamePrimaryAbcFile(long songId, String newFileName) throws LibraryException {
+        String sanitized = sanitizeAbcFileName(newFileName);
+        String oldPathStr;
+        Long fileId;
+        try {
+            try (PreparedStatement statement = database.connection().prepareStatement(
+                    """
+                            SELECT id, file_path FROM SongFile
+                            WHERE song_id = ?
+                            ORDER BY is_primary_library DESC, is_set_copy ASC, id ASC
+                            LIMIT 1
+                            """)) {
+                statement.setLong(1, songId);
+                try (ResultSet rs = statement.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new LibraryException("No primary file path for this song.");
+                    }
+                    fileId = rs.getLong(1);
+                    oldPathStr = rs.getString(2);
+                }
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to look up file path for song " + songId, ex);
+        }
+        if (oldPathStr == null || oldPathStr.isBlank()) {
+            throw new LibraryException("No primary file path for this song.");
+        }
+
+        String newPathStr = replaceFileName(oldPathStr, sanitized);
+        Path oldPath = Path.of(oldPathStr);
+        Path newPath = Path.of(newPathStr);
+        if (oldPathStr.equals(newPathStr)) {
+            return oldPath;
+        }
+
+        try {
+            if (pathExistsInSongFile(newPathStr)) {
+                throw new LibraryException("A library file already uses that path: " + newPathStr);
+            }
+            if (!Files.isRegularFile(oldPath)) {
+                throw new LibraryException("Source ABC file is missing: " + oldPath);
+            }
+            if (Files.exists(newPath) && !Files.isSameFile(oldPath, newPath)) {
+                throw new LibraryException("Target file already exists: " + newPath.getFileName());
+            }
+            moveAbcFile(oldPath, newPath);
+
+            String now = SqliteTimestamps.now();
+            String mtime = fileMtimeSeconds(newPath);
+            try (PreparedStatement updateFile = database.connection().prepareStatement(
+                    """
+                            UPDATE SongFile SET file_path = ?, file_mtime = ?, updated_at = ?
+                            WHERE id = ?
+                            """);
+                 PreparedStatement updateSong = database.connection().prepareStatement(
+                         "UPDATE Song SET updated_at = ? WHERE id = ?")) {
+                updateFile.setString(1, newPathStr);
+                updateFile.setString(2, mtime);
+                updateFile.setString(3, now);
+                updateFile.setLong(4, fileId);
+                updateFile.executeUpdate();
+                updateSong.setString(1, now);
+                updateSong.setLong(2, songId);
+                updateSong.executeUpdate();
+            }
+            return newPath;
+        } catch (IOException | SQLException ex) {
+            throw new LibraryException("Failed to rename ABC file to " + sanitized + ": " + ex.getMessage(), ex);
+        }
+    }
+
+    static String sanitizeAbcFileName(String fileName) throws LibraryException {
+        if (fileName == null || fileName.isBlank()) {
+            throw new LibraryException("Filename cannot be empty.");
+        }
+        String name = fileName.strip();
+        if (name.equals(".") || name.equals("..")) {
+            throw new LibraryException("Invalid filename.");
+        }
+        if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+            throw new LibraryException("Filename cannot include a path.");
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char ch = name.charAt(i);
+            if (ch < 0x20 || "<>:\"|?*".indexOf(ch) >= 0) {
+                throw new LibraryException("Filename contains invalid characters.");
+            }
+        }
+        if (!name.toLowerCase(Locale.ROOT).endsWith(".abc")) {
+            name = name + ".abc";
+        }
+        return name;
+    }
+
+    /** Replaces only the final name segment, preserving the stored path's separators. */
+    static String replaceFileName(String path, String newFileName) {
+        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        if (slash < 0) {
+            return newFileName;
+        }
+        return path.substring(0, slash + 1) + newFileName;
+    }
+
+    private boolean pathExistsInSongFile(String path) throws SQLException {
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                "SELECT 1 FROM SongFile WHERE file_path = ?")) {
+            statement.setString(1, path);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private static void moveAbcFile(Path from, Path to) throws IOException {
+        if (Files.exists(to) && Files.isSameFile(from, to)) {
+            Path tmp = from.resolveSibling("." + from.getFileName() + ".abcmm-rename-tmp");
+            Files.move(from, tmp);
+            try {
+                Files.move(tmp, to);
+            } catch (IOException ex) {
+                try {
+                    Files.move(tmp, from);
+                } catch (IOException ignored) {
+                    // keep tmp for recovery
+                }
+                throw ex;
+            }
+            return;
+        }
+        Files.move(from, to);
+    }
+
+    private static String fileMtimeSeconds(Path path) {
+        try {
+            return Double.toString(Files.getLastModifiedTime(path).toMillis() / 1000.0);
+        } catch (IOException ex) {
+            return null;
         }
     }
 

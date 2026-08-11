@@ -14,6 +14,10 @@ public final class SongAppMetadataUpdate {
     private String notes;
     private boolean updateLyrics;
     private String lyrics;
+    private boolean updateTitle;
+    private String title;
+    private boolean updateComposers;
+    private String composers;
 
     public static SongAppMetadataUpdate ratingOnly(int rating) {
         return new SongAppMetadataUpdate().rating(rating);
@@ -60,6 +64,18 @@ public final class SongAppMetadataUpdate {
         return this;
     }
 
+    public SongAppMetadataUpdate title(String title) {
+        this.updateTitle = true;
+        this.title = title == null ? "" : title;
+        return this;
+    }
+
+    public SongAppMetadataUpdate composers(String composers) {
+        this.updateComposers = true;
+        this.composers = composers == null ? "" : composers;
+        return this;
+    }
+
     public boolean updateRating() {
         return updateRating;
     }
@@ -92,7 +108,28 @@ public final class SongAppMetadataUpdate {
         return lyrics;
     }
 
+    public boolean updateTitle() {
+        return updateTitle;
+    }
+
+    public String title() {
+        return title;
+    }
+
+    public boolean updateComposers() {
+        return updateComposers;
+    }
+
+    public String composers() {
+        return composers;
+    }
+
     public boolean isEmpty() {
-        return !updateRating && !updateStatusId && !updateNotes && !updateLyrics;
+        return !updateRating
+                && !updateStatusId
+                && !updateNotes
+                && !updateLyrics
+                && !updateTitle
+                && !updateComposers;
     }
 }
