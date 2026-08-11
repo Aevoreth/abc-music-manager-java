@@ -28,9 +28,10 @@ import com.aevoreth.abcmm.domain.band.BandInfo;
 import com.aevoreth.abcmm.domain.band.BandLayoutInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 
 /**
- * Create dialog for setlist metadata.
+ * Create/edit dialog for setlist metadata.
  */
 public final class SetlistDetailsDialog extends JDialog {
 
@@ -125,6 +126,27 @@ public final class SetlistDetailsDialog extends JDialog {
         dialog.targetDurationSpinner.setValue(0);
         dialog.switchDelaySpinner.setValue(DEFAULT_SWITCH_DELAY_SECONDS);
         dialog.lockedCheck.setSelected(false);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+        return Optional.ofNullable(dialog.result);
+    }
+
+    public static Optional<Result> showEdit(Window owner, BandRepository bands, SetlistInfo setlist) {
+        Objects.requireNonNull(setlist, "setlist");
+        SetlistDetailsDialog dialog = new SetlistDetailsDialog(owner, "Edit setlist");
+        dialog.nameField.setText(setlist.name() == null ? "" : setlist.name());
+        dialog.loadLayouts(bands, setlist.bandLayoutId());
+        dialog.datePicker.setIsoDate(setlist.setDate());
+        dialog.timeChooser.setHhMm(setlist.setTime() == null || setlist.setTime().isBlank() ? "19:00" : setlist.setTime());
+        dialog.targetDurationSpinner.setValue(
+                setlist.targetDurationSeconds() == null ? 0 : setlist.targetDurationSeconds());
+        dialog.switchDelaySpinner.setValue(
+                setlist.defaultChangeDurationSeconds() == null
+                        ? 0
+                        : setlist.defaultChangeDurationSeconds());
+        dialog.notesArea.setText(setlist.notes() == null ? "" : setlist.notes());
+        dialog.lockedCheck.setSelected(setlist.locked());
         dialog.pack();
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
