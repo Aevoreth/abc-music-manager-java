@@ -3,9 +3,11 @@ package com.aevoreth.abcmm.ui;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
@@ -40,6 +42,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -86,6 +89,7 @@ public final class SetlistsPanel extends JPanel {
     private static final int MAIN_SPLIT_MIN_LEFT = 100;
     private static final int META_SPLIT_DEFAULT = 360;
     private static final int META_SPLIT_MIN = 240;
+    private static final String DURATION_VALUE_MIN_SAMPLE = "00:00:00 (With Delays)";
 
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
@@ -107,9 +111,19 @@ public final class SetlistsPanel extends JPanel {
     private final JLabel dateTimeValue = new JLabel("\u2014");
     private final JLabel targetDurationValue = new JLabel("\u2014");
     private final JLabel switchDelayValue = new JLabel("\u2014");
-    private final JLabel rawDurationValue = new JLabel("\u2014");
-    private final JLabel actualDurationValue = new JLabel("\u2014");
-    private final JLabel remainingValue = new JLabel("\u2014");
+    private final DefaultTableModel durationSummaryModel = new DefaultTableModel(
+            new Object[][] {
+                {"Raw Duration", "\u2014"},
+                {"Actual Duration", "\u2014"},
+                {"Time remaining", "\u2014"}
+            },
+            new Object[] {"Metric", "Value"}) {
+        @Override
+        public boolean isCellEditable(int row, int column) {
+            return false;
+        }
+    };
+    private final JTable durationSummaryTable = new JTable(durationSummaryModel);
     private final JTextArea notesArea = new JTextArea(4, 20);
     private final JPanel notesPanel = new JPanel();
     private final JLabel lockedValue = new JLabel("Locked");
@@ -329,21 +343,29 @@ public final class SetlistsPanel extends JPanel {
         targetSwitchRow.add(switchDelayValue);
         metaPanel.add(flowRow(targetSwitchRow));
 
-        Font summaryFont = rawDurationValue.getFont().deriveFont(Font.PLAIN);
-        rawDurationValue.setFont(summaryFont);
-        actualDurationValue.setFont(summaryFont);
-        remainingValue.setFont(summaryFont);
-        JPanel summary = new JPanel();
-        summary.setLayout(new BoxLayout(summary, BoxLayout.Y_AXIS));
-        summary.setOpaque(false);
-        summary.setAlignmentX(Component.LEFT_ALIGNMENT);
-        summary.setBorder(BorderFactory.createEmptyBorder(4, 0, 8, 0));
-        summary.add(rawDurationValue);
-        summary.add(Box.createVerticalStrut(2));
-        summary.add(actualDurationValue);
-        summary.add(Box.createVerticalStrut(2));
-        summary.add(remainingValue);
-        metaPanel.add(summary);
+        durationSummaryTable.setTableHeader(null);
+        durationSummaryTable.setFocusable(false);
+        durationSummaryTable.setRowSelectionAllowed(false);
+        durationSummaryTable.setColumnSelectionAllowed(false);
+        durationSummaryTable.setCellSelectionEnabled(false);
+        durationSummaryTable.setShowGrid(true);
+        durationSummaryTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        durationSummaryTable.setFont(durationSummaryTable.getFont().deriveFont(Font.PLAIN));
+        DefaultTableCellRenderer labelRenderer = new DefaultTableCellRenderer();
+        labelRenderer.setHorizontalAlignment(JLabel.LEFT);
+        durationSummaryTable.getColumnModel().getColumn(0).setCellRenderer(labelRenderer);
+        DefaultTableCellRenderer valueRenderer = new DefaultTableCellRenderer();
+        valueRenderer.setHorizontalAlignment(JLabel.LEFT);
+        durationSummaryTable.getColumnModel().getColumn(1).setCellRenderer(valueRenderer);
+        packDurationSummaryTable();
+        JPanel summaryWrap = new JPanel(new BorderLayout());
+        summaryWrap.setOpaque(false);
+        summaryWrap.setAlignmentX(Component.LEFT_ALIGNMENT);
+        summaryWrap.setBorder(BorderFactory.createEmptyBorder(4, 0, 10, 0));
+        summaryWrap.add(durationSummaryTable, BorderLayout.WEST);
+        summaryWrap.setMaximumSize(new Dimension(Integer.MAX_VALUE,
+                durationSummaryTable.getPreferredSize().height + 14));
+        metaPanel.add(summaryWrap);
 
         notesPanel.setLayout(new BoxLayout(notesPanel, BoxLayout.Y_AXIS));
         notesPanel.setOpaque(false);
@@ -901,9 +923,7 @@ public final class SetlistsPanel extends JPanel {
         notesArea.setText("");
         notesPanel.setVisible(false);
         lockedValue.setVisible(false);
-        rawDurationValue.setText("Raw duration (no switch delays): \u2014");
-        actualDurationValue.setText("Actual duration: \u2014");
-        remainingValue.setText("Time remaining: \u2014");
+        setDurationSummaryValues("\u2014", "\u2014", "\u2014");
         itemModel.setItems(List.of());
         assignmentPanel.clear();
         revalidate();
@@ -1007,9 +1027,7 @@ public final class SetlistsPanel extends JPanel {
     private void updateDurationSummary() {
         List<SetlistItemInfo> items = itemModel.items();
         if (items.isEmpty()) {
-            rawDurationValue.setText("Raw duration (no switch delays): \u2014");
-            actualDurationValue.setText("Actual duration: \u2014");
-            remainingValue.setText("Time remaining: \u2014");
+            setDurationSummaryValues("\u2014", "\u2014", "\u2014");
             return;
         }
         int songSeconds = 0;
@@ -1028,16 +1046,46 @@ public final class SetlistsPanel extends JPanel {
                 : Math.max(0, setlist.targetDurationSeconds());
         int switchSeconds = items.size() > 1 ? delay * (items.size() - 1) : 0;
         int actualWithSwitches = songSeconds + switchSeconds;
-        rawDurationValue.setText("Raw duration (no switch delays): "
-                + LibraryDisplayFormats.formatSignedDuration(songSeconds));
-        actualDurationValue.setText("Actual duration: "
-                + LibraryDisplayFormats.formatSignedDuration(actualWithSwitches)
-                + " with switch delays");
-        if (target <= 0) {
-            remainingValue.setText("Time remaining: \u2014");
-        } else {
-            remainingValue.setText("Time remaining: "
-                    + LibraryDisplayFormats.formatSignedDuration(target - actualWithSwitches));
+        String raw = LibraryDisplayFormats.formatSignedDuration(songSeconds) + " (No Delays)";
+        String actual = LibraryDisplayFormats.formatSignedDuration(actualWithSwitches) + " (With Delays)";
+        String remaining = target <= 0
+                ? "\u2014"
+                : LibraryDisplayFormats.formatSignedDuration(target - actualWithSwitches);
+        setDurationSummaryValues(raw, actual, remaining);
+    }
+
+    private void setDurationSummaryValues(String raw, String actual, String remaining) {
+        durationSummaryModel.setValueAt(raw, 0, 1);
+        durationSummaryModel.setValueAt(actual, 1, 1);
+        durationSummaryModel.setValueAt(remaining, 2, 1);
+        packDurationSummaryTable();
+    }
+
+    private void packDurationSummaryTable() {
+        TableColumnModel columns = durationSummaryTable.getColumnModel();
+        FontMetrics metrics = durationSummaryTable.getFontMetrics(durationSummaryTable.getFont());
+        int valueMinWidth = metrics.stringWidth(DURATION_VALUE_MIN_SAMPLE) + 16;
+        for (int col = 0; col < columns.getColumnCount(); col++) {
+            int width = col == 1 ? valueMinWidth : 24;
+            for (int row = 0; row < durationSummaryTable.getRowCount(); row++) {
+                Component renderer = durationSummaryTable.prepareRenderer(
+                        durationSummaryTable.getCellRenderer(row, col), row, col);
+                width = Math.max(width, renderer.getPreferredSize().width + 12);
+            }
+            columns.getColumn(col).setPreferredWidth(width);
+            columns.getColumn(col).setMinWidth(width);
+            columns.getColumn(col).setMaxWidth(width);
+        }
+        int tableWidth = columns.getTotalColumnWidth();
+        int tableHeight = durationSummaryTable.getRowHeight() * durationSummaryTable.getRowCount();
+        Dimension size = new Dimension(tableWidth, tableHeight);
+        durationSummaryTable.setPreferredSize(size);
+        durationSummaryTable.setMinimumSize(size);
+        durationSummaryTable.setMaximumSize(size);
+        Container parent = durationSummaryTable.getParent();
+        if (parent instanceof JComponent wrap) {
+            wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, tableHeight + 14));
+            wrap.revalidate();
         }
     }
 
