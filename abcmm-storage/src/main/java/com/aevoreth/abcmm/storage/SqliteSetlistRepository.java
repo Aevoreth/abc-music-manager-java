@@ -22,9 +22,11 @@ import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 public final class SqliteSetlistRepository implements SetlistRepository {
 
     private final SqliteDatabase database;
+    private final SqliteSongLayoutRepository songLayouts;
 
     public SqliteSetlistRepository(SqliteDatabase database) {
         this.database = Objects.requireNonNull(database, "database");
+        this.songLayouts = new SqliteSongLayoutRepository(database);
     }
 
     @Override
@@ -310,6 +312,242 @@ public final class SqliteSetlistRepository implements SetlistRepository {
         } catch (SQLException ex) {
             throw new LibraryException("Failed to delete setlist", ex);
         }
+    }
+
+    @Override
+    public long duplicateSetlist(
+            long sourceSetlistId,
+            String name,
+            Long bandLayoutId,
+            boolean locked,
+            Integer defaultChangeDurationSeconds,
+            String notes,
+            String setDate,
+            String setTime,
+            Integer targetDurationSeconds) throws LibraryException {
+        Objects.requireNonNull(name, "name");
+        SetlistInfo source = requireSetlist(sourceSetlistId);
+        long newId = addSetlist(name, source.folderId());
+        try {
+            updateSetlist(
+                    newId,
+                    name,
+                    bandLayoutId,
+                    source.folderId(),
+                    0,
+                    locked,
+                    defaultChangeDurationSeconds,
+                    notes,
+                    setDate,
+                    setTime,
+                    targetDurationSeconds);
+            copyItemsForDuplicate(newId, sourceSetlistId, source.bandLayoutId(), bandLayoutId);
+            return newId;
+        } catch (LibraryException | RuntimeException ex) {
+            try {
+                deleteSetlist(newId);
+            } catch (LibraryException ignored) {
+                // best-effort cleanup of the incomplete copy
+            }
+            throw ex;
+        }
+    }
+
+    /**
+     * Copy source items onto a freshly created duplicate. When the chosen band layout matches
+     * the source, preserve per-item song layouts, change-duration overrides, and band
+     * assignments; otherwise remap song layouts to the new band layout (or clear them).
+     */
+    private void copyItemsForDuplicate(
+            long newSetlistId,
+            long sourceSetlistId,
+            Long sourceBandLayoutId,
+            Long newBandLayoutId) throws LibraryException {
+        List<SetlistItemInfo> sourceItems = listItems(sourceSetlistId);
+        if (sourceItems.isEmpty()) {
+            return;
+        }
+        boolean sameLayout = Objects.equals(sourceBandLayoutId, newBandLayoutId);
+        for (int i = 0; i < sourceItems.size(); i++) {
+            SetlistItemInfo item = sourceItems.get(i);
+            Long songLayoutId;
+            boolean copyAssignments;
+            if (sameLayout) {
+                songLayoutId = item.songLayoutId();
+                copyAssignments = true;
+            } else if (newBandLayoutId != null) {
+                songLayoutId = songLayouts
+                        .getOrCreateSongLayout(item.songId(), newBandLayoutId, "Default")
+                        .id();
+                copyAssignments = false;
+            } else {
+                songLayoutId = null;
+                copyAssignments = false;
+            }
+            long newItemId = addItem(
+                    newSetlistId,
+                    item.songId(),
+                    i,
+                    item.overrideChangeDurationSeconds(),
+                    songLayoutId);
+            if (copyAssignments) {
+                for (SetlistBandAssignmentInfo assignment : listBandAssignments(item.id())) {
+                    upsertBandAssignment(newItemId, assignment.playerId(), assignment.partNumber());
+                }
+            }
+        }
+    }
+
+    @Override
+    public int mergeSetlistSongs(long targetSetlistId, long sourceSetlistId, boolean prepend)
+            throws LibraryException {
+        return mergeSetlistInto(targetSetlistId, sourceSetlistId, prepend, false, null);
+    }
+
+    /**
+     * Merge source into target. When {@code copyItemDetails} is false, only song ids are copied
+     * and new rows use the target band layout (Python toolbar/context prepend/append). When true,
+     * layouts/overrides/assignments are copied subject to {@code keepBandLayoutId} when layouts differ
+     * ({@code keepBandLayoutId} may be null to mean "no band layout").
+     */
+    private int mergeSetlistInto(
+            long targetSetlistId,
+            long sourceSetlistId,
+            boolean prepend,
+            boolean copyItemDetails,
+            Long keepBandLayoutId) throws LibraryException {
+        if (targetSetlistId == sourceSetlistId) {
+            return 0;
+        }
+        SetlistInfo target = requireSetlist(targetSetlistId);
+        SetlistInfo source = requireSetlist(sourceSetlistId);
+        List<SetlistItemInfo> sourceItems = listItems(sourceSetlistId);
+        if (sourceItems.isEmpty()) {
+            return 0;
+        }
+        List<SetlistItemInfo> targetItems = listItems(targetSetlistId);
+
+        if (!copyItemDetails) {
+            Long targetBl = target.bandLayoutId();
+            List<Long> targetItemIds = new ArrayList<>(targetItems.size());
+            for (SetlistItemInfo item : targetItems) {
+                targetItemIds.add(item.id());
+            }
+            List<Long> newItemIds = new ArrayList<>(sourceItems.size());
+            int basePos = prepend ? 0 : targetItemIds.size();
+            for (int i = 0; i < sourceItems.size(); i++) {
+                SetlistItemInfo item = sourceItems.get(i);
+                Long songLayoutId = null;
+                if (targetBl != null) {
+                    songLayoutId = songLayouts
+                            .getOrCreateSongLayout(item.songId(), targetBl, "Default")
+                            .id();
+                }
+                long newId = addItem(
+                        targetSetlistId,
+                        item.songId(),
+                        basePos + i,
+                        null,
+                        songLayoutId);
+                newItemIds.add(newId);
+            }
+            List<Long> allIds = new ArrayList<>(newItemIds.size() + targetItemIds.size());
+            if (prepend) {
+                allIds.addAll(newItemIds);
+                allIds.addAll(targetItemIds);
+            } else {
+                allIds.addAll(targetItemIds);
+                allIds.addAll(newItemIds);
+            }
+            reorderItems(targetSetlistId, allIds);
+            return newItemIds.size();
+        }
+
+        Long targetBl = target.bandLayoutId();
+        Long sourceBl = source.bandLayoutId();
+        boolean layoutsDiffer = !Objects.equals(targetBl, sourceBl);
+        // keepBandLayoutId may be null (explicit "no band"); that is a valid keep choice.
+        Long keptBl = layoutsDiffer ? keepBandLayoutId : targetBl;
+        Long originalTargetBl = targetBl;
+
+        if (layoutsDiffer && Objects.equals(keptBl, sourceBl) && sourceBl != null) {
+            updateSetlist(
+                    targetSetlistId,
+                    target.name(),
+                    sourceBl,
+                    target.folderId(),
+                    target.sortOrder(),
+                    target.locked(),
+                    target.defaultChangeDurationSeconds(),
+                    target.notes(),
+                    target.setDate(),
+                    target.setTime(),
+                    target.targetDurationSeconds());
+            for (SetlistItemInfo item : targetItems) {
+                long newLayoutId = songLayouts
+                        .getOrCreateSongLayout(item.songId(), sourceBl, "Default")
+                        .id();
+                updateItem(item.id(), item.overrideChangeDurationSeconds(), newLayoutId);
+            }
+            targetItems = listItems(targetSetlistId);
+        }
+
+        List<Long> targetItemIds = new ArrayList<>(targetItems.size());
+        for (SetlistItemInfo item : targetItems) {
+            targetItemIds.add(item.id());
+        }
+        List<Long> newItemIds = new ArrayList<>(sourceItems.size());
+        int basePos = prepend ? 0 : targetItemIds.size();
+        boolean keepTargetLayout = layoutsDiffer && Objects.equals(keptBl, originalTargetBl);
+
+        for (int i = 0; i < sourceItems.size(); i++) {
+            SetlistItemInfo item = sourceItems.get(i);
+            Long songLayoutId;
+            boolean copyAssignments;
+            if (keepTargetLayout) {
+                songLayoutId = originalTargetBl == null
+                        ? null
+                        : songLayouts
+                                .getOrCreateSongLayout(item.songId(), originalTargetBl, "Default")
+                                .id();
+                copyAssignments = false;
+            } else {
+                songLayoutId = item.songLayoutId();
+                copyAssignments = true;
+            }
+            long newId = addItem(
+                    targetSetlistId,
+                    item.songId(),
+                    basePos + i,
+                    item.overrideChangeDurationSeconds(),
+                    songLayoutId);
+            newItemIds.add(newId);
+            if (copyAssignments) {
+                for (SetlistBandAssignmentInfo assignment : listBandAssignments(item.id())) {
+                    upsertBandAssignment(newId, assignment.playerId(), assignment.partNumber());
+                }
+            }
+        }
+
+        List<Long> allIds = new ArrayList<>(newItemIds.size() + targetItemIds.size());
+        if (prepend) {
+            allIds.addAll(newItemIds);
+            allIds.addAll(targetItemIds);
+        } else {
+            allIds.addAll(targetItemIds);
+            allIds.addAll(newItemIds);
+        }
+        reorderItems(targetSetlistId, allIds);
+        return newItemIds.size();
+    }
+
+    private SetlistInfo requireSetlist(long setlistId) throws LibraryException {
+        for (SetlistInfo setlist : listSetlists()) {
+            if (setlist.id() == setlistId) {
+                return setlist;
+            }
+        }
+        throw new LibraryException("Setlist not found");
     }
 
     @Override

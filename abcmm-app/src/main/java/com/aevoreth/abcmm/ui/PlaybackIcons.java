@@ -179,6 +179,30 @@ final class PlaybackIcons {
         });
     }
 
+    /** Padlock for locked setlists in the tree. */
+    static Icon lock(int size) {
+        return lock(size, null);
+    }
+
+    static Icon lock(int size, Color color) {
+        return new GlyphIcon(size, color, (g, s) -> {
+            float stroke = Math.max(1.3f, s / 9f);
+            g.setStroke(new BasicStroke(stroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            int bodyX = Math.round(s * 0.22f);
+            int bodyW = Math.round(s * 0.56f);
+            int bodyY = Math.round(s * 0.45f);
+            int bodyH = Math.round(s * 0.38f);
+            g.fillRoundRect(bodyX, bodyY, bodyW, bodyH, Math.max(2, s / 6), Math.max(2, s / 6));
+            int shackleW = Math.round(s * 0.38f);
+            int shackleX = Math.round((s - shackleW) / 2f);
+            int shackleTop = Math.round(s * 0.18f);
+            int shackleBottom = bodyY + Math.round(stroke);
+            g.drawArc(shackleX, shackleTop, shackleW, Math.round(s * 0.42f), 0, 180);
+            g.drawLine(shackleX, Math.round(s * 0.39f), shackleX, shackleBottom);
+            g.drawLine(shackleX + shackleW, Math.round(s * 0.39f), shackleX + shackleW, shackleBottom);
+        });
+    }
+
     @FunctionalInterface
     private interface Painter {
         void paint(Graphics2D g, int size);

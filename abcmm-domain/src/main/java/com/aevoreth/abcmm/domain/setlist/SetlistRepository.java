@@ -46,6 +46,34 @@ public interface SetlistRepository {
 
     void deleteSetlist(long id) throws LibraryException;
 
+    /**
+     * Create a new setlist in the same folder as {@code sourceSetlistId}, apply the given
+     * metadata, and copy all source items (including per-item layouts, change-duration
+     * overrides, and band assignments when the band layout is unchanged).
+     *
+     * @return the new setlist id
+     */
+    long duplicateSetlist(
+            long sourceSetlistId,
+            String name,
+            Long bandLayoutId,
+            boolean locked,
+            Integer defaultChangeDurationSeconds,
+            String notes,
+            String setDate,
+            String setTime,
+            Integer targetDurationSeconds) throws LibraryException;
+
+    /**
+     * Copy songs from {@code sourceSetlistId} into {@code targetSetlistId} (prepend or append).
+     * Only song order is copied; new rows use the target setlist's band layout when present
+     * (no overrides or band assignments). Target metadata is not modified.
+     *
+     * @return number of items added
+     */
+    int mergeSetlistSongs(long targetSetlistId, long sourceSetlistId, boolean prepend)
+            throws LibraryException;
+
     List<SetlistItemInfo> listItems(long setlistId) throws LibraryException;
 
     long addItem(

@@ -153,6 +153,32 @@ public final class SetlistDetailsDialog extends JDialog {
         return Optional.ofNullable(dialog.result);
     }
 
+    /**
+     * Duplicate dialog: pre-fills from {@code source} with {@code suggestedName}.
+     */
+    public static Optional<Result> showDuplicate(
+            Window owner, BandRepository bands, SetlistInfo source, String suggestedName) {
+        Objects.requireNonNull(source, "source");
+        SetlistDetailsDialog dialog = new SetlistDetailsDialog(owner, "Duplicate setlist");
+        dialog.nameField.setText(suggestedName == null ? "" : suggestedName);
+        dialog.loadLayouts(bands, source.bandLayoutId());
+        dialog.datePicker.setIsoDate(source.setDate());
+        dialog.timeChooser.setHhMm(
+                source.setTime() == null || source.setTime().isBlank() ? "19:00" : source.setTime());
+        dialog.targetDurationSpinner.setValue(
+                source.targetDurationSeconds() == null ? 0 : source.targetDurationSeconds());
+        dialog.switchDelaySpinner.setValue(
+                source.defaultChangeDurationSeconds() == null
+                        ? DEFAULT_SWITCH_DELAY_SECONDS
+                        : source.defaultChangeDurationSeconds());
+        dialog.notesArea.setText(source.notes() == null ? "" : source.notes());
+        dialog.lockedCheck.setSelected(source.locked());
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+        return Optional.ofNullable(dialog.result);
+    }
+
     private void loadLayouts(BandRepository bands, Long selectedLayoutId) {
         layoutCombo.removeAllItems();
         layoutCombo.addItem(new LayoutChoice(null, "(none)"));

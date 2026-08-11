@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -26,7 +27,9 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DropMode;
+import javax.swing.Icon;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -48,6 +51,7 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
@@ -166,12 +170,14 @@ public final class SetlistsPanel extends JPanel {
         tree.setRootVisible(false);
         tree.setShowsRootHandles(true);
         tree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
+        tree.setCellRenderer(new SetlistTreeCellRenderer());
         tree.addTreeSelectionListener(e -> {
             if (!suppressSelection) {
                 onTreeSelection();
             }
         });
         enableTreeReorder();
+        enableTreeContextMenu();
 
         itemTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         itemTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
@@ -1596,6 +1602,292 @@ public final class SetlistsPanel extends JPanel {
                 });
     }
 
+    private void enableTreeContextMenu() {
+        java.awt.event.MouseAdapter adapter = new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                maybeShowTreePopup(e);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                maybeShowTreePopup(e);
+            }
+        };
+        tree.addMouseListener(adapter);
+    }
+
+    private void maybeShowTreePopup(java.awt.event.MouseEvent e) {
+        if (!e.isPopupTrigger() || setlistRepository == null) {
+            return;
+        }
+        TreePath path = tree.getPathForLocation(e.getX(), e.getY());
+        if (path == null) {
+            return;
+        }
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+        if (!(node.getUserObject() instanceof SetlistNode setlistNode)) {
+            return;
+        }
+        tree.setSelectionPath(path);
+        SetlistInfo setlist = setlistNode.setlist();
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem duplicate = new JMenuItem("Duplicate setlist...");
+        duplicate.addActionListener(ev -> duplicateSetlist(setlist));
+        menu.add(duplicate);
+
+        menu.addSeparator();
+        JMenuItem prependTo = new JMenuItem("Prepend to...");
+        prependTo.addActionListener(ev -> prependCurrentToOther(setlist));
+        menu.add(prependTo);
+        JMenuItem appendTo = new JMenuItem("Append to...");
+        appendTo.addActionListener(ev -> appendCurrentToOther(setlist));
+        menu.add(appendTo);
+        JMenuItem prependFrom = new JMenuItem("Prepend from...");
+        prependFrom.addActionListener(ev -> prependOtherIntoCurrent(setlist));
+        menu.add(prependFrom);
+        JMenuItem appendFrom = new JMenuItem("Append from...");
+        appendFrom.addActionListener(ev -> appendOtherIntoCurrent(setlist));
+        menu.add(appendFrom);
+
+        menu.addSeparator();
+        JMenuItem lockToggle = new JMenuItem(setlist.locked() ? "Unlock setlist" : "Lock setlist");
+        lockToggle.addActionListener(ev -> toggleSetlistLocked(setlist));
+        menu.add(lockToggle);
+
+        menu.addSeparator();
+        JMenuItem delete = new JMenuItem("Delete setlist...");
+        delete.addActionListener(ev -> deleteSetlist(setlist));
+        menu.add(delete);
+
+        menu.show(tree, e.getX(), e.getY());
+    }
+
+    private void duplicateSetlist(SetlistInfo source) {
+        if (source == null || setlistRepository == null) {
+            return;
+        }
+        String suggested = suggestedDuplicateName(source.name());
+        SetlistDetailsDialog.showDuplicate(
+                        SwingUtilities.getWindowAncestor(this), bandRepository, source, suggested)
+                .ifPresent(details -> {
+                    try {
+                        long newId = setlistRepository.duplicateSetlist(
+                                source.id(),
+                                details.name(),
+                                details.bandLayoutId(),
+                                details.locked(),
+                                details.switchDelaySeconds(),
+                                details.notes(),
+                                details.setDate(),
+                                details.setTime(),
+                                details.targetDurationSeconds());
+                        reload();
+                        selectSetlistInTree(newId);
+                        onTreeSelection();
+                    } catch (LibraryException ex) {
+                        reload();
+                        showError(ex.getMessage());
+                    }
+                });
+    }
+
+    private String suggestedDuplicateName(String sourceName) {
+        String base = "Copy of " + (sourceName == null || sourceName.isBlank() ? "setlist" : sourceName.trim());
+        if (setlistRepository == null) {
+            return base;
+        }
+        try {
+            HashSet<String> existing = new HashSet<>();
+            for (SetlistInfo setlist : setlistRepository.listSetlists()) {
+                if (setlist.name() != null) {
+                    existing.add(setlist.name());
+                }
+            }
+            if (!existing.contains(base)) {
+                return base;
+            }
+            int n = 2;
+            while (existing.contains(base + " (" + n + ")")) {
+                n++;
+            }
+            return base + " (" + n + ")";
+        } catch (LibraryException ex) {
+            return base;
+        }
+    }
+
+    private void prependCurrentToOther(SetlistInfo current) {
+        pickOtherSetlist(
+                        current.id(),
+                        "Prepend to setlist",
+                        "Select setlist to prepend to (current setlist will be copied to its beginning):",
+                        true)
+                .ifPresent(other -> mergeSetlists(other.id(), current.id(), true));
+    }
+
+    private void appendCurrentToOther(SetlistInfo current) {
+        pickOtherSetlist(
+                        current.id(),
+                        "Append to setlist",
+                        "Select setlist to append to (current setlist will be copied to its end):",
+                        true)
+                .ifPresent(other -> mergeSetlists(other.id(), current.id(), false));
+    }
+
+    private void prependOtherIntoCurrent(SetlistInfo current) {
+        pickOtherSetlist(
+                        current.id(),
+                        "Prepend from setlist",
+                        "Select setlist to copy from (songs will be inserted at the beginning of the current setlist):",
+                        false)
+                .ifPresent(other -> mergeSetlists(current.id(), other.id(), true));
+    }
+
+    private void appendOtherIntoCurrent(SetlistInfo current) {
+        pickOtherSetlist(
+                        current.id(),
+                        "Append from setlist",
+                        "Select setlist to copy from (songs will be added to the end of the current setlist):",
+                        false)
+                .ifPresent(other -> mergeSetlists(current.id(), other.id(), false));
+    }
+
+    private Optional<SetlistInfo> pickOtherSetlist(
+            long excludeId, String title, String label, boolean unlockedTargetsOnly) {
+        if (setlistRepository == null) {
+            return Optional.empty();
+        }
+        try {
+            List<SetlistInfo> others = new ArrayList<>();
+            List<String> labels = new ArrayList<>();
+            for (SetlistInfo setlist : setlistRepository.listSetlists()) {
+                if (setlist.id() == excludeId) {
+                    continue;
+                }
+                if (unlockedTargetsOnly && setlist.locked()) {
+                    continue;
+                }
+                int songCount = setlistRepository.listItems(setlist.id()).size();
+                others.add(setlist);
+                String lockSuffix = setlist.locked() ? " [locked]" : "";
+                labels.add(setlist.name() + " (" + songCount + " songs)" + lockSuffix);
+            }
+            if (others.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        unlockedTargetsOnly
+                                ? "No other unlocked setlists available."
+                                : "No other setlists available. Create another setlist first.",
+                        title,
+                        JOptionPane.INFORMATION_MESSAGE);
+                return Optional.empty();
+            }
+            JComboBox<String> combo = new JComboBox<>(labels.toArray(String[]::new));
+            combo.setSelectedIndex(0);
+            int result = JOptionPane.showConfirmDialog(
+                    this,
+                    new Object[] {label, combo},
+                    title,
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+            if (result != JOptionPane.OK_OPTION || combo.getSelectedIndex() < 0) {
+                return Optional.empty();
+            }
+            return Optional.of(others.get(combo.getSelectedIndex()));
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private void mergeSetlists(long targetId, long sourceId, boolean prepend) {
+        if (setlistRepository == null || targetId == sourceId) {
+            return;
+        }
+        try {
+            SetlistInfo target = null;
+            SetlistInfo source = null;
+            for (SetlistInfo setlist : setlistRepository.listSetlists()) {
+                if (setlist.id() == targetId) {
+                    target = setlist;
+                }
+                if (setlist.id() == sourceId) {
+                    source = setlist;
+                }
+            }
+            if (target == null || source == null) {
+                return;
+            }
+            if (setlistRepository.listItems(sourceId).isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "The selected setlist has no songs.",
+                        "Copy setlist",
+                        JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            int added = setlistRepository.mergeSetlistSongs(targetId, sourceId, prepend);
+            reload();
+            selectSetlistInTree(targetId);
+            String action = prepend ? "Prepended" : "Appended";
+            JOptionPane.showMessageDialog(
+                    this,
+                    action + " " + added + " song(s) from \"" + source.name()
+                            + "\" into \"" + target.name() + "\".",
+                    "Copy setlist",
+                    JOptionPane.INFORMATION_MESSAGE);
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+        }
+    }
+
+    private void toggleSetlistLocked(SetlistInfo setlist) {
+        if (setlist == null || setlistRepository == null) {
+            return;
+        }
+        try {
+            setlistRepository.updateSetlist(
+                    setlist.id(),
+                    setlist.name(),
+                    setlist.bandLayoutId(),
+                    setlist.folderId(),
+                    setlist.sortOrder(),
+                    !setlist.locked(),
+                    setlist.defaultChangeDurationSeconds(),
+                    setlist.notes(),
+                    setlist.setDate(),
+                    setlist.setTime(),
+                    setlist.targetDurationSeconds());
+            reload();
+            selectSetlistInTree(setlist.id());
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+        }
+    }
+
+    private void deleteSetlist(SetlistInfo setlist) {
+        if (setlist == null || setlistRepository == null) {
+            return;
+        }
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "Delete setlist \"" + setlist.name() + "\"?",
+                "Delete setlist",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.OK_OPTION) {
+            return;
+        }
+        try {
+            setlistRepository.deleteSetlist(setlist.id());
+            reload();
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+        }
+    }
+
     private void addFolder() {
         if (setlistRepository == null) {
             return;
@@ -1643,25 +1935,7 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void deleteCurrentSetlist() {
-        SetlistInfo setlist = selectedSetlist();
-        if (setlist == null || setlistRepository == null) {
-            return;
-        }
-        int confirm = JOptionPane.showConfirmDialog(
-                this,
-                "Delete setlist \"" + setlist.name() + "\"?",
-                "Delete setlist",
-                JOptionPane.OK_CANCEL_OPTION,
-                JOptionPane.WARNING_MESSAGE);
-        if (confirm != JOptionPane.OK_OPTION) {
-            return;
-        }
-        try {
-            setlistRepository.deleteSetlist(setlist.id());
-            reload();
-        } catch (LibraryException ex) {
-            showError(ex.getMessage());
-        }
+        deleteSetlist(selectedSetlist());
     }
 
     private void deleteSelected() {
@@ -1929,6 +2203,38 @@ public final class SetlistsPanel extends JPanel {
         @Override
         public String toString() {
             return setlist.name();
+        }
+    }
+
+    private static final class SetlistTreeCellRenderer extends DefaultTreeCellRenderer {
+        private final Icon lockIcon = PlaybackIcons.lock(14);
+        private Icon folderOpenIcon;
+        private Icon folderClosedIcon;
+        private Icon leafIcon;
+
+        @Override
+        public Component getTreeCellRendererComponent(
+                JTree tree,
+                Object value,
+                boolean selected,
+                boolean expanded,
+                boolean leaf,
+                int row,
+                boolean hasFocus) {
+            if (folderOpenIcon == null) {
+                folderOpenIcon = getOpenIcon();
+                folderClosedIcon = getClosedIcon();
+                leafIcon = getLeafIcon();
+            }
+            super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
+            if (value instanceof DefaultMutableTreeNode node
+                    && node.getUserObject() instanceof SetlistNode setlistNode) {
+                setIcon(setlistNode.setlist().locked() ? lockIcon : leafIcon);
+            } else if (value instanceof DefaultMutableTreeNode node
+                    && node.getUserObject() instanceof FolderNode) {
+                setIcon(expanded ? folderOpenIcon : folderClosedIcon);
+            }
+            return this;
         }
     }
 
