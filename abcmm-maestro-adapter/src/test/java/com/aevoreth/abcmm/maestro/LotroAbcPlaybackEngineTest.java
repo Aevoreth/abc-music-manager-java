@@ -56,8 +56,10 @@ class LotroAbcPlaybackEngineTest {
             assertEquals(PlaybackState.LOADED, engine.getState());
 
             engine.setVolume(0.4);
+            engine.setStereo(50);
             engine.setTempoFactor(1.1f);
             assertEquals(0.4, engine.getVolume(), 0.001);
+            assertEquals(50, engine.getStereo());
             assertEquals(1.1f, engine.getTempoFactor(), 0.001f);
 
             engine.play();

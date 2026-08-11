@@ -32,6 +32,8 @@ import com.digero.common.abctomidi.AbcInfo;
 import com.digero.common.abctomidi.AbcToMidi;
 import com.digero.common.midi.LotroSequencerWrapper;
 import com.digero.common.midi.MidiConstants;
+import com.digero.common.midi.MidiUtils;
+import com.digero.common.midi.PanGenerator;
 import com.digero.common.midi.SequencerEvent.SequencerProperty;
 import com.digero.common.midi.SynthesizerFactory;
 import com.digero.common.midi.VolumeTransceiver;
@@ -53,6 +55,7 @@ public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
     private LoadedSong loadedSong;
     private AbcInfo abcInfo;
     private double volume = 1.0;
+    private int stereo = 50;
     private boolean closed;
 
     public LotroAbcPlaybackEngine() throws MidiUnavailableException {
@@ -117,7 +120,7 @@ public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
             params.useLotroInstruments = true;
             params.abcInfo = info;
             params.enableLotroErrors = false;
-            params.stereo = 100;
+            params.stereo = stereo;
             params.generateRegions = false;
             song = AbcToMidi.convert(params);
         } catch (IOException | FileParseException ex) {
@@ -252,6 +255,22 @@ public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
     }
 
     @Override
+    public void setStereo(int newStereo) throws PlaybackException {
+        if (newStereo < 0 || newStereo > 100) {
+            throw new PlaybackException("Stereo must be between 0 and 100");
+        }
+        this.stereo = newStereo;
+        if (loadedSong != null && sequencer.getSequence() != null && abcInfo != null) {
+            updateStereo(newStereo);
+        }
+    }
+
+    @Override
+    public int getStereo() {
+        return stereo;
+    }
+
+    @Override
     public void setTempoFactor(float tempoFactor) throws PlaybackException {
         ensureOpen();
         if (tempoFactor < 0.5f || tempoFactor > 2.0f) {
@@ -314,6 +333,48 @@ public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
         loadedSong = null;
         abcInfo = null;
         state = PlaybackState.IDLE;
+    }
+
+    /**
+     * Live stereo-width update matching ABC Player ({@code 0} = mono, {@code 100} = full stereo).
+     */
+    private void updateStereo(int panModifier) {
+        Sequence seq = sequencer.getSequence();
+        if (seq == null || abcInfo == null) {
+            return;
+        }
+        Track[] tracks = seq.getTracks();
+        PanGenerator panner = new PanGenerator();
+        List<Object[]> panSortedParts = new ArrayList<>();
+        for (int i = 1; i < tracks.length; i++) {
+            MidiEvent prevEvent;
+            try {
+                prevEvent = abcInfo.getPartPanEvent(i);
+            } catch (RuntimeException ex) {
+                continue;
+            }
+            if (prevEvent == null) {
+                continue;
+            }
+            panSortedParts.add(new Object[] {i, abcInfo.getPartInstrument(i)});
+        }
+        panner.sortInstruments(panSortedParts);
+
+        for (Object[] obj : panSortedParts) {
+            int i = (int) obj[0];
+            MidiEvent prevEvent = abcInfo.getPartPanEvent(i);
+            MidiEvent newPanEvent = MidiUtils.replacePanningEvent(
+                    tracks[i],
+                    abcInfo.getPartInstrument(i),
+                    abcInfo.getPartFullName(i),
+                    prevEvent,
+                    panModifier,
+                    abcInfo.getUserPan(i),
+                    panner,
+                    -1);
+            abcInfo.setPanEvent(newPanEvent, i);
+            sequencer.injectPanEvent(newPanEvent);
+        }
     }
 
     private LoadedSong toLoadedSong(AbcInfo info, Sequence song) {

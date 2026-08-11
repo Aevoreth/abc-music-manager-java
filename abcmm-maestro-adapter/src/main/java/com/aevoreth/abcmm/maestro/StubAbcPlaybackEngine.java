@@ -27,6 +27,7 @@ public final class StubAbcPlaybackEngine implements AbcPlaybackEngine {
     private PlaybackState state = PlaybackState.IDLE;
     private LoadedSong loadedSong;
     private double volume = 1.0;
+    private int stereo = 50;
     private float tempoFactor = 1.0f;
     private Duration position = Duration.ZERO;
     private final boolean[] muted = new boolean[64];
@@ -132,6 +133,19 @@ public final class StubAbcPlaybackEngine implements AbcPlaybackEngine {
     @Override
     public double getVolume() {
         return volume;
+    }
+
+    @Override
+    public void setStereo(int newStereo) throws PlaybackException {
+        if (newStereo < 0 || newStereo > 100) {
+            throw new PlaybackException("Stereo must be between 0 and 100");
+        }
+        this.stereo = newStereo;
+    }
+
+    @Override
+    public int getStereo() {
+        return stereo;
     }
 
     @Override

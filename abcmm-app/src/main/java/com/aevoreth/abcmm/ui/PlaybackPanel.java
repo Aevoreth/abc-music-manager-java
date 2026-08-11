@@ -62,7 +62,7 @@ import com.aevoreth.abcmm.domain.playback.PlaybackState;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 
 /**
- * Bottom playback bar mimicking ABC Player: scrubber, tempo, transport, parts/playlist, volume.
+ * Bottom playback bar mimicking ABC Player: scrubber, tempo, transport, parts/playlist, stereo, volume.
  */
 public final class PlaybackPanel extends JPanel {
 
@@ -72,6 +72,7 @@ public final class PlaybackPanel extends JPanel {
     private static final int TEMPO_CENTER = 100;
     /** Magnetic zone around 100% so the slider lightly snaps to normal tempo. */
     private static final int TEMPO_SNAP_THRESHOLD = 3;
+    private static final int DEFAULT_STEREO = 50;
     /** Java-only extras key for the parts/playlist dialog size. */
     static final String LIST_SIZE_PREF_KEY = "java_playback_parts_playlist_size";
     private static final int DEFAULT_LIST_WIDTH = 640;
@@ -107,6 +108,8 @@ public final class PlaybackPanel extends JPanel {
     private final JButton stopButton = new JButton(PlaybackIcons.stop(ICON_SIZE, PlaybackIcons.STOP_COLOR));
     private final JButton nextButton = new JButton(PlaybackIcons.next(ICON_SIZE, PlaybackIcons.SKIP_COLOR));
     private final JToggleButton listButton = new JToggleButton(PlaybackIcons.list(ICON_SIZE));
+    private final JSlider stereoSlider = new JSlider(0, 100, DEFAULT_STEREO);
+    private final JLabel stereoLabel = new JLabel("Stereo: 50", SwingConstants.CENTER);
     private final JSlider volumeSlider = new JSlider(0, 100, 100);
     private final JLabel volumeLabel = new JLabel("Volume: 100", SwingConstants.CENTER);
 
@@ -119,6 +122,7 @@ public final class PlaybackPanel extends JPanel {
 
     private boolean scrubbing;
     private boolean suppressTempo;
+    private boolean suppressStereo;
     private boolean suppressVolume;
     private boolean suppressListSizePersist;
     private final Timer positionTimer;
@@ -160,6 +164,17 @@ public final class PlaybackPanel extends JPanel {
         volumePanel.add(volumeSlider, BorderLayout.CENTER);
         volumePanel.setPreferredSize(new Dimension(120, 42));
 
+        stereoSlider.setPreferredSize(new Dimension(110, stereoSlider.getPreferredSize().height));
+        stereoSlider.setToolTipText("Stereo width (left = mono, right = full stereo)");
+        JPanel stereoPanel = new JPanel(new BorderLayout());
+        stereoPanel.add(stereoLabel, BorderLayout.NORTH);
+        stereoPanel.add(stereoSlider, BorderLayout.CENTER);
+        stereoPanel.setPreferredSize(new Dimension(120, 42));
+
+        JPanel rightSliders = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        rightSliders.add(stereoPanel);
+        rightSliders.add(volumePanel);
+
         JPanel transport = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 0));
         transport.add(prevButton);
         transport.add(playPauseButton);
@@ -171,7 +186,7 @@ public final class PlaybackPanel extends JPanel {
         JPanel bottom = new JPanel(new BorderLayout(8, 0));
         bottom.add(tempoPanel, BorderLayout.WEST);
         bottom.add(transport, BorderLayout.CENTER);
-        bottom.add(volumePanel, BorderLayout.EAST);
+        bottom.add(rightSliders, BorderLayout.EAST);
 
         JPanel center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
@@ -209,6 +224,7 @@ public final class PlaybackPanel extends JPanel {
         applyPrefsToControls();
         try {
             engine.setVolume(volumeSlider.getValue() / 100.0);
+            engine.setStereo(stereoSlider.getValue());
             engine.setTempoFactor(tempoSlider.getValue() / 100.0f);
         } catch (PlaybackException ignored) {
             // engine may not be ready
@@ -245,6 +261,15 @@ public final class PlaybackPanel extends JPanel {
         this.preferences = preferences;
         applyPrefsToControls();
         applyListSizeFromPrefs();
+        if (session != null) {
+            try {
+                session.engine().setVolume(volumeSlider.getValue() / 100.0);
+                session.engine().setStereo(stereoSlider.getValue());
+                session.engine().setTempoFactor(tempoSlider.getValue() / 100.0f);
+            } catch (PlaybackException ignored) {
+                // engine may not be ready
+            }
+        }
     }
 
     /** Persist parts/playlist dialog size into preferences extras. */
@@ -366,6 +391,7 @@ public final class PlaybackPanel extends JPanel {
         });
 
         tempoSlider.addChangeListener(tempoListener());
+        stereoSlider.addChangeListener(stereoListener());
         volumeSlider.addChangeListener(volumeListener());
     }
 
@@ -391,6 +417,25 @@ public final class PlaybackPanel extends JPanel {
                     session.engine().setTempoFactor(applied / 100.0f);
                     if (preferences != null) {
                         preferences.setPlaybackTempo(applied / 100.0);
+                        prefsPersister.run();
+                    }
+                });
+            }
+        };
+    }
+
+    private ChangeListener stereoListener() {
+        return e -> {
+            if (suppressStereo || session == null) {
+                return;
+            }
+            int pct = stereoSlider.getValue();
+            stereoLabel.setText("Stereo: " + pct);
+            if (!stereoSlider.getValueIsAdjusting()) {
+                runSafe(() -> {
+                    session.engine().setStereo(pct);
+                    if (preferences != null) {
+                        preferences.setPlaybackStereoSlider(pct);
                         prefsPersister.run();
                     }
                 });
@@ -730,6 +775,7 @@ public final class PlaybackPanel extends JPanel {
             return;
         }
         suppressVolume = true;
+        suppressStereo = true;
         suppressTempo = true;
         try {
             int vol = preferences.playbackVolume() == null
@@ -737,6 +783,11 @@ public final class PlaybackPanel extends JPanel {
                     : (int) Math.round(preferences.playbackVolume());
             volumeSlider.setValue(Math.max(0, Math.min(100, vol)));
             volumeLabel.setText("Volume: " + volumeSlider.getValue());
+            int stereo = preferences.playbackStereoSlider() == null
+                    ? DEFAULT_STEREO
+                    : preferences.playbackStereoSlider();
+            stereoSlider.setValue(Math.max(0, Math.min(100, stereo)));
+            stereoLabel.setText("Stereo: " + stereoSlider.getValue());
             int tempo = preferences.playbackTempo() == null
                     ? 100
                     : (int) Math.round(preferences.playbackTempo() * 100);
@@ -744,6 +795,7 @@ public final class PlaybackPanel extends JPanel {
             tempoLabel.setText("Tempo: " + tempoSlider.getValue() + "%");
         } finally {
             suppressVolume = false;
+            suppressStereo = false;
             suppressTempo = false;
         }
     }

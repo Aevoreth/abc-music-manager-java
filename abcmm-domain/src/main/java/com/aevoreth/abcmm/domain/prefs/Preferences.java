@@ -29,7 +29,7 @@ public final class Preferences {
     private Double playbackVolume = 100.0;
     private Double playbackTempo = 1.0;
     private String playbackStereoMode = "maestro";
-    private Integer playbackStereoSlider = 0;
+    private Integer playbackStereoSlider = 50;
     private List<Map<String, Object>> setPlayRelays = List.of();
     private String setPlaySelectedRelayId;
     private String partNamePattern = DEFAULT_PART_NAME_PATTERN;
@@ -179,7 +179,7 @@ public final class Preferences {
 
     public void setPlaybackStereoSlider(Integer playbackStereoSlider) {
         if (playbackStereoSlider == null) {
-            this.playbackStereoSlider = 0;
+            this.playbackStereoSlider = 50;
         } else {
             this.playbackStereoSlider = Math.max(0, Math.min(100, playbackStereoSlider));
         }

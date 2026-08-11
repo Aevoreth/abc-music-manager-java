@@ -74,7 +74,7 @@ public final class SettingsDialog extends JDialog {
     private final JSpinner tempoSpinner = new JSpinner(new SpinnerNumberModel(1.0, 0.5, 2.0, 0.05));
     private final JComboBox<String> stereoModeCombo =
             new JComboBox<>(new String[] {"maestro", "maestro_user_pan", "band_layout"});
-    private final JSpinner stereoSlider = new JSpinner(new SpinnerNumberModel(0, 0, 100, 1));
+    private final JSpinner stereoSlider = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
     private boolean saved;
     private boolean entitiesChanged;
 
@@ -344,7 +344,7 @@ public final class SettingsDialog extends JDialog {
                 working.setPlaybackVolume(100.0);
                 working.setPlaybackTempo(1.0);
                 working.setPlaybackStereoMode("maestro");
-                working.setPlaybackStereoSlider(0);
+                working.setPlaybackStereoSlider(50);
                 working.setSetPlayRelays(List.of());
                 working.setSetPlaySelectedRelayId(null);
                 working.extras().clear();
@@ -692,7 +692,7 @@ public final class SettingsDialog extends JDialog {
         c.gridx = 0;
         c.gridy = 5;
         c.gridwidth = 3;
-        panel.add(new JLabel("Saved to preferences; playback engine not wired yet."), c);
+        panel.add(new JLabel("Stereo width applies to multi-part songs (0 = mono, 100 = full stereo)."), c);
         return panel;
     }
 

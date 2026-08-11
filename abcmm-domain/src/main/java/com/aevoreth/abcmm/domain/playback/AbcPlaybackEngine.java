@@ -31,6 +31,13 @@ public interface AbcPlaybackEngine extends AutoCloseable {
 
     double getVolume();
 
+    /**
+     * Stereo width for multi-part songs: {@code 0} = mono, {@code 100} = full stereo.
+     */
+    void setStereo(int stereo) throws PlaybackException;
+
+    int getStereo();
+
     void setTempoFactor(float tempoFactor) throws PlaybackException;
 
     float getTempoFactor();

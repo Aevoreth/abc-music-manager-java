@@ -170,6 +170,15 @@ class PlaybackSessionTest {
         }
 
         @Override
+        public void setStereo(int stereo) {
+        }
+
+        @Override
+        public int getStereo() {
+            return 50;
+        }
+
+        @Override
         public void setTempoFactor(float tempoFactor) {
         }
 
