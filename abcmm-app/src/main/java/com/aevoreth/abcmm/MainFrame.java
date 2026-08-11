@@ -624,6 +624,7 @@ public final class MainFrame extends JFrame {
         preferences.extras().remove("java_nav_splitter");
         preferences.extras().put("library_table_header_state", libraryPanel.captureHeaderState());
         setlistsPanel.persistUiState(preferences);
+        playbackPanel.persistUiState(preferences);
         try {
             preferencesStore.save(preferences);
         } catch (PreferencesException ex) {

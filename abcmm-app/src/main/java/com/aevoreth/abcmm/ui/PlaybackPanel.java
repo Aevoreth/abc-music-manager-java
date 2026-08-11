@@ -6,28 +6,38 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Point;
+import java.awt.Window;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 
+import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSlider;
+import javax.swing.JSplitPane;
 import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
@@ -58,6 +68,13 @@ public final class PlaybackPanel extends JPanel {
     private static final int TEMPO_CENTER = 100;
     /** Magnetic zone around 100% so the slider lightly snaps to normal tempo. */
     private static final int TEMPO_SNAP_THRESHOLD = 3;
+    /** Java-only extras key for the parts/playlist dialog size. */
+    static final String LIST_SIZE_PREF_KEY = "java_playback_parts_playlist_size";
+    private static final int DEFAULT_LIST_WIDTH = 520;
+    private static final int DEFAULT_LIST_HEIGHT = 280;
+    private static final int DEFAULT_PARTS_DIVIDER = 260;
+    private static final int MIN_LIST_WIDTH = 320;
+    private static final int MIN_LIST_HEIGHT = 160;
 
     private PlaybackSession session;
     private Preferences preferences;
@@ -76,17 +93,20 @@ public final class PlaybackPanel extends JPanel {
     private final JButton playPauseButton = new JButton(PlaybackIcons.play(ICON_SIZE, PlaybackIcons.PLAY_COLOR));
     private final JButton stopButton = new JButton(PlaybackIcons.stop(ICON_SIZE, PlaybackIcons.STOP_COLOR));
     private final JButton nextButton = new JButton(PlaybackIcons.next(ICON_SIZE, PlaybackIcons.SKIP_COLOR));
-    private final JButton listButton = new JButton(PlaybackIcons.list(ICON_SIZE));
+    private final JToggleButton listButton = new JToggleButton(PlaybackIcons.list(ICON_SIZE));
     private final JSlider volumeSlider = new JSlider(0, 100, 100);
     private final JLabel volumeLabel = new JLabel("Volume: 100", SwingConstants.CENTER);
 
     private final JPanel partsPanel = new JPanel();
     private final JList<String> playlistList = new JList<>();
-    private final JPopupMenu listPopup = new JPopupMenu();
+    private JDialog listDialog;
+    private JSplitPane listSplit;
+    private final Timer listSizePersistTimer;
 
     private boolean scrubbing;
     private boolean suppressTempo;
     private boolean suppressVolume;
+    private boolean suppressListSizePersist;
     private final Timer positionTimer;
 
     public PlaybackPanel() {
@@ -110,7 +130,7 @@ public final class PlaybackPanel extends JPanel {
         styleTransportButton(playPauseButton, "Play / Pause");
         styleTransportButton(stopButton, "Stop");
         styleTransportButton(nextButton, "Next");
-        styleTransportButton(listButton, "Parts / Playlist");
+        styleTransportButton(listButton, "Show / hide parts and playlist");
 
         tempoSlider.setPreferredSize(new Dimension(110, tempoSlider.getPreferredSize().height));
         tempoSlider.setToolTipText("Tempo");
@@ -151,8 +171,11 @@ public final class PlaybackPanel extends JPanel {
         center.add(bottom);
         add(center, BorderLayout.CENTER);
 
-        buildListPopup();
+        buildListDialogContent();
         wireControls();
+
+        listSizePersistTimer = new Timer(400, e -> persistListSize());
+        listSizePersistTimer.setRepeats(false);
 
         positionTimer = new Timer(100, e -> refreshPosition());
         positionTimer.setRepeats(true);
@@ -196,14 +219,30 @@ public final class PlaybackPanel extends JPanel {
     /** Stop UI polling so AWT can shut down after the frame is disposed. */
     public void stopTimers() {
         positionTimer.stop();
+        listSizePersistTimer.stop();
+        hideListDialog();
+        if (listDialog != null) {
+            listDialog.dispose();
+            listDialog = null;
+        }
     }
 
     public void updatePreferences(Preferences preferences) {
         this.preferences = preferences;
         applyPrefsToControls();
+        applyListSizeFromPrefs();
     }
 
-    private void buildListPopup() {
+    /** Persist parts/playlist dialog size into preferences extras. */
+    public void persistUiState(Preferences preferences) {
+        if (preferences == null) {
+            return;
+        }
+        this.preferences = preferences;
+        persistListSize();
+    }
+
+    private void buildListDialogContent() {
         partsPanel.setLayout(new BoxLayout(partsPanel, BoxLayout.Y_AXIS));
         partsPanel.setBorder(BorderFactory.createTitledBorder("Parts"));
 
@@ -216,7 +255,6 @@ public final class PlaybackPanel extends JPanel {
                     int index = playlistList.locationToIndex(e.getPoint());
                     if (index >= 0) {
                         runSafe(() -> session.playAt(index));
-                        listPopup.setVisible(false);
                     }
                 }
             }
@@ -226,15 +264,46 @@ public final class PlaybackPanel extends JPanel {
         playlistScroll.setPreferredSize(new Dimension(240, 220));
 
         JScrollPane partsScroll = new JScrollPane(partsPanel);
-        partsScroll.setPreferredSize(new Dimension(260, 220));
+        partsScroll.setPreferredSize(new Dimension(DEFAULT_PARTS_DIVIDER, 220));
 
-        JPanel content = new JPanel(new BorderLayout(8, 0));
-        content.setBorder(new EmptyBorder(8, 8, 8, 8));
-        content.add(partsScroll, BorderLayout.WEST);
-        content.add(playlistScroll, BorderLayout.CENTER);
+        listSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, partsScroll, playlistScroll);
+        listSplit.setResizeWeight(0.5);
+        listSplit.setContinuousLayout(true);
+        listSplit.setBorder(new EmptyBorder(8, 8, 8, 8));
+        listSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!suppressListSizePersist) {
+                listSizePersistTimer.restart();
+            }
+        });
+    }
 
-        listPopup.setLayout(new BorderLayout());
-        listPopup.add(content, BorderLayout.CENTER);
+    private void ensureListDialog() {
+        if (listDialog != null) {
+            return;
+        }
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        listDialog = owner instanceof Frame frame
+                ? new JDialog(frame, "Parts / Playlist", false)
+                : new JDialog((Frame) null, "Parts / Playlist", false);
+        listDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        listDialog.setResizable(true);
+        listDialog.setMinimumSize(new Dimension(MIN_LIST_WIDTH, MIN_LIST_HEIGHT));
+        listDialog.setContentPane(listSplit);
+        listDialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                hideListDialog();
+            }
+        });
+        listDialog.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (!suppressListSizePersist && listDialog.isVisible()) {
+                    listSizePersistTimer.restart();
+                }
+            }
+        });
+        applyListSizeFromPrefs();
     }
 
     private void wireControls() {
@@ -258,7 +327,13 @@ public final class PlaybackPanel extends JPanel {
         nextButton.addActionListener(e -> runSafe(() -> session.next()));
         stopButton.addActionListener(e -> runSafe(() -> session.engine().stop()));
         playPauseButton.addActionListener(e -> runSafe(this::togglePlayPause));
-        listButton.addActionListener(e -> toggleListPopup());
+        listButton.addActionListener(e -> {
+            if (listButton.isSelected()) {
+                showListDialog();
+            } else {
+                hideListDialog();
+            }
+        });
 
         tempoSlider.addChangeListener(tempoListener());
         volumeSlider.addChangeListener(volumeListener());
@@ -324,23 +399,106 @@ public final class PlaybackPanel extends JPanel {
         }
     }
 
-    private void toggleListPopup() {
-        if (listPopup.isVisible()) {
-            listPopup.setVisible(false);
-            return;
-        }
+    private void showListDialog() {
+        ensureListDialog();
         rebuildPartsPanel();
         refreshPlaylistUi();
-        listPopup.pack();
-        Point loc = listButton.getLocationOnScreen();
-        int x = loc.x + listButton.getWidth() / 2 - listPopup.getPreferredSize().width / 2;
-        int y = loc.y - listPopup.getPreferredSize().height - 4;
-        listPopup.show(listButton, listButton.getWidth() / 2 - listPopup.getPreferredSize().width / 2,
-                -listPopup.getPreferredSize().height - 4);
-        // Keep popup on screen vertically when possible
-        if (y > 0) {
-            listPopup.setLocation(Math.max(0, x), y);
+        applyListSizeFromPrefs();
+        positionListDialog();
+        listDialog.setVisible(true);
+        listButton.setSelected(true);
+    }
+
+    private void hideListDialog() {
+        if (listDialog != null && listDialog.isVisible()) {
+            persistListSize();
+            listDialog.setVisible(false);
         }
+        listButton.setSelected(false);
+    }
+
+    private void positionListDialog() {
+        if (listDialog == null || !listButton.isShowing()) {
+            return;
+        }
+        Point loc = listButton.getLocationOnScreen();
+        int width = listDialog.getWidth();
+        int height = listDialog.getHeight();
+        if (width <= 0 || height <= 0) {
+            Dimension preferred = listDialog.getPreferredSize();
+            width = preferred.width;
+            height = preferred.height;
+        }
+        int x = loc.x + listButton.getWidth() / 2 - width / 2;
+        int y = loc.y - height - 8;
+        if (y < 0) {
+            y = loc.y + listButton.getHeight() + 8;
+        }
+        listDialog.setLocation(Math.max(0, x), Math.max(0, y));
+    }
+
+    private void applyListSizeFromPrefs() {
+        if (listDialog == null) {
+            return;
+        }
+        int width = DEFAULT_LIST_WIDTH;
+        int height = DEFAULT_LIST_HEIGHT;
+        int divider = DEFAULT_PARTS_DIVIDER;
+        if (preferences != null) {
+            Object raw = preferences.extras().get(LIST_SIZE_PREF_KEY);
+            if (raw instanceof Map<?, ?> map) {
+                Integer w = asInt(map.get("width"));
+                Integer h = asInt(map.get("height"));
+                Integer d = asInt(map.get("divider"));
+                if (w != null) {
+                    width = Math.max(MIN_LIST_WIDTH, w);
+                }
+                if (h != null) {
+                    height = Math.max(MIN_LIST_HEIGHT, h);
+                }
+                if (d != null) {
+                    divider = Math.max(80, d);
+                }
+            }
+        }
+        suppressListSizePersist = true;
+        try {
+            listDialog.setSize(width, height);
+            listSplit.setDividerLocation(Math.min(divider, Math.max(80, width - 120)));
+        } finally {
+            suppressListSizePersist = false;
+        }
+    }
+
+    private void persistListSize() {
+        if (preferences == null || listDialog == null) {
+            return;
+        }
+        int width = listDialog.getWidth();
+        int height = listDialog.getHeight();
+        if (width < MIN_LIST_WIDTH || height < MIN_LIST_HEIGHT) {
+            return;
+        }
+        Map<String, Object> size = new LinkedHashMap<>();
+        size.put("width", width);
+        size.put("height", height);
+        size.put("divider", listSplit.getDividerLocation());
+        preferences.extras().put(LIST_SIZE_PREF_KEY, size);
+        prefsPersister.run();
+    }
+
+    private static Integer asInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text) {
+            try {
+                return Integer.parseInt(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private void rebuildPartsPanel() {
@@ -415,7 +573,7 @@ public final class PlaybackPanel extends JPanel {
         prevButton.setEnabled(session.hasPrevious());
         nextButton.setEnabled(session.hasNext());
         refreshPosition();
-        if (listPopup.isVisible()) {
+        if (listDialog != null && listDialog.isVisible()) {
             rebuildPartsPanel();
         }
     }
@@ -505,7 +663,7 @@ public final class PlaybackPanel extends JPanel {
         }
     }
 
-    private void styleTransportButton(JButton button, String tip) {
+    private void styleTransportButton(AbstractButton button, String tip) {
         button.setToolTipText(tip);
         button.setFocusable(false);
         // Match ABC Player play-control margins (Insets(5, 20, 5, 20)).
