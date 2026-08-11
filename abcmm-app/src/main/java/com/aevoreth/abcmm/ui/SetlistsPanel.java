@@ -117,6 +117,7 @@ public final class SetlistsPanel extends JPanel {
 
     private final JLabel nameValue = new JLabel("\u2014");
     private final JButton editDetailsButton = new JButton("Edit");
+    private final JButton deleteSetlistButton = new JButton(PlaybackIcons.trash(14));
     private final JLabel layoutValue = new JLabel("\u2014");
     private final JLabel dateTimeValue = new JLabel("\u2014");
     private final JLabel targetDurationValue = new JLabel("\u2014");
@@ -334,6 +335,8 @@ public final class SetlistsPanel extends JPanel {
         notesArea.setOpaque(false);
         notesArea.setFocusable(false);
         editDetailsButton.addActionListener(e -> editDetails());
+        deleteSetlistButton.setToolTipText("Delete setlist");
+        deleteSetlistButton.addActionListener(e -> deleteCurrentSetlist());
 
         JPanel nameRow = new JPanel(new BorderLayout(8, 0));
         nameRow.setOpaque(false);
@@ -343,7 +346,11 @@ public final class SetlistsPanel extends JPanel {
         nameValueRow.setOpaque(false);
         nameValue.setFont(nameValue.getFont().deriveFont(Font.BOLD));
         nameValueRow.add(nameValue, BorderLayout.CENTER);
-        nameValueRow.add(editDetailsButton, BorderLayout.EAST);
+        JPanel nameActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        nameActions.setOpaque(false);
+        nameActions.add(editDetailsButton);
+        nameActions.add(deleteSetlistButton);
+        nameValueRow.add(nameActions, BorderLayout.EAST);
         nameRow.add(nameValueRow, BorderLayout.CENTER);
         nameRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(editDetailsButton.getPreferredSize().height, 24) + 12));
         nameRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
@@ -1064,6 +1071,7 @@ public final class SetlistsPanel extends JPanel {
 
     private void setEditorEnabled(boolean enabled) {
         editDetailsButton.setEnabled(enabled);
+        deleteSetlistButton.setEnabled(enabled);
         boolean songsEditable = enabled && !isSelectedSetlistLocked();
         addSongButton.setEnabled(songsEditable);
         removeSongButton.setEnabled(songsEditable);
@@ -1634,26 +1642,35 @@ public final class SetlistsPanel extends JPanel {
                 });
     }
 
+    private void deleteCurrentSetlist() {
+        SetlistInfo setlist = selectedSetlist();
+        if (setlist == null || setlistRepository == null) {
+            return;
+        }
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "Delete setlist \"" + setlist.name() + "\"?",
+                "Delete setlist",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.OK_OPTION) {
+            return;
+        }
+        try {
+            setlistRepository.deleteSetlist(setlist.id());
+            reload();
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+        }
+    }
+
     private void deleteSelected() {
         if (setlistRepository == null) {
             return;
         }
         SetlistInfo setlist = selectedSetlist();
         if (setlist != null) {
-            int confirm = JOptionPane.showConfirmDialog(
-                    this,
-                    "Delete setlist \"" + setlist.name() + "\"?",
-                    "Delete",
-                    JOptionPane.OK_CANCEL_OPTION);
-            if (confirm != JOptionPane.OK_OPTION) {
-                return;
-            }
-            try {
-                setlistRepository.deleteSetlist(setlist.id());
-                reload();
-            } catch (LibraryException ex) {
-                showError(ex.getMessage());
-            }
+            deleteCurrentSetlist();
             return;
         }
         SetlistFolderInfo folder = selectedFolder();

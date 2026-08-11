@@ -136,6 +136,49 @@ final class PlaybackIcons {
         });
     }
 
+    /** Trash can — default red for destructive actions. */
+    static final Color TRASH_COLOR = new Color(0xE53935);
+
+    static Icon trash(int size) {
+        return trash(size, TRASH_COLOR);
+    }
+
+    static Icon trash(int size, Color color) {
+        return new GlyphIcon(size, color, (g, s) -> {
+            float stroke = Math.max(1.4f, s / 9f);
+            g.setStroke(new BasicStroke(stroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            float left = s * 0.22f;
+            float right = s * 0.78f;
+            float lidY = s * 0.28f;
+            float bodyTop = s * 0.36f;
+            float bodyBottom = s * 0.82f;
+            float handleLeft = s * 0.40f;
+            float handleRight = s * 0.60f;
+            float handleTop = s * 0.14f;
+            // Lid handle
+            g.drawLine(Math.round(handleLeft), Math.round(lidY), Math.round(handleLeft), Math.round(handleTop));
+            g.drawLine(Math.round(handleRight), Math.round(lidY), Math.round(handleRight), Math.round(handleTop));
+            g.drawLine(Math.round(handleLeft), Math.round(handleTop), Math.round(handleRight), Math.round(handleTop));
+            // Lid
+            g.drawLine(Math.round(left - s * 0.04f), Math.round(lidY), Math.round(right + s * 0.04f), Math.round(lidY));
+            // Can body (slightly tapered)
+            Path2D body = new Path2D.Float();
+            body.moveTo(left, bodyTop);
+            body.lineTo(right, bodyTop);
+            body.lineTo(s * 0.72f, bodyBottom);
+            body.lineTo(s * 0.28f, bodyBottom);
+            body.closePath();
+            g.draw(body);
+            // Interior lines
+            float mid = s * 0.5f;
+            float innerLeft = s * 0.38f;
+            float innerRight = s * 0.62f;
+            g.drawLine(Math.round(mid), Math.round(bodyTop + stroke), Math.round(mid), Math.round(bodyBottom - stroke));
+            g.drawLine(Math.round(innerLeft), Math.round(bodyTop + stroke), Math.round(s * 0.34f), Math.round(bodyBottom - stroke));
+            g.drawLine(Math.round(innerRight), Math.round(bodyTop + stroke), Math.round(s * 0.66f), Math.round(bodyBottom - stroke));
+        });
+    }
+
     @FunctionalInterface
     private interface Painter {
         void paint(Graphics2D g, int size);
