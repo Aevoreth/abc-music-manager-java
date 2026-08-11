@@ -31,6 +31,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
@@ -55,6 +56,12 @@ public final class BandLayoutGridPanel extends JPanel {
     static final int Y_MAX = 105;
     static final int SPAWN_X = -4;
     static final int SPAWN_Y = -3;
+
+    private static final Color CANVAS_BG = Color.BLACK;
+    private static final Color GRID_DOT = new Color(0x3A3A3A);
+    private static final Color CARD_BORDER = new Color(0x777777);
+    private static final Color CARD_SELECTED_FILL = new Color(0x3D5A80);
+    private static final Color CARD_SELECTED_BORDER = new Color(0x98C1D9);
 
     private BandRepository bandRepository;
     private PlayerRepository playerRepository;
@@ -570,9 +577,15 @@ public final class BandLayoutGridPanel extends JPanel {
                 JOptionPane.ERROR_MESSAGE);
     }
 
+    /** Matches the main window / panel background (not button chrome). */
+    private static Color cardFill() {
+        Color bg = UIManager.getColor("Panel.background");
+        return bg != null ? bg : new Color(0x2B2B2B);
+    }
+
     private final class GridCanvas extends JPanel {
         GridCanvas() {
-            setBackground(new Color(0x2B2B2B));
+            setBackground(CANVAS_BG);
             setOpaque(true);
         }
 
@@ -583,7 +596,7 @@ public final class BandLayoutGridPanel extends JPanel {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
             // Dotted graph-paper grid in logical space (origin at view center when pan is 0).
-            g2.setColor(new Color(0x3A3A3A));
+            g2.setColor(GRID_DOT);
             Point2D.Double topLeft = viewToLogical(0, 0);
             Point2D.Double bottomRight = viewToLogical(getWidth(), getHeight());
             int lxMin = (int) Math.floor(topLeft.x);
@@ -604,13 +617,14 @@ public final class BandLayoutGridPanel extends JPanel {
             Font labelFont = getFont().deriveFont(Font.BOLD, 13f);
             g2.setFont(labelFont);
             FontMetrics labelMetrics = g2.getFontMetrics();
+            Color fill = cardFill();
             for (BandLayoutSlotInfo slot : slots) {
                 Rectangle r = slotBounds(slot);
                 boolean selected = selectedPlayerId != null && selectedPlayerId == slot.playerId();
-                g2.setColor(selected ? new Color(0x3D5A80) : new Color(0x4A4A4A));
+                g2.setColor(selected ? CARD_SELECTED_FILL : fill);
                 g2.fillRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, 6, 6);
                 g2.setStroke(new BasicStroke(selected ? 2f : 1f));
-                g2.setColor(selected ? new Color(0x98C1D9) : new Color(0x777777));
+                g2.setColor(selected ? CARD_SELECTED_BORDER : CARD_BORDER);
                 g2.drawRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, 6, 6);
                 g2.setColor(Color.WHITE);
                 String name = slot.playerName() == null ? ("#" + slot.playerId()) : slot.playerName();

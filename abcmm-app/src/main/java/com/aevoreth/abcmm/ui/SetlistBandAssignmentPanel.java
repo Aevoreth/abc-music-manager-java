@@ -33,6 +33,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 import javax.swing.ToolTipManager;
+import javax.swing.UIManager;
 
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
@@ -58,9 +59,8 @@ public final class SetlistBandAssignmentPanel extends JPanel {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int UNIT_SIZE = BandLayoutGridPanel.UNIT_SIZE;
-    private static final Color CANVAS_BG = new Color(0x2B2B2B);
+    private static final Color CANVAS_BG = Color.BLACK;
     private static final Color GRID_DOT = new Color(0x3A3A3A);
-    private static final Color CARD_FILL = new Color(0x4A4A4A);
     private static final Color CARD_BORDER = new Color(0x777777);
     private static final Color TEXT = Color.WHITE;
     /** Prev/next part labels — soft cool accent (matches layout selection highlight). */
@@ -789,6 +789,12 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         g2.drawString(text, tx, ty);
     }
 
+    /** Matches the main window / panel background (not button chrome). */
+    private static Color cardFill() {
+        Color bg = UIManager.getColor("Panel.background");
+        return bg != null ? bg : new Color(0x2B2B2B);
+    }
+
     private final class AssignmentCanvas extends JPanel {
         AssignmentCanvas() {
             setBackground(CANVAS_BG);
@@ -823,9 +829,10 @@ public final class SetlistBandAssignmentPanel extends JPanel {
 
             Font baseFont = getFont().deriveFont(Font.PLAIN, 13f);
             final int lineGap = 1;
+            Color fill = cardFill();
             for (AssignmentCard card : cards) {
                 Rectangle r = cardBounds(card);
-                g2.setColor(CARD_FILL);
+                g2.setColor(fill);
                 g2.fillRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, 6, 6);
                 g2.setStroke(new BasicStroke(1f));
                 g2.setColor(CARD_BORDER);
