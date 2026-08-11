@@ -149,14 +149,10 @@ public final class SongDetailDialog extends JDialog {
         tabs.addTab("Raw ABC", buildAbcTab());
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton saveMetadataToAbc = new JButton("Save Metadata to ABC");
-        saveMetadataToAbc.setEnabled(false);
-        saveMetadataToAbc.setToolTipText("Not yet implemented");
         JButton cancel = new JButton("Cancel");
         cancel.addActionListener(e -> dispose());
         JButton save = new JButton("Save");
         save.addActionListener(e -> saveAppMetadata());
-        buttons.add(saveMetadataToAbc);
         buttons.add(cancel);
         buttons.add(save);
 

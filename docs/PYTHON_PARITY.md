@@ -9,15 +9,15 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Area | Python status | Java status | Compatibility requirement | Notes |
 |------|---------------|-------------|---------------------------|-------|
 | Library scanning | Complete | Complete | Preserve behavior | Scan `.abc` under LOTRO Music roots; folder rules; primary vs set-copy; duplicates (Keep existing / Keep new / Separate) |
-| Song metadata | Complete | Complete | Preserve Maestro metadata | Library table + Song detail (Basic Info / Notes & Lyrics / Raw ABC); inline rating/status; Playback History / PlayLog; scan writes Maestro-compatible %%/header fields via `AbcMetadataParser`; dedicated song-layout library editor still deferred |
-| Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted |
+| Song metadata | Complete | Complete | Preserve Maestro metadata | Library table + Song detail (Basic Info / Parts / Notes & Lyrics / Raw ABC); Save writes title/composer/parts to ABC as needed; inline rating/status; Playback History / PlayLog; scan writes Maestro-compatible %%/header fields via `AbcMetadataParser`; dedicated song-layout library editor deferred (would change DB structure) |
+| Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted; empty-state Open User Guide deferred until broader Java↔Python parity |
 | Setlists | Complete | Complete (builder) | Preserve stored data | Folders, tree drag reorder/move between folders, song order, timing, per-set band layout / part overrides; ABCP import/export deferred |
 | ABCP support | Complete | Not started | Preserve interchange | XML playlist import/export compatible with ABC Player workflows |
 | Songbook export | Complete | Not started | Preserve PluginData format | Manual write of `SongbookData.plugindata` (Lua) to account targets |
 | Band management | Complete | Complete | Preserve stored data | Bands, members, layouts, snapped layout grid; Change Player cascades song/setlist assignments |
 | Player management | Complete | Complete | Preserve stored data | Players + instruments; filters (name/level/class/instrument); searchable layout picker |
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
-| Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor still deferred |
+| Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor deferred (would change DB structure) |
 | Playback | Complete (custom TinySoundFont path) | Partial (Maestro engine + bottom transport/queue) | Use Maestro Java engine | `LotroAbcPlaybackEngine`; library/setlist play+queue; parts mute/solo popup |
 | Set Play | Complete | Not started | Preserve session semantics | NOW/NEXT/Played/Skip; advance song; play logging |
 | Relay / group playback | Complete | Not started | Preserve protocol where practical | Cloudflare Worker relay; Band Assistant / browser follower |
@@ -61,4 +61,4 @@ Completed bandleader library + management slice:
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
 9. Library song detail + inline metadata / play history / Raw ABC; Maestro playback transport
 
-Later: Set Play / relays, ABCP, songbook export, Band Assistant, dedicated song-layout library editor, portable packaging.
+Later: Set Play / relays, ABCP, songbook export, Band Assistant, dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.
