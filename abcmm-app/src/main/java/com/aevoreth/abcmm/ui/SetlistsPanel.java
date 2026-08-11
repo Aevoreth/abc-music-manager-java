@@ -2206,20 +2206,19 @@ public final class SetlistsPanel extends JPanel {
         if (setlist == null || setlistRepository == null || songRepository == null || setlist.locked()) {
             return;
         }
-        SongPickerDialog.showPicker(SwingUtilities.getWindowAncestor(this), songRepository)
-                .ifPresent(song -> {
-                    try {
-                        int position = itemModel.getRowCount();
-                        setlistRepository.addItem(setlist.id(), song.id(), position, null, null);
-                        reloadItems(setlist.id());
-                        if (itemModel.getRowCount() > 0) {
-                            int last = itemModel.getRowCount() - 1;
-                            itemTable.setRowSelectionInterval(last, last);
-                        }
-                    } catch (LibraryException ex) {
-                        showError(ex.getMessage());
-                    }
-                });
+        SongPickerDialog.showPicker(SwingUtilities.getWindowAncestor(this), songRepository, song -> {
+            try {
+                int position = itemModel.getRowCount();
+                setlistRepository.addItem(setlist.id(), song.id(), position, null, null);
+                reloadItems(setlist.id());
+                if (itemModel.getRowCount() > 0) {
+                    int last = itemModel.getRowCount() - 1;
+                    itemTable.setRowSelectionInterval(last, last);
+                }
+            } catch (LibraryException ex) {
+                showError(ex.getMessage());
+            }
+        });
     }
 
     private void removeSong() {

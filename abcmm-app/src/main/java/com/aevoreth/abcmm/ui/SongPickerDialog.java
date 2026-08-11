@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -34,17 +34,19 @@ import com.aevoreth.abcmm.domain.library.SongRepository;
 
 /**
  * Simple searchable picker for {@link LibrarySong} rows.
+ * Stays open after each Add so multiple songs can be selected in one session.
  */
 public final class SongPickerDialog extends JDialog {
 
     private final SongTableModel tableModel = new SongTableModel();
     private final JTable table = new JTable(tableModel);
     private final TableRowSorter<SongTableModel> sorter = new TableRowSorter<>(tableModel);
-    private LibrarySong selected;
+    private final Consumer<LibrarySong> onAdd;
 
-    public SongPickerDialog(java.awt.Window owner, SongRepository songs) {
+    public SongPickerDialog(java.awt.Window owner, SongRepository songs, Consumer<LibrarySong> onAdd) {
         super(owner, "Add song", ModalityType.APPLICATION_MODAL);
         Objects.requireNonNull(songs, "songs");
+        this.onAdd = Objects.requireNonNull(onAdd, "onAdd");
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setMinimumSize(new Dimension(560, 420));
         setPreferredSize(new Dimension(640, 480));
@@ -84,14 +86,11 @@ public final class SongPickerDialog extends JDialog {
         north.add(search);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton cancel = new JButton("Cancel");
+        JButton close = new JButton("Close");
         JButton add = new JButton("Add");
-        cancel.addActionListener(e -> {
-            selected = null;
-            dispose();
-        });
+        close.addActionListener(e -> dispose());
         add.addActionListener(e -> acceptSelection());
-        buttons.add(cancel);
+        buttons.add(close);
         buttons.add(add);
 
         JPanel root = new JPanel(new BorderLayout(8, 8));
@@ -114,17 +113,13 @@ public final class SongPickerDialog extends JDialog {
         setLocationRelativeTo(owner);
     }
 
-    public Optional<LibrarySong> selectedSong() {
-        return Optional.ofNullable(selected);
-    }
-
     /**
-     * Shows the dialog and returns the chosen song, if any.
+     * Shows the dialog and invokes {@code onAdd} for each song the user adds.
+     * The dialog stays open until the user clicks Close.
      */
-    public static Optional<LibrarySong> showPicker(java.awt.Window owner, SongRepository songs) {
-        SongPickerDialog dialog = new SongPickerDialog(owner, songs);
+    public static void showPicker(java.awt.Window owner, SongRepository songs, Consumer<LibrarySong> onAdd) {
+        SongPickerDialog dialog = new SongPickerDialog(owner, songs, onAdd);
         dialog.setVisible(true);
-        return dialog.selectedSong();
     }
 
     private void acceptSelection() {
@@ -134,8 +129,7 @@ public final class SongPickerDialog extends JDialog {
             return;
         }
         int modelRow = table.convertRowIndexToModel(viewRow);
-        selected = tableModel.songAt(modelRow);
-        dispose();
+        onAdd.accept(tableModel.songAt(modelRow));
     }
 
     private void applyFilter(String text) {
