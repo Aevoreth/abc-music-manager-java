@@ -24,6 +24,11 @@ public interface SongRepository extends AutoCloseable {
     Optional<Path> resolvePrimaryAbcPath(long songId) throws LibraryException;
 
     /**
+     * Exact {@code SongFile.file_path} lookup (ABCP import path matching).
+     */
+    Optional<Long> findSongIdByFilePath(String filePath) throws LibraryException;
+
+    /**
      * Looks up a library song by id, or empty if missing.
      */
     Optional<LibrarySong> findSongById(long songId) throws LibraryException;

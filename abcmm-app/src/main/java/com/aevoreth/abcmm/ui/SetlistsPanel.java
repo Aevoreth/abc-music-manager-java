@@ -8,6 +8,8 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
@@ -71,6 +73,8 @@ import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
+import com.aevoreth.abcmm.domain.export.AbcpException;
+import com.aevoreth.abcmm.domain.export.AbcpReader;
 import com.aevoreth.abcmm.domain.export.SetExportException;
 import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
 import com.aevoreth.abcmm.domain.export.SetExportService;
@@ -330,19 +334,35 @@ public final class SetlistsPanel extends JPanel {
 
     private JPanel buildLeftPane() {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JPanel toolbar = new JPanel(new WrapLayout(FlowLayout.LEFT, 4, 4));
         JButton addFolder = new JButton("Add folder");
         JButton addSetlist = new JButton("Add setlist");
+        JButton importAbcp = new JButton("Import ABCP");
         JButton delete = new JButton("Delete");
         addFolder.addActionListener(e -> addFolder());
         addSetlist.addActionListener(e -> addSetlist());
+        importAbcp.addActionListener(e -> importAbcp());
         delete.addActionListener(e -> deleteSelected());
         exportButton.addActionListener(e -> exportSelectedSet());
         exportButton.setEnabled(false);
         toolbar.add(addFolder);
         toolbar.add(addSetlist);
+        toolbar.add(importAbcp);
         toolbar.add(delete);
         toolbar.add(exportButton);
+        // Preferred height changes when width wraps; revalidate so BorderLayout.NORTH grows.
+        toolbar.addComponentListener(new ComponentAdapter() {
+            private int lastPreferredHeight = -1;
+
+            @Override
+            public void componentResized(ComponentEvent e) {
+                int preferredHeight = toolbar.getPreferredSize().height;
+                if (preferredHeight != lastPreferredHeight) {
+                    lastPreferredHeight = preferredHeight;
+                    toolbar.revalidate();
+                }
+            }
+        });
         panel.add(toolbar, BorderLayout.NORTH);
         panel.add(new JScrollPane(tree), BorderLayout.CENTER);
         panel.setPreferredSize(new Dimension(MAIN_SPLIT_INITIAL, 400));
@@ -1760,6 +1780,123 @@ public final class SetlistsPanel extends JPanel {
         } catch (LibraryException | SetExportException ex) {
             showError(ex.getMessage());
         }
+    }
+
+    private void importAbcp() {
+        if (setlistRepository == null || songRepository == null) {
+            return;
+        }
+        int notice = JOptionPane.showConfirmDialog(
+                this,
+                "ABCP import is intended for playlists you created locally in ABC Player"
+                        + " and want to bring into ABC Music Manager.\n\n"
+                        + "It is not meant for importing a shared setlist from someone else —"
+                        + " track paths must already exist in this library and match exactly.\n\n"
+                        + "Continue?",
+                "Import ABCP",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.INFORMATION_MESSAGE);
+        if (notice != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        String startDir = preferences == null
+                ? System.getProperty("user.home")
+                : SetExportDialog.resolveDefaultOutputDir(preferences);
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Import ABCP");
+        chooser.setFileFilter(new FileNameExtensionFilter("ABCP Playlist (*.abcp)", "abcp"));
+        Path start = Paths.get(startDir);
+        if (Files.isDirectory(start)) {
+            chooser.setCurrentDirectory(start.toFile());
+        }
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path path = chooser.getSelectedFile().toPath();
+
+        List<String> trackPaths;
+        try {
+            trackPaths = AbcpReader.read(path);
+        } catch (AbcpException ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Could not read ABCP file:\n" + ex.getMessage(),
+                    "Import ABCP",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (trackPaths.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "The file contains no tracks.",
+                    "Import ABCP",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        try {
+            List<Long> matchedSongIds = new ArrayList<>();
+            List<String> unmatched = new ArrayList<>();
+            for (String filePath : trackPaths) {
+                Optional<Long> songId = songRepository.findSongIdByFilePath(filePath);
+                if (songId.isPresent()) {
+                    matchedSongIds.add(songId.get());
+                } else {
+                    unmatched.add(filePath);
+                }
+            }
+            if (matchedSongIds.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "None of the tracks in the file were found in your library. "
+                                + "Paths must match exactly.",
+                        "Import ABCP",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (!unmatched.isEmpty()) {
+                int reply = JOptionPane.showConfirmDialog(
+                        this,
+                        matchedSongIds.size()
+                                + " of "
+                                + trackPaths.size()
+                                + " tracks matched. "
+                                + unmatched.size()
+                                + " path(s) not found in library.\n\n"
+                                + "Import the matched tracks only?",
+                        "Import ABCP",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (reply != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
+
+            String setlistName = abcpStem(path);
+            Long folderId = selectedFolderId();
+            long setlistId = setlistRepository.addSetlist(setlistName, folderId);
+            for (int i = 0; i < matchedSongIds.size(); i++) {
+                setlistRepository.addItem(setlistId, matchedSongIds.get(i), i, null, null);
+            }
+            reload();
+            selectSetlistInTree(setlistId);
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Imported " + matchedSongIds.size() + " tracks into setlist '" + setlistName + "'.",
+                    "Import ABCP",
+                    JOptionPane.INFORMATION_MESSAGE);
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+        }
+    }
+
+    private static String abcpStem(Path path) {
+        String name = path.getFileName() == null ? "Imported" : path.getFileName().toString();
+        if (name.toLowerCase().endsWith(".abcp") && name.length() > 5) {
+            return name.substring(0, name.length() - 5);
+        }
+        return name.isBlank() ? "Imported" : name;
     }
 
     private void duplicateSetlist(SetlistInfo source) {

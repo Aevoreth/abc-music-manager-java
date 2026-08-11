@@ -139,6 +139,19 @@ class SqliteSongRepositoryTest {
     }
 
     @Test
+    void findsSongIdByExactFilePath() throws Exception {
+        Path db = FixtureDatabases.createLibraryFixture(tempDir.resolve("library.sqlite"));
+        try (SqliteDatabase database = SqliteDatabase.openReadOnly(db);
+             SqliteSongRepository repository = new SqliteSongRepository(database)) {
+            assertEquals(Optional.of(1L), repository.findSongIdByFilePath("/music/alpha.abc"));
+            assertEquals(Optional.of(2L), repository.findSongIdByFilePath("/music/beta.abc"));
+            assertTrue(repository.findSongIdByFilePath("/music/missing.abc").isEmpty());
+            assertTrue(repository.findSongIdByFilePath("").isEmpty());
+            assertTrue(repository.findSongIdByFilePath(null).isEmpty());
+        }
+    }
+
+    @Test
     void renamePrimaryAbcFileMovesDiskAndUpdatesDb() throws Exception {
         Path music = tempDir.resolve("music");
         Files.createDirectories(music);

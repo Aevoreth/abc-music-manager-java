@@ -148,6 +148,25 @@ public final class SqliteSongRepository implements SongRepository {
     }
 
     @Override
+    public Optional<Long> findSongIdByFilePath(String filePath) throws LibraryException {
+        if (filePath == null || filePath.isBlank()) {
+            return Optional.empty();
+        }
+        String sql = "SELECT song_id FROM SongFile WHERE file_path = ? LIMIT 1";
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setString(1, filePath);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(rs.getLong(1));
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to look up song by file path", ex);
+        }
+    }
+
+    @Override
     public Optional<LibrarySong> findSongById(long songId) throws LibraryException {
         // Prefer a direct query so set-only songs still resolve for playback.
         String sql = """
