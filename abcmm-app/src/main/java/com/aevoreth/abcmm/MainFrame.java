@@ -142,6 +142,7 @@ public final class MainFrame extends JFrame {
         libraryPanel = new LibraryPanel();
         setlistsPanel = new SetlistsPanel();
         setlistsPanel.setPreferences(preferences);
+        setlistsPanel.setPreferencesStore(preferencesStore);
         bandsPanel = new BandsPanel();
         playbackPanel = new PlaybackPanel();
         statusBar = new StatusBar();

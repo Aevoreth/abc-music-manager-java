@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -50,6 +51,9 @@ class JsonPreferencesStoreTest {
         prefs.setPlaybackVolume(80.0);
         prefs.setPlaybackStereoMode("band_layout");
         prefs.extras().put("library_table_header_state", Map.of("sort_column", 1));
+        prefs.setExport().setFilenamePattern("$SongTitle_$SongIndex");
+        prefs.setExport().setExportAbcpPlaylist(false);
+        prefs.setExport().setExportCsvPartSheet(true);
 
         store.save(prefs);
 
@@ -66,6 +70,9 @@ class JsonPreferencesStoreTest {
         assertEquals(80.0, loaded.playbackVolume());
         assertEquals("band_layout", loaded.playbackStereoMode());
         assertTrue(loaded.extras().containsKey("library_table_header_state"));
+        assertEquals("$SongTitle_$SongIndex", loaded.setExport().filenamePattern());
+        assertFalse(loaded.setExport().exportAbcpPlaylist());
+        assertTrue(loaded.setExport().exportCsvPartSheet());
     }
 
     @Test

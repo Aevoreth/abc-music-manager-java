@@ -11,6 +11,9 @@ import java.awt.FontMetrics;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -31,6 +34,7 @@ import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -44,6 +48,7 @@ import javax.swing.JTree;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableColumnModel;
@@ -66,12 +71,16 @@ import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
+import com.aevoreth.abcmm.domain.export.SetExportException;
+import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
+import com.aevoreth.abcmm.domain.export.SetExportService;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.playback.PlayQueueItem;
 import com.aevoreth.abcmm.domain.playback.PlaybackException;
 import com.aevoreth.abcmm.domain.playback.PlaybackSession;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
+import com.aevoreth.abcmm.domain.prefs.PreferencesStore;
 import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
@@ -111,6 +120,7 @@ public final class SetlistsPanel extends JPanel {
     private SongRepository songRepository;
     private SongLayoutRepository songLayoutRepository;
     private Preferences preferences;
+    private PreferencesStore preferencesStore;
     private PlaybackSession playbackSession;
     private Consumer<String> playbackErrorReporter = msg -> {
     };
@@ -118,9 +128,11 @@ public final class SetlistsPanel extends JPanel {
     private final DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode("Setlists");
     private final DefaultTreeModel treeModel = new DefaultTreeModel(treeRoot);
     private final JTree tree = new JTree(treeModel);
+    private final JButton exportButton = new JButton("Export");
 
     private final JLabel nameValue = new JLabel("\u2014");
     private final JButton editDetailsButton = new JButton("Edit");
+    private final JButton exportDetailsButton = new JButton("Export");
     private final JButton deleteSetlistButton = new JButton(PlaybackIcons.trash(14));
     private final JLabel layoutValue = new JLabel("\u2014");
     private final JLabel dateTimeValue = new JLabel("\u2014");
@@ -257,6 +269,10 @@ public final class SetlistsPanel extends JPanel {
         }
     }
 
+    public void setPreferencesStore(PreferencesStore preferencesStore) {
+        this.preferencesStore = preferencesStore;
+    }
+
     public void persistUiState(Preferences preferences) {
         if (preferences == null) {
             return;
@@ -321,9 +337,12 @@ public final class SetlistsPanel extends JPanel {
         addFolder.addActionListener(e -> addFolder());
         addSetlist.addActionListener(e -> addSetlist());
         delete.addActionListener(e -> deleteSelected());
+        exportButton.addActionListener(e -> exportSelectedSet());
+        exportButton.setEnabled(false);
         toolbar.add(addFolder);
         toolbar.add(addSetlist);
         toolbar.add(delete);
+        toolbar.add(exportButton);
         panel.add(toolbar, BorderLayout.NORTH);
         panel.add(new JScrollPane(tree), BorderLayout.CENTER);
         panel.setPreferredSize(new Dimension(MAIN_SPLIT_INITIAL, 400));
@@ -341,6 +360,7 @@ public final class SetlistsPanel extends JPanel {
         notesArea.setOpaque(false);
         notesArea.setFocusable(false);
         editDetailsButton.addActionListener(e -> editDetails());
+        exportDetailsButton.addActionListener(e -> exportSelectedSet());
         deleteSetlistButton.setToolTipText("Delete setlist");
         deleteSetlistButton.addActionListener(e -> deleteCurrentSetlist());
 
@@ -355,6 +375,7 @@ public final class SetlistsPanel extends JPanel {
         JPanel nameActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         nameActions.setOpaque(false);
         nameActions.add(editDetailsButton);
+        nameActions.add(exportDetailsButton);
         nameActions.add(deleteSetlistButton);
         nameValueRow.add(nameActions, BorderLayout.EAST);
         nameRow.add(nameValueRow, BorderLayout.CENTER);
@@ -1078,6 +1099,8 @@ public final class SetlistsPanel extends JPanel {
     private void setEditorEnabled(boolean enabled) {
         editDetailsButton.setEnabled(enabled);
         deleteSetlistButton.setEnabled(enabled);
+        exportButton.setEnabled(enabled);
+        exportDetailsButton.setEnabled(enabled);
         boolean songsEditable = enabled && !isSelectedSetlistLocked();
         addSongButton.setEnabled(songsEditable);
         removeSongButton.setEnabled(songsEditable);
@@ -1652,6 +1675,14 @@ public final class SetlistsPanel extends JPanel {
         menu.add(appendFrom);
 
         menu.addSeparator();
+        JMenuItem exportSet = new JMenuItem("Export set...");
+        exportSet.addActionListener(ev -> openExportDialog(setlist));
+        menu.add(exportSet);
+        JMenuItem exportAbcp = new JMenuItem("Export to ABCP...");
+        exportAbcp.addActionListener(ev -> exportToAbcp(setlist));
+        menu.add(exportAbcp);
+
+        menu.addSeparator();
         JMenuItem lockToggle = new JMenuItem(setlist.locked() ? "Unlock setlist" : "Lock setlist");
         lockToggle.addActionListener(ev -> toggleSetlistLocked(setlist));
         menu.add(lockToggle);
@@ -1662,6 +1693,73 @@ public final class SetlistsPanel extends JPanel {
         menu.add(delete);
 
         menu.show(tree, e.getX(), e.getY());
+    }
+
+    private void exportSelectedSet() {
+        SetlistInfo setlist = selectedSetlist();
+        if (setlist != null) {
+            openExportDialog(setlist);
+        }
+    }
+
+    private void openExportDialog(SetlistInfo setlist) {
+        if (setlist == null
+                || preferences == null
+                || preferencesStore == null
+                || setlistRepository == null
+                || songRepository == null
+                || bandRepository == null
+                || playerRepository == null) {
+            return;
+        }
+        SetExportDialog.show(
+                SwingUtilities.getWindowAncestor(this),
+                setlist,
+                preferences,
+                preferencesStore,
+                setlistRepository,
+                songRepository,
+                bandRepository,
+                playerRepository);
+    }
+
+    private void exportToAbcp(SetlistInfo setlist) {
+        if (setlist == null || setlistRepository == null || songRepository == null) {
+            return;
+        }
+        String startDir = preferences == null
+                ? System.getProperty("user.home")
+                : SetExportDialog.resolveDefaultOutputDir(preferences);
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export to ABCP");
+        chooser.setFileFilter(new FileNameExtensionFilter("ABCP Playlist (*.abcp)", "abcp"));
+        Path start = Paths.get(startDir);
+        if (Files.isDirectory(start)) {
+            chooser.setCurrentDirectory(start.toFile());
+        }
+        String baseName = SetExportService.sanitizeForPath(
+                setlist.name() == null || setlist.name().isBlank() ? "setlist" : setlist.name());
+        chooser.setSelectedFile(start.resolve(baseName + ".abcp").toFile());
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path output = chooser.getSelectedFile().toPath();
+        if (!output.getFileName().toString().toLowerCase().endsWith(".abcp")) {
+            output = output.resolveSibling(output.getFileName().toString() + ".abcp");
+        }
+        try {
+            List<SetExportItemInfo> items = setlistRepository.listItemsForExport(setlist.id());
+            SetExportService service = new SetExportService(
+                    setlistRepository, songRepository, bandRepository, playerRepository);
+            service.exportStandaloneAbcp(items, output);
+            JOptionPane.showMessageDialog(
+                    this,
+                    "ABCP exported to:\n" + output,
+                    "Export to ABCP",
+                    JOptionPane.INFORMATION_MESSAGE);
+        } catch (LibraryException | SetExportException ex) {
+            showError(ex.getMessage());
+        }
     }
 
     private void duplicateSetlist(SetlistInfo source) {

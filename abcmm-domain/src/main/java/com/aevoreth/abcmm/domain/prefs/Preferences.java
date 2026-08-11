@@ -34,6 +34,7 @@ public final class Preferences {
     private String setPlaySelectedRelayId;
     private String partNamePattern = DEFAULT_PART_NAME_PATTERN;
     private String partNameWhitespaceReplace = DEFAULT_PART_NAME_WHITESPACE_REPLACE;
+    private SetExportPreferences setExport = SetExportPreferences.defaults();
     private final Map<String, Object> extras = new LinkedHashMap<>();
 
     public Preferences copy() {
@@ -55,6 +56,7 @@ public final class Preferences {
         copy.setPlaySelectedRelayId = setPlaySelectedRelayId;
         copy.partNamePattern = partNamePattern;
         copy.partNameWhitespaceReplace = partNameWhitespaceReplace;
+        copy.setExport = setExport.copy();
         copy.extras.putAll(extras);
         return copy;
     }
@@ -219,6 +221,14 @@ public final class Preferences {
         this.partNameWhitespaceReplace = partNameWhitespaceReplace == null
                 ? DEFAULT_PART_NAME_WHITESPACE_REPLACE
                 : partNameWhitespaceReplace;
+    }
+
+    public SetExportPreferences setExport() {
+        return setExport;
+    }
+
+    public void setSetExport(SetExportPreferences setExport) {
+        this.setExport = setExport == null ? SetExportPreferences.defaults() : setExport;
     }
 
     public Map<String, Object> extras() {

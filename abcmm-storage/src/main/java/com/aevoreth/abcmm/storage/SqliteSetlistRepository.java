@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistFolderInfo;
@@ -593,6 +594,48 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to list setlist items", ex);
+        }
+    }
+
+    @Override
+    public List<SetExportItemInfo> listItemsForExport(long setlistId) throws LibraryException {
+        String sql = """
+                SELECT si.id, si.setlist_id, si.song_id, s.title, s.composers, s.transcriber,
+                       s.duration_seconds,
+                       json_array_length(COALESCE(s.parts, '[]')) AS part_count,
+                       s.parts, s.notes, st.name AS status_name, si.position
+                FROM SetlistItem si
+                JOIN Song s ON s.id = si.song_id
+                LEFT JOIN Status st ON st.id = s.status_id
+                WHERE si.setlist_id = ?
+                ORDER BY si.position
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, setlistId);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<SetExportItemInfo> items = new ArrayList<>();
+                while (rs.next()) {
+                    Integer duration = rs.getObject("duration_seconds") == null
+                            ? null
+                            : rs.getInt("duration_seconds");
+                    items.add(new SetExportItemInfo(
+                            rs.getLong("id"),
+                            rs.getLong("setlist_id"),
+                            rs.getLong("song_id"),
+                            nullToEmpty(rs.getString("title")),
+                            nullToEmpty(rs.getString("composers")),
+                            rs.getString("transcriber"),
+                            duration,
+                            rs.getInt("part_count"),
+                            rs.getString("parts"),
+                            rs.getString("notes"),
+                            rs.getString("status_name"),
+                            rs.getInt("position")));
+                }
+                return List.copyOf(items);
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to list setlist items for export", ex);
         }
     }
 

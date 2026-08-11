@@ -13,6 +13,7 @@ import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.prefs.PreferencesException;
 import com.aevoreth.abcmm.domain.prefs.PreferencesStore;
+import com.aevoreth.abcmm.domain.prefs.SetExportPreferences;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -104,6 +105,7 @@ public final class JsonPreferencesStore implements PreferencesStore {
         if (partNameWhitespace != null) {
             prefs.setPartNameWhitespaceReplace(partNameWhitespace);
         }
+        prefs.setSetExport(SetExportPreferences.fromMap(remaining.remove("set_export")));
 
         prefs.extras().putAll(remaining);
         return prefs;
@@ -144,6 +146,7 @@ public final class JsonPreferencesStore implements PreferencesStore {
         }
         map.put("part_name_pattern", preferences.partNamePattern());
         map.put("part_name_whitespace_replace", preferences.partNameWhitespaceReplace());
+        map.put("set_export", preferences.setExport().toMap());
         return map;
     }
 

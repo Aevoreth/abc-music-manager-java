@@ -2,6 +2,7 @@ package com.aevoreth.abcmm.domain.setlist;
 
 import java.util.List;
 
+import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 
 /**
@@ -75,6 +76,11 @@ public interface SetlistRepository {
             throws LibraryException;
 
     List<SetlistItemInfo> listItems(long setlistId) throws LibraryException;
+
+    /**
+     * Setlist items with song metadata needed for set export / CSV (transcriber, notes, status).
+     */
+    List<SetExportItemInfo> listItemsForExport(long setlistId) throws LibraryException;
 
     long addItem(
             long setlistId,
