@@ -55,6 +55,9 @@ public final class PlaybackPanel extends JPanel {
     /** Transport glyph size; ABC Player's play/stop PNGs are 24×24. */
     private static final int ICON_SIZE = 24;
     private static final int SCRUB_MAX = 1000;
+    private static final int TEMPO_CENTER = 100;
+    /** Magnetic zone around 100% so the slider lightly snaps to normal tempo. */
+    private static final int TEMPO_SNAP_THRESHOLD = 3;
 
     private PlaybackSession session;
     private Preferences preferences;
@@ -67,7 +70,7 @@ public final class PlaybackPanel extends JPanel {
     private final JSlider scrubber = new JSlider(0, SCRUB_MAX, 0);
     private final JLabel timeLabel = new JLabel("0:00 / 0:00");
     private final JSlider tempoSlider = new JSlider(50, 200, 100);
-    private final JLabel tempoLabel = new JLabel("100%");
+    private final JLabel tempoLabel = new JLabel("Tempo: 100%", SwingConstants.CENTER);
     private final JButton prevButton = new JButton(
             PlaybackIcons.previous(ICON_SIZE, PlaybackIcons.SKIP_COLOR));
     private final JButton playPauseButton = new JButton(PlaybackIcons.play(ICON_SIZE, PlaybackIcons.PLAY_COLOR));
@@ -110,11 +113,10 @@ public final class PlaybackPanel extends JPanel {
 
         tempoSlider.setPreferredSize(new Dimension(110, tempoSlider.getPreferredSize().height));
         tempoSlider.setToolTipText("Tempo");
-        tempoLabel.setHorizontalAlignment(SwingConstants.CENTER);
         JPanel tempoPanel = new JPanel(new BorderLayout());
         tempoPanel.add(tempoLabel, BorderLayout.NORTH);
         tempoPanel.add(tempoSlider, BorderLayout.CENTER);
-        tempoPanel.setPreferredSize(new Dimension(120, 42));
+        tempoPanel.setPreferredSize(new Dimension(130, 42));
 
         volumeSlider.setPreferredSize(new Dimension(110, volumeSlider.getPreferredSize().height));
         volumeSlider.setToolTipText("Volume");
@@ -268,12 +270,22 @@ public final class PlaybackPanel extends JPanel {
                 return;
             }
             int pct = tempoSlider.getValue();
-            tempoLabel.setText(pct + "%");
+            if (Math.abs(pct - TEMPO_CENTER) <= TEMPO_SNAP_THRESHOLD && pct != TEMPO_CENTER) {
+                suppressTempo = true;
+                try {
+                    tempoSlider.setValue(TEMPO_CENTER);
+                    pct = TEMPO_CENTER;
+                } finally {
+                    suppressTempo = false;
+                }
+            }
+            tempoLabel.setText("Tempo: " + pct + "%");
             if (!tempoSlider.getValueIsAdjusting()) {
+                int applied = pct;
                 runSafe(() -> {
-                    session.engine().setTempoFactor(pct / 100.0f);
+                    session.engine().setTempoFactor(applied / 100.0f);
                     if (preferences != null) {
-                        preferences.setPlaybackTempo(pct / 100.0);
+                        preferences.setPlaybackTempo(applied / 100.0);
                         prefsPersister.run();
                     }
                 });
@@ -452,7 +464,7 @@ public final class PlaybackPanel extends JPanel {
         suppressTempo = true;
         try {
             tempoSlider.setValue(pct);
-            tempoLabel.setText(pct + "%");
+            tempoLabel.setText("Tempo: " + pct + "%");
         } finally {
             suppressTempo = false;
         }
@@ -473,7 +485,7 @@ public final class PlaybackPanel extends JPanel {
                     ? 100
                     : (int) Math.round(preferences.playbackTempo() * 100);
             tempoSlider.setValue(Math.max(50, Math.min(200, tempo)));
-            tempoLabel.setText(tempoSlider.getValue() + "%");
+            tempoLabel.setText("Tempo: " + tempoSlider.getValue() + "%");
         } finally {
             suppressVolume = false;
             suppressTempo = false;
