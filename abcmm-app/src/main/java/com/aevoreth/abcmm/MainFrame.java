@@ -10,14 +10,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.swing.BorderFactory;
 import javax.swing.JFrame;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
@@ -68,7 +66,7 @@ import com.aevoreth.abcmm.ui.SongDetailDialog;
 import com.aevoreth.abcmm.ui.StatusBar;
 
 /**
- * Main application window: Library, Setlists, Bands, Playback placeholder, Settings, status bar.
+ * Main application window: Library, Setlists, Bands, fixed Playback bar, Settings, status bar.
  */
 public final class MainFrame extends JFrame {
 
@@ -98,7 +96,6 @@ public final class MainFrame extends JFrame {
     private final BandsPanel bandsPanel;
     private final PlaybackPanel playbackPanel;
     private final StatusBar statusBar;
-    private final JSplitPane verticalSplit;
     private final JTabbedPane navTabs;
     private int currentNavIndex;
     private boolean suppressNavChange;
@@ -172,13 +169,13 @@ public final class MainFrame extends JFrame {
             preferences.extras().put("java_nav_section", selected);
         });
 
-        verticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, navTabs, playbackPanel);
-        verticalSplit.setResizeWeight(0.72);
-        verticalSplit.setBorder(BorderFactory.createEmptyBorder());
+        JPanel south = new JPanel(new BorderLayout());
+        south.add(playbackPanel, BorderLayout.NORTH);
+        south.add(statusBar, BorderLayout.SOUTH);
 
         JPanel content = new JPanel(new BorderLayout());
-        content.add(verticalSplit, BorderLayout.CENTER);
-        content.add(statusBar, BorderLayout.SOUTH);
+        content.add(navTabs, BorderLayout.CENTER);
+        content.add(south, BorderLayout.SOUTH);
         setContentPane(content);
         setJMenuBar(buildMenuBar());
 
@@ -564,9 +561,6 @@ public final class MainFrame extends JFrame {
 
     private void applyPreferencesToUi(boolean revalidateTree) {
         AbcmmThemer.setLookAndFeelQuietly(preferences.theme(), preferences.baseFontSize());
-        if (preferences.splitterState() != null && preferences.splitterState().size() >= 2) {
-            verticalSplit.setDividerLocation(preferences.splitterState().get(0));
-        }
         if (revalidateTree) {
             SwingUtilities.updateComponentTreeUI(this);
         }
@@ -606,9 +600,7 @@ public final class MainFrame extends JFrame {
         geometry.put("height", getHeight());
         geometry.put("maximized", (getExtendedState() & MAXIMIZED_BOTH) == MAXIMIZED_BOTH);
         preferences.setWindowGeometry(geometry);
-        preferences.setSplitterState(List.of(
-                verticalSplit.getDividerLocation(),
-                Math.max(0, verticalSplit.getHeight() - verticalSplit.getDividerLocation())));
+        preferences.setSplitterState(null);
         preferences.extras().put("java_nav_section", navTabs.getSelectedIndex());
         preferences.extras().remove("java_nav_splitter");
         preferences.extras().put("library_table_header_state", libraryPanel.captureHeaderState());
