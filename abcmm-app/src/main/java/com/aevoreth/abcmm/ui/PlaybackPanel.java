@@ -78,6 +78,7 @@ public final class PlaybackPanel extends JPanel {
     private final JButton nextButton = new JButton(PlaybackIcons.next(ICON_SIZE, PlaybackIcons.SKIP_COLOR));
     private final JButton listButton = new JButton(PlaybackIcons.list(ICON_SIZE));
     private final JSlider volumeSlider = new JSlider(0, 100, 100);
+    private final JLabel volumeLabel = new JLabel("Volume: 100", SwingConstants.CENTER);
 
     private final JPanel partsPanel = new JPanel();
     private final JList<String> playlistList = new JList<>();
@@ -120,9 +121,8 @@ public final class PlaybackPanel extends JPanel {
 
         volumeSlider.setPreferredSize(new Dimension(110, volumeSlider.getPreferredSize().height));
         volumeSlider.setToolTipText("Volume");
-        JLabel volumeCaption = new JLabel("Volume", SwingConstants.CENTER);
         JPanel volumePanel = new JPanel(new BorderLayout());
-        volumePanel.add(volumeCaption, BorderLayout.NORTH);
+        volumePanel.add(volumeLabel, BorderLayout.NORTH);
         volumePanel.add(volumeSlider, BorderLayout.CENTER);
         volumePanel.setPreferredSize(new Dimension(120, 42));
 
@@ -299,6 +299,7 @@ public final class PlaybackPanel extends JPanel {
                 return;
             }
             int pct = volumeSlider.getValue();
+            volumeLabel.setText("Volume: " + pct);
             if (!volumeSlider.getValueIsAdjusting()) {
                 runSafe(() -> {
                     session.engine().setVolume(pct / 100.0);
@@ -481,6 +482,7 @@ public final class PlaybackPanel extends JPanel {
                     ? 100
                     : (int) Math.round(preferences.playbackVolume());
             volumeSlider.setValue(Math.max(0, Math.min(100, vol)));
+            volumeLabel.setText("Volume: " + volumeSlider.getValue());
             int tempo = preferences.playbackTempo() == null
                     ? 100
                     : (int) Math.round(preferences.playbackTempo() * 100);
