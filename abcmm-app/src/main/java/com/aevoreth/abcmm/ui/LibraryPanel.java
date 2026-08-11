@@ -703,7 +703,8 @@ public final class LibraryPanel extends JPanel {
         }
         JPopupMenu menu = new JPopupMenu();
         for (StatusInfo status : statuses) {
-            JCheckBoxMenuItem item = new JCheckBoxMenuItem(status.name());
+            JCheckBoxMenuItem item =
+                    new JCheckBoxMenuItem(LibraryDisplayFormats.statusFilterLabel(status));
             item.setSelected(song.statusId() != null && song.statusId() == status.id());
             long statusId = status.id();
             item.addActionListener(ev -> {
