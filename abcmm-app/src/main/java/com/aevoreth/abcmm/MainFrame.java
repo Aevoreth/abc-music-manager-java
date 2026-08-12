@@ -65,19 +65,20 @@ import com.aevoreth.abcmm.ui.LibraryPanel;
 import com.aevoreth.abcmm.ui.PlaybackPanel;
 import com.aevoreth.abcmm.ui.PluginDataExportDialog;
 import com.aevoreth.abcmm.ui.ScanLibraryDialog;
+import com.aevoreth.abcmm.ui.SetPlayPanel;
 import com.aevoreth.abcmm.ui.SetlistsPanel;
 import com.aevoreth.abcmm.ui.SettingsDialog;
 import com.aevoreth.abcmm.ui.SongDetailDialog;
 import com.aevoreth.abcmm.ui.StatusBar;
 
 /**
- * Main application window: Library, Setlists, Bands, fixed Playback bar, Settings, status bar.
+ * Main application window: Library, Setlists, Bands, Set Play, fixed Playback bar, Settings, status bar.
  */
 public final class MainFrame extends JFrame {
 
     public static final String APP_TITLE = "ABC Music Manager";
 
-    private static final String[] NAV_SECTIONS = {"Library", "Setlists", "Bands"};
+    private static final String[] NAV_SECTIONS = {"Library", "Setlists", "Bands", "Set Play"};
 
     private final AbcPlaybackEngine playbackEngine;
     private final PlaybackSession playbackSession;
@@ -99,6 +100,7 @@ public final class MainFrame extends JFrame {
     private final LibraryPanel libraryPanel;
     private final SetlistsPanel setlistsPanel;
     private final BandsPanel bandsPanel;
+    private final SetPlayPanel setPlayPanel;
     private final PlaybackPanel playbackPanel;
     private final StatusBar statusBar;
     private final JTabbedPane navTabs;
@@ -145,6 +147,7 @@ public final class MainFrame extends JFrame {
         setlistsPanel.setPreferences(preferences);
         setlistsPanel.setPreferencesStore(preferencesStore);
         bandsPanel = new BandsPanel();
+        setPlayPanel = new SetPlayPanel();
         playbackPanel = new PlaybackPanel();
         statusBar = new StatusBar();
 
@@ -152,6 +155,7 @@ public final class MainFrame extends JFrame {
         navTabs.addTab(NAV_SECTIONS[0], libraryPanel);
         navTabs.addTab(NAV_SECTIONS[1], setlistsPanel);
         navTabs.addTab(NAV_SECTIONS[2], bandsPanel);
+        navTabs.addTab(NAV_SECTIONS[3], setPlayPanel);
         currentNavIndex = 0;
         navTabs.addChangeListener(e -> {
             if (suppressNavChange) {
@@ -173,6 +177,9 @@ public final class MainFrame extends JFrame {
             }
             currentNavIndex = selected;
             preferences.extras().put("java_nav_section", selected);
+            if (selected == 3) {
+                setPlayPanel.onShown();
+            }
         });
 
         JPanel south = new JPanel(new BorderLayout());
@@ -363,6 +370,9 @@ public final class MainFrame extends JFrame {
             } finally {
                 suppressNavChange = false;
             }
+            if (index == 3) {
+                setPlayPanel.onShown();
+            }
         }
     }
 
@@ -395,6 +405,12 @@ public final class MainFrame extends JFrame {
                     setlistRepository,
                     songRepository,
                     songLayoutRepository);
+            setPlayPanel.bind(
+                    setlistRepository,
+                    bandRepository,
+                    playerRepository,
+                    songLayoutRepository,
+                    playLogRepository);
             libraryPanel.setSetlistRepository(setlistRepository);
             libraryPanel.setSongRepository(songRepository);
             libraryPanel.setPlayLogRepository(playLogRepository);
@@ -406,6 +422,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.applyDefaultFilters();
             bandsPanel.reload();
             setlistsPanel.reload();
+            setPlayPanel.refreshSetlistPicker();
         } catch (LibraryException ex) {
             if (database != null) {
                 database.close();
@@ -428,6 +445,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.setInstrumentNames(Map.of());
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
+            setPlayPanel.bind(null, null, null, null, null);
             statusBar.setMessage(ex.getMessage());
         }
     }
@@ -491,6 +509,7 @@ public final class MainFrame extends JFrame {
             int position = setlistRepository.listItems(setlist.id()).size();
             setlistRepository.addItem(setlist.id(), song.id(), position, null, null);
             setlistsPanel.reload();
+            setPlayPanel.refreshSetlistPicker();
             reloadLibrary(libraryPanel.currentFilter());
             statusBar.setMessage("Added \"" + song.title() + "\" to " + setlist.name());
         } catch (LibraryException ex) {
@@ -585,6 +604,9 @@ public final class MainFrame extends JFrame {
             }
             if (setlistsPanel != null) {
                 setlistsPanel.reload();
+            }
+            if (setPlayPanel != null) {
+                setPlayPanel.refreshSetlistPicker();
             }
             statusBar.setMessage("Settings entities updated.");
         } catch (LibraryException ex) {

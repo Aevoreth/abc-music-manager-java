@@ -19,7 +19,7 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
 | Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor deferred (would change DB structure) |
 | ABC audition (audio engine + transport) | Complete (custom TinySoundFont path) | Complete | Use Maestro Java engine | Audible ABC sampling only (not Set Play). `LotroAbcPlaybackEngine`; library/setlist → queue; mute/solo; tempo/stereo/volume transport |
-| Set Play (live set session) | Complete | Not started | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging |
+| Set Play (live set session) | Complete | Complete (solo/local) | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid (Java Maestro grid styling). Relays / Band Assistant still not started |
 | Relay / group playback | Complete | Not started | Preserve protocol where practical | Cloudflare Worker relay; Band Assistant / browser follower |
 | Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays still stubbed; LOTRO Documents auto-detect + Scan Account Targets |
 | Themes | Complete (LOTRO-inspired Qt) | Complete (Maestro FlatLaf) | Own visual identity | Java targets Maestro/ABC Player Flat Dark / Flat Light via FlatLaf (Appearance); not a port of Python’s LOTRO Qt theme. Future theme revisit possible |
@@ -56,9 +56,10 @@ Completed bandleader library + management slice:
 3. Settings dialog: Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD
 4. Shared `preferences.json` load/save (including Java `theme`)
 5. Library scanning with progress + duplicate resolution
-6. Navigation: Library | Setlists | Bands (top tabs; Players under Bands)
+6. Navigation: Library | Setlists | Bands | Set Play (top tabs; Players under Bands)
 7. Player / Band / layout grid management
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
 9. Library song detail + inline metadata / play history / Raw ABC; Maestro ABC audition transport
+10. Solo Set Play (local session: Load set, NOW/NEXT/Skip/Advance, play logging, Your players + up-next grid)
 
-Later: Set Play (live set session) / relays, Band Assistant, dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.
+Later: Set Play relays / Band Assistant, dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.
