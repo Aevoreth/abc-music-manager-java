@@ -23,7 +23,7 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Relay / group playback | Complete | Complete | Preserve protocol where practical | Cloudflare Worker relay (`workers/set-play-relay`); Band Assistant tab / `--assistant`; browser follower `/playback` |
 | Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays CRUD + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
 | Themes | Complete (LOTRO-inspired Qt) | Complete (Maestro FlatLaf) | Own visual identity | Java targets Maestro/ABC Player Flat Dark / Flat Light via FlatLaf (Appearance); not a port of Python’s LOTRO Qt theme. Future theme revisit possible |
-| Packaging | Complete (PyInstaller) | Not started | Own installer later | Java must not package Python app or Maestro/ABC Player/ABC Tools launchers |
+| Packaging | Complete (PyInstaller) | Complete (Windows zip + MSI) | Own installer | Tag-push GitHub Actions (`jpackage` + trimmed jlink runtime); `ABC-Music-Manager-<version>.zip` / `.msi`. Must not package Python app or Maestro/ABC Player/ABC Tools launchers |
 | Database compatibility | Complete (SQLite v12) | Complete (R/W) | Open existing DB where practical | Creates/migrates to v12; opens shared DB read-write; interchangeable with Python |
 
 ## Python areas inspected
@@ -63,4 +63,4 @@ Completed bandleader library + management slice:
 10. Solo Set Play (local session: Load set, NOW/NEXT/Skip/Advance, play logging, Your players + up-next grid)
 11. Set Play relays / Band Assistant (`set_play_state_v1`, Broadcast, share link, deploy wizard)
 
-Later: dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.
+Later: dedicated song-layout library editor (schema change), empty-state Open User Guide.

@@ -33,7 +33,12 @@ preferences.json
 hs_err_pid*
 *.hprof
 
+# Packaging intermediates / outputs
+distribute/build/
+distribute/output/
+
 # Set Play relay worker deploy artifacts
 workers/set-play-relay/node_modules/
 workers/set-play-relay/.wrangler/
 set-play-relay-deploy/
+

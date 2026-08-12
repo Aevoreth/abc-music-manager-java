@@ -88,6 +88,22 @@ Required JVM module exports (configured in `.mvn/jvm.config`, Surefire, and `exe
 
 Do not remove these flags; Maestro’s synthesizer uses internal Java Sound APIs.
 
+## Releases
+
+Pushing a version tag (`vX.Y.Z`) runs GitHub Actions packaging on Windows and publishes a GitHub Release with:
+
+- `ABC-Music-Manager-<version>.zip` — portable self-contained app (bundled custom JRE)
+- `ABC-Music-Manager-<version>.msi` — installer
+
+End users do **not** need to install a JDK. Artifacts are currently unsigned (Windows SmartScreen may warn).
+
+Local packaging (Windows, JDK 21 + [WiX 3.11](https://github.com/wixtoolset/wix3/releases) on `PATH`):
+
+```powershell
+mvn -pl abcmm-app -am package -DskipTests
+.\distribute\package-windows.ps1 -Version 0.1.0 -Jar abcmm-app\target\abc-music-manager.jar
+```
+
 ## Attribution
 
 - ABC Music Manager — Copyright (c) 2026 Willow Aevoreth Rowan — MIT License
