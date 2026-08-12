@@ -18,12 +18,13 @@ Helpers: `com.aevoreth.abcmm.storage.DataPaths`.
 
 Prefer the Python migration chain in `abc_music_manager/db/schema.py`
 (`CURRENT_SCHEMA_VERSION = 12`). The Python `SCHEMA.md` header may lag the code.
+Java `SchemaMigrator` implements the same version. Known quirks:
+[docs/SCHEMA_ISSUES.md](../docs/SCHEMA_ISSUES.md).
 
-## Current milestone
+## Current status
 
-- JDBC (`sqlite-jdbc`) opens the existing DB **read-only** and requires schema version 12
-- `SqliteSongRepository` lists filtered library songs (primary, non-excluded)
-- Read-only lookups for `Status`, `FolderRule`, `AccountTarget`
+- JDBC (`sqlite-jdbc`) opens or creates the DB **read-write** and migrates to schema version 12
+- Repositories cover songs, play log, settings (Status / FolderRule / AccountTarget), players, bands, setlists, song layouts, and library scan
 - `JsonPreferencesStore` reads/writes `preferences.json` with Python-compatible keys
 
-Do not invent an incompatible schema. Java does not run migrations in this milestone.
+Do not invent an incompatible schema. Coordinate any v13+ bump with remaining Python users (see SCHEMA_ISSUES).

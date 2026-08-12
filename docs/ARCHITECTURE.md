@@ -4,22 +4,23 @@
 
 The Java edition is a **standalone companion** with its own entry point, branding,
 releases, and packaging. Keeping it in `abc-music-manager-java/` avoids coupling
-build systems (Maven vs Python), prevents accidental breakage of the stable product,
-and allows independent release cadence.
+build systems (Maven vs Python), keeps the last Python tree as a read-only
+reference, and allows independent release cadence.
 
 The intended sibling layout is:
 
 ```text
 ABC Music Manager Development/
-├── abc-music-manager/       # Python — stable product
-└── abc-music-manager-java/  # Java — under development
+├── abc-music-manager/       # Python — last release / behavior reference
+└── abc-music-manager-java/  # Java — active edition
 ```
 
-## Why the Python edition remains stable
+## Why the Python edition remains the behavior reference
 
-Until Java feature parity and data compatibility are proven, the Python/PySide6
-application is the edition users should run. The Java project is a prototype and
-must not be marketed as a drop-in replacement.
+The Python/PySide6 application (v0.2.9b) is the last Python release and the
+authoritative workflow/schema reference. The Java edition is the active
+full-function port and shares `~/.abc_music_manager/`. Remaining gaps and
+intentional differences are inventoried in [PYTHON_PARITY.md](PYTHON_PARITY.md).
 
 ## Python repository as read-only behavior reference
 
@@ -55,7 +56,7 @@ and playback implementation. Rules:
 |--------|----------------|
 | `abcmm-app` | Standalone Swing application entry point and UI shell |
 | `abcmm-domain` | Domain models and interfaces owned by ABC Music Manager |
-| `abcmm-storage` | Future SQLite persistence and Python DB compatibility |
+| `abcmm-storage` | SQLite persistence (v12 create/migrate) and Python DB compatibility |
 | `abcmm-maestro-adapter` | Sole module allowed to interact with Maestro / `com.digero.*` |
 
 ### Adapter boundary
@@ -81,8 +82,7 @@ Future Java features should:
 2. Add focused Java tests for the intended behavior
 3. Update the parity matrix status
 
-Do not run Java tests against the Python repository or its databases in CI for
-this prototype phase.
+Do not run Java tests against the Python repository or its databases in CI.
 
 ## SQLite compatibility approach
 
@@ -96,10 +96,11 @@ Authoritative schema is the Python migration chain in
 `abc_music_manager/db/schema.py` (`CURRENT_SCHEMA_VERSION = 12` at time of writing).
 Note: `SCHEMA.md` in the Python repo may lag the code — prefer the migration list.
 
-`abcmm-storage` opens an existing v12 database read-only and reads/writes
-`preferences.json` with Python-compatible keys. It does not create or migrate
-the schema yet. Do not invent an incompatible schema without documenting the
-incompatibility and migration path.
+`abcmm-storage` opens or creates a v12 database read-write (`SchemaMigrator`)
+and reads/writes `preferences.json` with Python-compatible keys. Do not invent
+an incompatible schema without documenting the incompatibility and migration
+path. Known v12 quirks retained for interchange are in
+[SCHEMA_ISSUES.md](SCHEMA_ISSUES.md).
 
 ## Set Play relay worker
 
@@ -123,7 +124,7 @@ and is **not** a Git submodule of the Python repo.
 1. Review `java24` changelog / commits
 2. Update submodule pointer to a new SHA
 3. Rebuild `abcmm-maestro-adapter` and run `mvn verify`
-4. Smoke-test ABC load / play when playback is implemented
+4. Smoke-test ABC load / play
 5. Record the new pin in [MAESTRO_INTEGRATION.md](MAESTRO_INTEGRATION.md)
 
 ## Avoiding distribution of Maestro applications

@@ -2,11 +2,13 @@
 
 Standalone Java edition of **ABC Music Manager** — a local-first desktop companion for *Lord of the Rings Online* musicians who manage ABC libraries, setlists, bands, and playback.
 
-> **Warning:** This Java edition is an early prototype. It is **not** a replacement for the stable Python release. Use [abc-music-manager](https://github.com/Aevoreth/abc-music-manager) for day-to-day work until Java parity is reached.
+This is the **active edition** (beta). It is a full-function port of the former Python app and shares the same data folder. The last Python release is [abc-music-manager](https://github.com/Aevoreth/abc-music-manager) v0.2.9b (behavior and schema reference).
 
 ## Relationship to the Python application
 
-The existing Python/PySide6 project (`abc-music-manager/`) remains the **stable product** and the authoritative behavior reference. This repository is an independent companion implementation under active development. The Python app is not packaged into or run by the Java build.
+The Python/PySide6 project remains the **behavior and schema reference**. This repository is an independent implementation with its own UI (Swing + FlatLaf), playback engine (Maestro Java), and Windows packaging. The Python app is not packaged into or run by the Java build. Both editions read and write `~/.abc_music_manager/` (SQLite v12 + `preferences.json`).
+
+Capability inventory and remaining gaps: [docs/PYTHON_PARITY.md](docs/PYTHON_PARITY.md).
 
 ## Relationship to Maestro
 
@@ -22,14 +24,17 @@ This project must **not** package or expose Maestro, ABC Player, or ABC Tools as
 
 ## Current status
 
-Bandleader-first library prototype:
+Bandleader library and live-set edition (see [CHANGELOG.md](CHANGELOG.md)):
 
-- Maven multi-module layout
-- Swing + FlatLaf (Flat Dark / Flat Light, Maestro/ABC Player themes) with Library filters/search and Settings dialog
-- Read-only open of existing Python SQLite v12 (`~/.abc_music_manager/`)
-- Shared `preferences.json` load/save (theme, font size, default filters, LOTRO roots, …)
-- Domain playback interfaces and Maestro adapter boundary (stub engine; audio deferred)
-- Documentation for Python parity and Maestro integration
+- Maven multi-module layout; Swing + FlatLaf (Flat Dark / Flat Light, Maestro/ABC Player themes)
+- SQLite v12 create/migrate and shared `preferences.json` (read-write, interchangeable with Python)
+- Library scan, filters/search, song detail (including ABC metadata write-back), duplicate review
+- Setlists, set export, ABCP, PluginData / Songbook
+- Players, bands, layout grids, setlist part assignments
+- Maestro ABC audition (`LotroAbcPlaybackEngine`) with mute/solo, tempo, stereo, volume
+- Set Play + Cloudflare relay + Band Assistant (`--assistant` or browser `/playback`)
+- In-app User Guide (**Help → User Guide**)
+- Windows zip + MSI via tag-push GitHub Actions
 
 ## Prerequisites
 

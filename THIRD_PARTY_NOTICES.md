@@ -45,14 +45,14 @@ Look-and-feel library used by the Swing UI.
 
 ---
 
-## LotroInstruments.sf2 (runtime, not bundled in this prototype)
+## LotroInstruments.sf2 (runtime, not bundled)
 
 Maestro’s playback path expects a LOTRO soundfont (`LotroInstruments.sf2`), typically
 resolved beside the application or via Maestro’s shared data directory download
 flow. Soundfont distribution and licensing are governed by the soundfont’s own
 source project (commonly referenced from https://github.com/NikolaiVChr/mver).
 
-This prototype does not bundle the soundfont binary.
+This edition does not bundle the soundfont binary.
 
 ---
 

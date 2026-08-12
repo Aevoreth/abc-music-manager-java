@@ -83,9 +83,9 @@ Maestro behavior (reuse; do not redesign):
    - Linux: `~/.local/share/maestro-common` (or `$XDG_DATA_HOME/maestro-common`)
 3. Download URL / SHA-256 are hardcoded in `SoundFontDownloader` at the pinned commit
 
-This prototype does **not** bundle the ~200MB soundfont.
+This edition does **not** bundle the ~200MB soundfont.
 
-## How ABC Music Manager will use Maestro code
+## How ABC Music Manager uses Maestro code
 
 Via `abcmm-maestro-adapter` only:
 
