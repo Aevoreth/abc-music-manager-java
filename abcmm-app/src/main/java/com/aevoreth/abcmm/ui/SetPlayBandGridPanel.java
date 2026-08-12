@@ -39,8 +39,7 @@ public final class SetPlayBandGridPanel extends JPanel {
     private static final Color CANVAS_BG = Color.BLACK;
     private static final Color GRID_DOT = new Color(0x3A3A3A);
     private static final Color CARD_BORDER = new Color(0x777777);
-    private static final Color CARD_SELECTED_FILL = new Color(0x3D5A80);
-    private static final Color CARD_SELECTED_BORDER = new Color(0x98C1D9);
+    private static final Color CARD_SELECTED_BORDER_FALLBACK = new Color(0x98C1D9);
     private static final Color TEXT = Color.WHITE;
     private static final Color NEIGHBOR_PART = new Color(0x98C1D9);
     private static final Color DUP_RED = new Color(0xFF4444);
@@ -226,6 +225,12 @@ public final class SetPlayBandGridPanel extends JPanel {
         return bg != null ? bg : new Color(0x2B2B2B);
     }
 
+    /** Theme accent for highlighted-card outline (readable in light and dark). */
+    private static Color cardSelectedBorder() {
+        Color focus = UIManager.getColor("Component.focusColor");
+        return focus != null ? focus : CARD_SELECTED_BORDER_FALLBACK;
+    }
+
     private final class GridCanvas extends JPanel {
         GridCanvas() {
             setBackground(CANVAS_BG);
@@ -264,11 +269,30 @@ public final class SetPlayBandGridPanel extends JPanel {
             for (SetPlayLayoutCard card : cards) {
                 Rectangle r = cardBounds(card);
                 boolean highlighted = highlightPlayerIds.contains(card.playerId());
-                g2.setColor(highlighted ? CARD_SELECTED_FILL : defaultFill);
-                g2.fillRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, 6, 6);
-                g2.setStroke(new BasicStroke(highlighted ? 2f : 1f));
-                g2.setColor(highlighted ? CARD_SELECTED_BORDER : CARD_BORDER);
-                g2.drawRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, 6, 6);
+                int fx = r.x + 1;
+                int fy = r.y + 1;
+                int fw = r.width - 2;
+                int fh = r.height - 2;
+                g2.setColor(defaultFill);
+                g2.fillRoundRect(fx, fy, fw, fh, 6, 6);
+                if (highlighted) {
+                    // Stroke centered outside the fill so thickness grows outward only.
+                    float stroke = 4f;
+                    g2.setStroke(new BasicStroke(stroke));
+                    g2.setColor(cardSelectedBorder());
+                    int arc = Math.round(6 + stroke);
+                    g2.drawRoundRect(
+                            Math.round(fx - stroke / 2f),
+                            Math.round(fy - stroke / 2f),
+                            Math.round(fw + stroke),
+                            Math.round(fh + stroke),
+                            arc,
+                            arc);
+                } else {
+                    g2.setStroke(new BasicStroke(1f));
+                    g2.setColor(CARD_BORDER);
+                    g2.drawRoundRect(fx, fy, fw, fh, 6, 6);
+                }
 
                 int margin = 3;
                 int innerX = r.x + margin;

@@ -63,7 +63,7 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     private static final Color GRID_DOT = new Color(0x3A3A3A);
     private static final Color CARD_BORDER = new Color(0x777777);
     private static final Color TEXT = Color.WHITE;
-    /** Prev/next part labels — soft cool accent (matches layout selection highlight). */
+    /** Prev/next part labels — soft cool accent. */
     private static final Color NEIGHBOR_PART = new Color(0x98C1D9);
     private static final Color DUP_RED = new Color(0xFF4444);
     private static final Color WARN_ORANGE = new Color(0xD48A3A);
