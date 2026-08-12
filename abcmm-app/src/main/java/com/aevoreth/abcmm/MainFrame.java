@@ -60,6 +60,7 @@ import com.aevoreth.abcmm.storage.SqliteSettingsRepository;
 import com.aevoreth.abcmm.storage.SqliteSongLayoutRepository;
 import com.aevoreth.abcmm.storage.SqliteSongRepository;
 import com.aevoreth.abcmm.ui.AbcmmThemer;
+import com.aevoreth.abcmm.ui.AppIcons;
 import com.aevoreth.abcmm.ui.BandsPanel;
 import com.aevoreth.abcmm.ui.LibraryPanel;
 import com.aevoreth.abcmm.ui.PlaybackPanel;
@@ -144,6 +145,7 @@ public final class MainFrame extends JFrame {
         });
 
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        AppIcons.applyTo(this);
         setMinimumSize(new Dimension(1000, 650));
         setPreferredSize(new Dimension(
                 Preferences.DEFAULT_WINDOW_WIDTH, Preferences.DEFAULT_WINDOW_HEIGHT));

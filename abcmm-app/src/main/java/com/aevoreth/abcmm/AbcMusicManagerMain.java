@@ -9,6 +9,7 @@ import javax.swing.WindowConstants;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.storage.JsonPreferencesStore;
 import com.aevoreth.abcmm.ui.AbcmmThemer;
+import com.aevoreth.abcmm.ui.AppIcons;
 import com.aevoreth.abcmm.ui.SetPlayPanel;
 
 /**
@@ -37,6 +38,7 @@ public final class AbcMusicManagerMain {
     private static void openAssistantWindow(JsonPreferencesStore store, Preferences preferences) {
         JFrame frame = new JFrame(MainFrame.APP_TITLE + " — Band Assistant");
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        AppIcons.applyTo(frame);
         frame.setMinimumSize(new java.awt.Dimension(900, 600));
         SetPlayPanel assistant = new SetPlayPanel(true);
         assistant.setPreferences(preferences);
