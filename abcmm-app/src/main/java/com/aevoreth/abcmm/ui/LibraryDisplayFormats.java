@@ -87,6 +87,24 @@ final class LibraryDisplayFormats {
     }
 
     /**
+     * Format seconds as {@code HH:MM:SS}, omitting {@code HH:} when under one hour
+     * ({@code MM:SS}). Minutes and seconds are zero-padded; hours are when shown.
+     */
+    static String formatHoursMinutesSeconds(Integer seconds) {
+        if (seconds == null) {
+            return "\u2014";
+        }
+        int safe = Math.max(0, seconds);
+        int hours = safe / 3600;
+        int minutes = (safe % 3600) / 60;
+        int secs = safe % 60;
+        if (hours > 0) {
+            return String.format("%02d:%02d:%02d", hours, minutes, secs);
+        }
+        return String.format("%02d:%02d", minutes, secs);
+    }
+
+    /**
      * Format seconds as H:mm:ss / m:ss / s, supporting negative values (time remaining).
      */
     static String formatSignedDuration(int seconds) {

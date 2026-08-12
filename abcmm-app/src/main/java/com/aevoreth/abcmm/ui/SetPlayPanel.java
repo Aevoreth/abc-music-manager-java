@@ -354,12 +354,14 @@ public final class SetPlayPanel extends JPanel {
         int withSwitches = totalSec + switchSec;
         StringBuilder sb = new StringBuilder("<html>");
         sb.append(n).append(" song").append(n == 1 ? "" : "s");
-        sb.append(" · ").append(LibraryDisplayFormats.formatDuration(withSwitches));
+        sb.append(" · ").append(LibraryDisplayFormats.formatHoursMinutesSeconds(withSwitches));
         if (loadedSetlist.targetDurationSeconds() != null && loadedSetlist.targetDurationSeconds() > 0) {
             int rem = loadedSetlist.targetDurationSeconds() - withSwitches;
             sb.append(" · target ")
-                    .append(LibraryDisplayFormats.formatHoursMinutes(loadedSetlist.targetDurationSeconds()));
-            sb.append(" (").append(rem >= 0 ? "+" : "").append(LibraryDisplayFormats.formatDuration(Math.abs(rem)));
+                    .append(LibraryDisplayFormats.formatHoursMinutesSeconds(
+                            loadedSetlist.targetDurationSeconds()));
+            sb.append(" (").append(rem >= 0 ? "+" : "")
+                    .append(LibraryDisplayFormats.formatHoursMinutesSeconds(Math.abs(rem)));
             sb.append(rem >= 0 ? " under)" : " over)");
         }
         if (loadedSetlist.bandLayoutId() == null) {
