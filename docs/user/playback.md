@@ -24,9 +24,22 @@ Default volume, tempo, stereo mode, and stereo width come from [ABC Playback set
 
 ---
 
+## Playlist {#playlist}
+
+Open **Parts / Playlist** to see the current queue on the right.
+
+- **Drag** a row to rearrange the queue (playback of the current song is not interrupted)
+- **Move up** / **Move down** — same reorder, using the selected row
+- **Double-click** a row to play that song
+- **Save as setlist…** — create a new setlist (Unfiled) from the current queue order; opens the same details dialog as [New setlist](setlists.md#create-setlist). Songs are copied in queue order; part assignments are not copied.
+
+Rearranging the playback queue does not change an existing setlist. Use **Save as setlist…** if you want to keep the new order.
+
+---
+
 ## Mute and solo {#mute-solo}
 
-Open **Parts / Playlist** to see all parts for the current song and the queue. Mute or solo individual parts while listening. Shift-click mute can unmute all parts.
+Open **Parts / Playlist** to see all parts for the current song and the queue. Mute or solo individual parts while listening. Shift-click mute can unmute all parts. The playlist side can be rearranged and saved as a setlist; see [Playlist](#playlist).
 
 ---
 

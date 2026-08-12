@@ -50,6 +50,8 @@ Click **Edit** to open the setlist details dialog (**Edit setlist** / **New setl
 
 Confirm with **OK**. There is no separate Save button on the main panel.
 
+You can also create a setlist from the current ABC playback queue: open **Parts / Playlist** on the [playback bar](playback.md#playlist) and choose **Save as setlist…**. The new set is added under Unfiled.
+
 On the details panel, computed timing shows **Raw Duration**, **Actual Duration** (with delays), and **Time remaining**. A **Locked** badge appears when the set is locked.
 
 ---

@@ -12,6 +12,9 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Window;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -31,9 +34,12 @@ import javax.swing.AbstractButton;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.DropMode;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSlider;
@@ -44,12 +50,15 @@ import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.TransferHandler;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.ChangeListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 
+import com.aevoreth.abcmm.domain.band.BandRepository;
+import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.playback.AbcPlaybackEngine;
 import com.aevoreth.abcmm.domain.playback.LoadedSong;
 import com.aevoreth.abcmm.domain.playback.PartInfo;
@@ -60,6 +69,7 @@ import com.aevoreth.abcmm.domain.playback.PlaybackPosition;
 import com.aevoreth.abcmm.domain.playback.PlaybackSession;
 import com.aevoreth.abcmm.domain.playback.PlaybackState;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
+import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 
 /**
  * Bottom playback bar mimicking ABC Player: scrubber, tempo, transport, parts/playlist, stereo, volume.
@@ -78,7 +88,7 @@ public final class PlaybackPanel extends JPanel {
     /** Java-only extras key for the parts/playlist dialog size. */
     static final String LIST_SIZE_PREF_KEY = "java_playback_parts_playlist_size";
     private static final int DEFAULT_LIST_WIDTH = 640;
-    private static final int DEFAULT_LIST_HEIGHT = 280;
+    private static final int DEFAULT_LIST_HEIGHT = 320;
     private static final int DEFAULT_PARTS_DIVIDER = 260;
     private static final int MIN_LIST_WIDTH = 320;
     private static final int MIN_LIST_HEIGHT = 160;
@@ -97,6 +107,10 @@ public final class PlaybackPanel extends JPanel {
     private Consumer<String> errorReporter = msg -> {
     };
     private Runnable prefsPersister = () -> {
+    };
+    private SetlistRepository setlistRepository;
+    private BandRepository bandRepository;
+    private Consumer<Long> setlistCreatedListener = id -> {
     };
 
     private final JLabel nowPlayingLabel = new JLabel("No song loaded");
@@ -118,9 +132,13 @@ public final class PlaybackPanel extends JPanel {
     private final JPanel partsPanel = new JPanel();
     private final PlaylistTableModel playlistModel = new PlaylistTableModel();
     private final JTable playlistTable = new JTable(playlistModel);
+    private final JButton moveUpButton = new JButton("Move up");
+    private final JButton moveDownButton = new JButton("Move down");
+    private final JButton saveAsSetlistButton = new JButton("Save as setlist…");
     private JDialog listDialog;
     private JSplitPane listSplit;
     private final Timer listSizePersistTimer;
+    private int lastPlaylistCurrentIndex = Integer.MIN_VALUE;
 
     private boolean scrubbing;
     private boolean suppressTempo;
@@ -252,6 +270,20 @@ public final class PlaybackPanel extends JPanel {
         positionTimer.start();
     }
 
+    /**
+     * Enables saving the current queue as a setlist. Pass nulls when the database is unavailable.
+     */
+    public void setSetlistSaveSupport(
+            SetlistRepository setlists,
+            BandRepository bands,
+            Consumer<Long> onCreated) {
+        this.setlistRepository = setlists;
+        this.bandRepository = bands;
+        this.setlistCreatedListener = onCreated == null ? id -> {
+        } : onCreated;
+        updatePlaylistActionButtons();
+    }
+
     /** Stop UI polling so AWT can shut down after the frame is disposed. */
     public void stopTimers() {
         positionTimer.stop();
@@ -296,6 +328,7 @@ public final class PlaybackPanel extends JPanel {
         playlistTable.setRowHeight(Math.max(22, playlistTable.getRowHeight()));
         playlistTable.setAutoCreateRowSorter(false);
         playlistTable.getTableHeader().setReorderingAllowed(false);
+        playlistTable.setToolTipText("Drag to rearrange. Double-click to play.");
         playlistTable.getColumnModel().getColumn(COL_NOW).setPreferredWidth(28);
         playlistTable.getColumnModel().getColumn(COL_NOW).setMaxWidth(36);
         playlistTable.getColumnModel().getColumn(COL_TITLE).setPreferredWidth(160);
@@ -320,14 +353,36 @@ public final class PlaybackPanel extends JPanel {
                 }
             }
         });
+        playlistTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updatePlaylistActionButtons();
+            }
+        });
+        enablePlaylistReorder();
         JScrollPane playlistScroll = new JScrollPane(playlistTable);
         playlistScroll.setBorder(BorderFactory.createTitledBorder("Playlist"));
         playlistScroll.setPreferredSize(new Dimension(360, 220));
 
+        moveUpButton.setToolTipText("Move the selected song earlier in the queue");
+        moveDownButton.setToolTipText("Move the selected song later in the queue");
+        saveAsSetlistButton.setToolTipText("Create a setlist from the current queue order");
+        moveUpButton.addActionListener(e -> moveSelected(-1));
+        moveDownButton.addActionListener(e -> moveSelected(1));
+        saveAsSetlistButton.addActionListener(e -> saveQueueAsSetlist());
+        JPanel playlistToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        playlistToolbar.add(moveUpButton);
+        playlistToolbar.add(moveDownButton);
+        playlistToolbar.add(saveAsSetlistButton);
+        updatePlaylistActionButtons();
+
+        JPanel playlistColumn = new JPanel(new BorderLayout());
+        playlistColumn.add(playlistScroll, BorderLayout.CENTER);
+        playlistColumn.add(playlistToolbar, BorderLayout.SOUTH);
+
         JScrollPane partsScroll = new JScrollPane(partsPanel);
         partsScroll.setPreferredSize(new Dimension(DEFAULT_PARTS_DIVIDER, 220));
 
-        listSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, partsScroll, playlistScroll);
+        listSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, partsScroll, playlistColumn);
         listSplit.setResizeWeight(0.4);
         listSplit.setContinuousLayout(true);
         listSplit.setBorder(new EmptyBorder(8, 8, 8, 8));
@@ -770,17 +825,155 @@ public final class PlaybackPanel extends JPanel {
         if (session == null) {
             return;
         }
+        int previousCurrent = lastPlaylistCurrentIndex;
+        int[] selected = playlistTable.getSelectedRows();
         playlistModel.setItems(session.queue(), session.currentIndex());
-        if (session.currentIndex() >= 0 && session.currentIndex() < playlistModel.getRowCount()) {
-            playlistTable.getSelectionModel().setSelectionInterval(
-                    session.currentIndex(), session.currentIndex());
-            playlistTable.scrollRectToVisible(
-                    playlistTable.getCellRect(session.currentIndex(), 0, true));
-        } else {
-            playlistTable.clearSelection();
+        int current = session.currentIndex();
+        lastPlaylistCurrentIndex = current;
+        if (current != previousCurrent) {
+            if (current >= 0 && current < playlistModel.getRowCount()) {
+                playlistTable.getSelectionModel().setSelectionInterval(current, current);
+                playlistTable.scrollRectToVisible(
+                        playlistTable.getCellRect(current, 0, true));
+            } else {
+                playlistTable.clearSelection();
+            }
+        } else if (selected.length > 0 && playlistModel.getRowCount() > 0) {
+            int row = Math.min(selected[0], playlistModel.getRowCount() - 1);
+            if (row >= 0) {
+                playlistTable.getSelectionModel().setSelectionInterval(row, row);
+            }
         }
         prevButton.setEnabled(session.hasPrevious());
         nextButton.setEnabled(session.hasNext());
+        updatePlaylistActionButtons();
+    }
+
+    private void enablePlaylistReorder() {
+        playlistTable.setDragEnabled(true);
+        playlistTable.setDropMode(DropMode.INSERT_ROWS);
+        playlistTable.setTransferHandler(new TransferHandler() {
+            private int dragRow = -1;
+
+            @Override
+            public int getSourceActions(JComponent c) {
+                return MOVE;
+            }
+
+            @Override
+            protected Transferable createTransferable(JComponent c) {
+                dragRow = playlistTable.getSelectedRow();
+                if (dragRow < 0) {
+                    return null;
+                }
+                return new StringSelection(Integer.toString(dragRow));
+            }
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return support.isDrop()
+                        && support.isDataFlavorSupported(DataFlavor.stringFlavor)
+                        && dragRow >= 0
+                        && session != null;
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support) || !(support.getDropLocation() instanceof JTable.DropLocation drop)) {
+                    return false;
+                }
+                int dropIndex = drop.getRow();
+                if (dropIndex < 0) {
+                    dropIndex = playlistModel.getRowCount();
+                }
+                int from = dragRow;
+                dragRow = -1;
+                int newIndex = session.moveItem(from, dropIndex);
+                if (newIndex >= 0 && newIndex < playlistModel.getRowCount()) {
+                    playlistTable.getSelectionModel().setSelectionInterval(newIndex, newIndex);
+                    playlistTable.scrollRectToVisible(playlistTable.getCellRect(newIndex, 0, true));
+                }
+                updatePlaylistActionButtons();
+                return true;
+            }
+
+            @Override
+            protected void exportDone(JComponent source, Transferable data, int action) {
+                dragRow = -1;
+            }
+        });
+    }
+
+    private void moveSelected(int direction) {
+        if (session == null) {
+            return;
+        }
+        int row = playlistTable.getSelectedRow();
+        if (row < 0) {
+            return;
+        }
+        int dropIndex = direction < 0 ? row - 1 : row + 2;
+        if (dropIndex < 0 || dropIndex > playlistModel.getRowCount()) {
+            return;
+        }
+        int newIndex = session.moveItem(row, dropIndex);
+        if (newIndex >= 0 && newIndex < playlistModel.getRowCount()) {
+            playlistTable.getSelectionModel().setSelectionInterval(newIndex, newIndex);
+            playlistTable.scrollRectToVisible(playlistTable.getCellRect(newIndex, 0, true));
+        }
+        updatePlaylistActionButtons();
+    }
+
+    private void saveQueueAsSetlist() {
+        if (session == null || setlistRepository == null) {
+            return;
+        }
+        List<PlayQueueItem> queue = session.queue();
+        if (queue.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    listDialog != null ? listDialog : this,
+                    "The playlist is empty.",
+                    "Save as setlist",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        Window owner = listDialog != null ? listDialog : SwingUtilities.getWindowAncestor(this);
+        SetlistDetailsDialog.showCreate(owner, bandRepository).ifPresent(details -> {
+            try {
+                long setlistId = setlistRepository.addSetlist(details.name(), null);
+                setlistRepository.updateSetlist(
+                        setlistId,
+                        details.name(),
+                        details.bandLayoutId(),
+                        null,
+                        0,
+                        details.locked(),
+                        details.switchDelaySeconds(),
+                        details.notes(),
+                        details.setDate(),
+                        details.setTime(),
+                        details.targetDurationSeconds());
+                for (int i = 0; i < queue.size(); i++) {
+                    setlistRepository.addItem(setlistId, queue.get(i).songId(), i, null, null);
+                }
+                errorReporter.accept("Saved queue as setlist \"" + details.name() + "\"");
+                setlistCreatedListener.accept(setlistId);
+            } catch (LibraryException ex) {
+                JOptionPane.showMessageDialog(
+                        owner,
+                        ex.getMessage(),
+                        "Save as setlist",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        });
+    }
+
+    private void updatePlaylistActionButtons() {
+        int rows = playlistModel.getRowCount();
+        int selected = playlistTable.getSelectedRow();
+        moveUpButton.setEnabled(selected > 0);
+        moveDownButton.setEnabled(selected >= 0 && selected < rows - 1);
+        saveAsSetlistButton.setEnabled(rows > 0 && setlistRepository != null);
     }
 
     private void syncTempoFromEngine() {

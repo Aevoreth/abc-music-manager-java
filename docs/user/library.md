@@ -68,7 +68,7 @@ If the table looks empty, try **Clear Filters** before assuming the library has 
 Right-click a row:
 
 - **Play** — start playback with this song
-- **Add to queue** — append without stopping current play
+- **Add to queue** — append without stopping current play. Open **Parts / Playlist** on the [playback bar](playback.md#playlist) to rearrange the queue or save it as a setlist.
 - **Edit** — open Song detail
 - **Add to setlist** — add to an unlocked setlist
 

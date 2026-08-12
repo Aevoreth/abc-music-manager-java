@@ -458,6 +458,11 @@ public final class MainFrame extends JFrame {
             libraryPanel.setSongRepository(songRepository);
             libraryPanel.setPlayLogRepository(playLogRepository);
             libraryPanel.setInstrumentNames(loadInstrumentNames());
+            playbackPanel.setSetlistSaveSupport(setlistRepository, bandRepository, setlistId -> {
+                setlistsPanel.reload();
+                setPlayPanel.refreshSetlistPicker();
+                reloadLibrary(libraryPanel.currentFilter());
+            });
 
             refreshEntityCaches();
             libraryPanel.setStatuses(statuses);
@@ -485,6 +490,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.setSetlistRepository(null);
             libraryPanel.setSongRepository(null);
             libraryPanel.setPlayLogRepository(null);
+            playbackPanel.setSetlistSaveSupport(null, null, null);
             libraryPanel.setInstrumentNames(Map.of());
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());

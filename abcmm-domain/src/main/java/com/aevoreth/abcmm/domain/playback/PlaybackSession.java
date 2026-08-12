@@ -147,6 +147,49 @@ public final class PlaybackSession implements AutoCloseable {
     }
 
     /**
+     * Moves the queue item at {@code fromIndex} using insert-before drop semantics
+     * (the item is placed at {@code dropIndex}, or at the end when {@code dropIndex}
+     * is past the last row). Does not interrupt playback. Returns the new index of
+     * the moved item, or {@code fromIndex} when the order is unchanged.
+     */
+    public int moveItem(int fromIndex, int dropIndex) {
+        int size = queue.size();
+        if (fromIndex < 0 || fromIndex >= size) {
+            return fromIndex;
+        }
+        int target = dropIndex;
+        if (target < 0) {
+            target = size;
+        }
+        if (target > size) {
+            target = size;
+        }
+        if (fromIndex < target) {
+            target--;
+        }
+        if (fromIndex == target) {
+            return fromIndex;
+        }
+        PlayQueueItem item = queue.remove(fromIndex);
+        queue.add(target, item);
+
+        if (currentIndex == fromIndex) {
+            currentIndex = target;
+        } else if (fromIndex < currentIndex && target >= currentIndex) {
+            currentIndex--;
+        } else if (fromIndex > currentIndex && target <= currentIndex) {
+            currentIndex++;
+        }
+
+        if (source == QueueSource.SETLIST || source == QueueSource.SINGLE) {
+            source = QueueSource.CUSTOM;
+            setlistId = null;
+        }
+        fireSessionChanged();
+        return target;
+    }
+
+    /**
      * When the active playlist is backed by {@code setlistId}, rebuild order from the setlist
      * while keeping the current song selected when possible.
      */

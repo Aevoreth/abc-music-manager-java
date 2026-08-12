@@ -2,6 +2,7 @@ package com.aevoreth.abcmm.domain.playback;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -76,6 +77,54 @@ class PlaybackSessionTest {
 
         session.previous();
         assertEquals(1, session.currentIndex());
+        session.close();
+        engine.close();
+    }
+
+    @Test
+    void moveItemReordersWithoutStoppingAndDetachesSetlist() throws Exception {
+        Path abc = writeAbc("song.abc");
+        FakeEngine engine = new FakeEngine();
+        PlaybackSession session = new PlaybackSession(engine, id -> Optional.of(abc));
+
+        session.playSetlist(9, List.of(
+                PlayQueueItem.ofSetlistItem(1, "A", "", null, 0, 9, 100),
+                PlayQueueItem.ofSetlistItem(2, "B", "", null, 0, 9, 101),
+                PlayQueueItem.ofSetlistItem(3, "C", "", null, 0, 9, 102)), 1);
+
+        int newIndex = session.moveItem(0, 3);
+
+        assertEquals(2, newIndex);
+        assertEquals(List.of(2L, 3L, 1L), session.queue().stream().map(PlayQueueItem::songId).toList());
+        assertEquals(0, session.currentIndex());
+        assertEquals(2L, session.currentItem().songId());
+        assertEquals(QueueSource.CUSTOM, session.source());
+        assertNull(session.setlistId());
+        assertEquals(PlaybackState.PLAYING, engine.getState());
+        session.close();
+        engine.close();
+    }
+
+    @Test
+    void moveItemFollowsCurrentSongAndIgnoresNoOpDrop() throws Exception {
+        Path abc = writeAbc("song.abc");
+        FakeEngine engine = new FakeEngine();
+        PlaybackSession session = new PlaybackSession(engine, id -> Optional.of(abc));
+
+        session.playSetlist(9, List.of(
+                PlayQueueItem.ofSetlistItem(1, "A", "", null, 0, 9, 100),
+                PlayQueueItem.ofSetlistItem(2, "B", "", null, 0, 9, 101),
+                PlayQueueItem.ofSetlistItem(3, "C", "", null, 0, 9, 102)), 0);
+
+        assertEquals(0, session.moveItem(0, 1));
+        assertEquals(QueueSource.SETLIST, session.source());
+        assertEquals(0, session.currentIndex());
+
+        int newIndex = session.moveItem(0, 3);
+        assertEquals(2, newIndex);
+        assertEquals(2, session.currentIndex());
+        assertEquals(1L, session.currentItem().songId());
+        assertEquals(QueueSource.CUSTOM, session.source());
         session.close();
         engine.close();
     }
