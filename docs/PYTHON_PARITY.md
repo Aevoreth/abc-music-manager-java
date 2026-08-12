@@ -13,7 +13,7 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted; empty-state Open User Guide deferred until broader Java↔Python parity |
 | Setlists | Complete | Complete (builder + set export + ABCP import) | Preserve stored data | Folders, tree drag reorder/move between folders, song order, timing, per-set band layout / part overrides; set package export (folder/zip + optional CSV/ABCP); standalone ABCP export/import; ABCP import shows a local-only notice (Java) |
 | ABCP support | Complete | Complete | Preserve interchange | XML playlist read/write compatible with ABC Player; import matches exact `SongFile.file_path` values (Python parity); Java prompts that import is for locally created playlists, not shared setlists |
-| Songbook export | Complete | Not started | Preserve PluginData format | Manual write of `SongbookData.plugindata` (Lua) to account targets |
+| Songbook export | Complete | Complete | Preserve PluginData format | Manual File → Write PluginData…; UTF-8 Lua `SongbookData.plugindata` to enabled AccountTargets (Python `plugindata_writer`; HTA is format reference only) |
 | Band management | Complete | Complete | Preserve stored data | Bands, members, layouts, snapped layout grid; Change Player cascades song/setlist assignments |
 | Player management | Complete | Complete | Preserve stored data | Players + instruments; filters (name/level/class/instrument); searchable layout picker |
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
@@ -61,4 +61,4 @@ Completed bandleader library + management slice:
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
 9. Library song detail + inline metadata / play history / Raw ABC; Maestro ABC audition transport
 
-Later: Set Play (live set session) / relays, songbook export, Band Assistant, dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.
+Later: Set Play (live set session) / relays, Band Assistant, dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.

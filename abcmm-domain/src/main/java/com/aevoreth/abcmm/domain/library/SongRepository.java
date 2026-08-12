@@ -29,6 +29,12 @@ public interface SongRepository extends AutoCloseable {
     Optional<Long> findSongIdByFilePath(String filePath) throws LibraryException;
 
     /**
+     * Song metadata for PluginData export by exact {@code SongFile.file_path}
+     * (Python {@code get_song_metadata_for_file_path}).
+     */
+    Optional<SongFileMetadata> findMetadataByFilePath(String filePath) throws LibraryException;
+
+    /**
      * Looks up a library song by id, or empty if missing.
      */
     Optional<LibrarySong> findSongById(long songId) throws LibraryException;

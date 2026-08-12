@@ -22,6 +22,7 @@ import com.aevoreth.abcmm.domain.library.LibrarySong;
 import com.aevoreth.abcmm.domain.library.SetlistRef;
 import com.aevoreth.abcmm.domain.library.SongAppMetadataUpdate;
 import com.aevoreth.abcmm.domain.library.SongDetailInfo;
+import com.aevoreth.abcmm.domain.library.SongFileMetadata;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.scan.AbcFileMetadata;
@@ -163,6 +164,39 @@ public final class SqliteSongRepository implements SongRepository {
             }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to look up song by file path", ex);
+        }
+    }
+
+    @Override
+    public Optional<SongFileMetadata> findMetadataByFilePath(String filePath) throws LibraryException {
+        if (filePath == null || filePath.isBlank()) {
+            return Optional.empty();
+        }
+        String sql = """
+                SELECT s.title, s.composers, s.transcriber, s.duration_seconds, s.parts
+                FROM Song s
+                JOIN SongFile f ON f.song_id = s.id
+                WHERE f.file_path = ?
+                LIMIT 1
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setString(1, filePath);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                Integer duration = rs.getObject("duration_seconds") == null
+                        ? null
+                        : rs.getInt("duration_seconds");
+                return Optional.of(new SongFileMetadata(
+                        rs.getString("title"),
+                        rs.getString("composers"),
+                        rs.getString("transcriber"),
+                        duration,
+                        rs.getString("parts")));
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to look up song metadata by file path", ex);
         }
     }
 

@@ -63,6 +63,7 @@ import com.aevoreth.abcmm.ui.AbcmmThemer;
 import com.aevoreth.abcmm.ui.BandsPanel;
 import com.aevoreth.abcmm.ui.LibraryPanel;
 import com.aevoreth.abcmm.ui.PlaybackPanel;
+import com.aevoreth.abcmm.ui.PluginDataExportDialog;
 import com.aevoreth.abcmm.ui.ScanLibraryDialog;
 import com.aevoreth.abcmm.ui.SetlistsPanel;
 import com.aevoreth.abcmm.ui.SettingsDialog;
@@ -329,6 +330,8 @@ public final class MainFrame extends JFrame {
         JMenu file = new JMenu("File");
         JMenuItem scan = new JMenuItem("Scan Library…");
         scan.addActionListener(e -> runLibraryScan());
+        JMenuItem writePluginData = new JMenuItem("Write PluginData…");
+        writePluginData.addActionListener(e -> writePluginData());
         JMenuItem settings = new JMenuItem("Settings…");
         settings.addActionListener(e -> openSettings());
         JMenuItem exit = new JMenuItem("Exit");
@@ -340,6 +343,7 @@ public final class MainFrame extends JFrame {
             dispose();
         });
         file.add(scan);
+        file.add(writePluginData);
         file.addSeparator();
         file.add(settings);
         file.addSeparator();
@@ -535,6 +539,20 @@ public final class MainFrame extends JFrame {
                         statusBar.setMessage(ex.getMessage());
                     }
                 });
+        dialog.setVisible(true);
+    }
+
+    private void writePluginData() {
+        if (songRepository == null || database == null) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Database is not available.",
+                    "Write PluginData",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        ensureDefaultLotroRootPersisted();
+        PluginDataExportDialog dialog = new PluginDataExportDialog(this, preferences, songRepository);
         dialog.setVisible(true);
     }
 
