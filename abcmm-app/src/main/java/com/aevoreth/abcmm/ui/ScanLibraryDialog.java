@@ -7,6 +7,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.BorderFactory;
 import javax.swing.JDialog;
@@ -18,16 +19,17 @@ import javax.swing.JProgressBar;
 import javax.swing.SwingUtilities;
 
 import com.aevoreth.abcmm.domain.library.LibraryException;
-import com.aevoreth.abcmm.domain.scan.DuplicateCandidate;
-import com.aevoreth.abcmm.domain.scan.DuplicateDecision;
-import com.aevoreth.abcmm.domain.scan.DuplicateResolver;
+import com.aevoreth.abcmm.domain.scan.CleanupApplyResult;
+import com.aevoreth.abcmm.domain.scan.DuplicateAnalysis;
+import com.aevoreth.abcmm.domain.scan.DuplicateCleanupPlan;
+import com.aevoreth.abcmm.domain.scan.DuplicateReviewResult;
 import com.aevoreth.abcmm.domain.scan.LibraryScanService;
 import com.aevoreth.abcmm.domain.scan.ScanProgress;
 import com.aevoreth.abcmm.domain.scan.ScanRequest;
 
 /**
- * Modal dialog that runs a library scan on a background thread and prompts for
- * duplicate resolution on the EDT.
+ * Modal dialog that inventories the library, opens batch duplicate review when needed,
+ * applies cleanup plans (including iterative apply-and-rescan), then reconciles.
  */
 public final class ScanLibraryDialog extends JDialog {
 
@@ -61,7 +63,7 @@ public final class ScanLibraryDialog extends JDialog {
         body.add(progressBar, BorderLayout.CENTER);
 
         JPanel south = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        south.add(new JLabel("Duplicate prompts appear when needed."));
+        south.add(new JLabel("Review folders first; Apply rules and rescan narrows leftover files."));
         body.add(south, BorderLayout.SOUTH);
         setContentPane(body);
         pack();
@@ -85,13 +87,55 @@ public final class ScanLibraryDialog extends JDialog {
     }
 
     private void runScan() {
-        DuplicateResolver resolver = this::resolveDuplicateOnEdt;
         try {
-            ScanProgress result = scanService.scan(request, resolver, this::reportProgress);
+            DuplicateAnalysis analysis = scanService.analyze(request, this::reportProgress);
+            boolean cancelled = false;
+
+            while (analysis.hasDuplicates()) {
+                AtomicReference<DuplicateReviewResult> holder = new AtomicReference<>();
+                DuplicateAnalysis current = analysis;
+                SwingUtilities.invokeAndWait(() -> {
+                    DuplicateReviewDialog review = new DuplicateReviewDialog(getOwner(), current);
+                    holder.set(review.showAndWait());
+                });
+                DuplicateReviewResult reviewResult = holder.get();
+                if (reviewResult == null
+                        || reviewResult.action() == DuplicateReviewResult.Action.CANCELLED) {
+                    cancelled = true;
+                    SwingUtilities.invokeLater(() -> progressLabel.setText("Review cancelled — reconciling…"));
+                    break;
+                }
+
+                DuplicateCleanupPlan plan = reviewResult.plan();
+                if (plan != null && !plan.isEmpty()) {
+                    CleanupApplyResult applyResult = scanService.apply(plan, this::reportProgress);
+                    if (applyResult.hasErrors()) {
+                        String errors = String.join("\n", applyResult.errors());
+                        SwingUtilities.invokeAndWait(() -> JOptionPane.showMessageDialog(
+                                this,
+                                "Some cleanup actions failed:\n" + errors,
+                                "Cleanup warnings",
+                                JOptionPane.WARNING_MESSAGE));
+                    }
+                }
+
+                if (reviewResult.action() == DuplicateReviewResult.Action.FINISHED) {
+                    break;
+                }
+
+                // APPLY_AND_RESCAN — re-inventory and continue reviewing leftovers
+                SwingUtilities.invokeLater(() -> progressLabel.setText("Re-scanning after cleanup rules…"));
+                analysis = scanService.analyze(request, this::reportProgress);
+            }
+
+            if (cancelled) {
+                // still reconcile uniques; do not invent preferred duplicates
+            }
+            ScanProgress result = scanService.reconcile(request, this::reportProgress);
             SwingUtilities.invokeLater(() -> finishOk(result));
         } catch (LibraryException ex) {
             SwingUtilities.invokeLater(() -> finishError(ex.getMessage()));
-        } catch (RuntimeException ex) {
+        } catch (Exception ex) {
             SwingUtilities.invokeLater(() -> finishError(
                     ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()));
         }
@@ -115,58 +159,20 @@ public final class ScanLibraryDialog extends JDialog {
         });
     }
 
-    private DuplicateDecision resolveDuplicateOnEdt(DuplicateCandidate candidate) {
-        DuplicateDecision[] choice = {DuplicateDecision.SEPARATE};
-        try {
-            SwingUtilities.invokeAndWait(() -> {
-                Object[] options = {"Keep existing", "Keep new", "Separate"};
-                String message = String.format(
-                        "<html>Duplicate song detected.<br><br>"
-                                + "<b>Existing:</b> %s (id %d)<br>"
-                                + "<b>New title:</b> %s<br>"
-                                + "<b>Path:</b> %s<br>"
-                                + "<b>Composers:</b> %s<br>"
-                                + "<b>Parts:</b> %d</html>",
-                        escape(candidate.existingTitle()),
-                        candidate.existingSongId(),
-                        escape(candidate.newTitle()),
-                        escape(candidate.newPath()),
-                        escape(candidate.composers()),
-                        candidate.partCount());
-                int selected = JOptionPane.showOptionDialog(
-                        this,
-                        message,
-                        "Duplicate song",
-                        JOptionPane.DEFAULT_OPTION,
-                        JOptionPane.QUESTION_MESSAGE,
-                        null,
-                        options,
-                        options[2]);
-                choice[0] = switch (selected) {
-                    case 0 -> DuplicateDecision.KEEP_EXISTING;
-                    case 1 -> DuplicateDecision.KEEP_NEW;
-                    default -> DuplicateDecision.SEPARATE;
-                };
-            });
-        } catch (Exception ex) {
-            return DuplicateDecision.SEPARATE;
-        }
-        return choice[0];
-    }
-
     private void finishOk(ScanProgress result) {
         progressBar.setIndeterminate(false);
         progressBar.setValue(100);
         String summary = result == null
                 ? "Scan complete."
                 : String.format(
-                        "Scan complete.%nFiles scanned: %d%nAdded: %d%nUpdated: %d%nRemoved: %d",
+                        "Scan complete.\n\nFiles: %d\nAdded: %d\nUpdated: %d\nRemoved: %d",
                         result.filesScanned(),
                         result.songsAdded(),
                         result.songsUpdated(),
                         result.songsRemoved());
         JOptionPane.showMessageDialog(this, summary, "Scan library", JOptionPane.INFORMATION_MESSAGE);
-        disposeAndNotify();
+        onFinished.run();
+        dispose();
     }
 
     private void finishError(String message) {
@@ -176,18 +182,7 @@ public final class ScanLibraryDialog extends JDialog {
                 message == null || message.isBlank() ? "Library scan failed." : message,
                 "Scan library",
                 JOptionPane.ERROR_MESSAGE);
-        disposeAndNotify();
-    }
-
-    private void disposeAndNotify() {
-        dispose();
         onFinished.run();
-    }
-
-    private static String escape(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        dispose();
     }
 }

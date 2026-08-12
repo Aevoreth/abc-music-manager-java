@@ -14,8 +14,10 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -27,18 +29,31 @@ import java.util.stream.Stream;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.scan.AbcFileMetadata;
 import com.aevoreth.abcmm.domain.scan.AbcPartMetadata;
-import com.aevoreth.abcmm.domain.scan.DuplicateCandidate;
-import com.aevoreth.abcmm.domain.scan.DuplicateDecision;
-import com.aevoreth.abcmm.domain.scan.DuplicateResolver;
+import com.aevoreth.abcmm.domain.scan.CleanupApplyResult;
+import com.aevoreth.abcmm.domain.scan.ContentFingerprint;
+import com.aevoreth.abcmm.domain.scan.DuplicateAnalysis;
+import com.aevoreth.abcmm.domain.scan.DuplicateCleanupPlan;
+import com.aevoreth.abcmm.domain.scan.DuplicateCleanupPlanValidator;
+import com.aevoreth.abcmm.domain.scan.DuplicateFile;
+import com.aevoreth.abcmm.domain.scan.DuplicateGroup;
+import com.aevoreth.abcmm.domain.scan.DuplicateGrouping;
+import com.aevoreth.abcmm.domain.scan.FileDisposition;
+import com.aevoreth.abcmm.domain.scan.FileResolution;
+import com.aevoreth.abcmm.domain.scan.FolderDisposition;
+import com.aevoreth.abcmm.domain.scan.FolderDuplicateCluster;
+import com.aevoreth.abcmm.domain.scan.FolderDuplicateDetector;
+import com.aevoreth.abcmm.domain.scan.FolderResolution;
 import com.aevoreth.abcmm.domain.scan.LibraryScanService;
 import com.aevoreth.abcmm.domain.scan.ScanProgress;
 import com.aevoreth.abcmm.domain.scan.ScanRequest;
+import com.aevoreth.abcmm.domain.scan.TrashService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Library scanner backed by SQLite. Does not close the given {@link SqliteDatabase}.
+ * Library scanner backed by SQLite. Inventory-first duplicate analysis; does not treat
+ * scan order as canonical. Does not close the given {@link SqliteDatabase}.
  */
 public final class SqliteLibraryScanService implements LibraryScanService {
 
@@ -48,61 +63,53 @@ public final class SqliteLibraryScanService implements LibraryScanService {
 
     private final SqliteDatabase database;
     private final AbcMetadataParser parser = new AbcMetadataParser();
+    private final TrashService trashService;
+
+    private DuplicateAnalysis lastAnalysis = new DuplicateAnalysis(List.of(), List.of(), 0, 0, null);
+    private ScanRequest lastRequest;
+    private final Map<String, InventoriedFile> lastInventoryByPath = new LinkedHashMap<>();
 
     public SqliteLibraryScanService(SqliteDatabase database) {
+        this(database, new DesktopTrashService());
+    }
+
+    public SqliteLibraryScanService(SqliteDatabase database, TrashService trashService) {
         this.database = Objects.requireNonNull(database, "database");
+        this.trashService = Objects.requireNonNull(trashService, "trashService");
     }
 
     @Override
-    public ScanProgress scan(ScanRequest request, DuplicateResolver resolver, Consumer<ScanProgress> progress)
+    public DuplicateAnalysis analyze(ScanRequest request, Consumer<ScanProgress> progress)
             throws LibraryException {
         Objects.requireNonNull(request, "request");
-        DuplicateResolver effectiveResolver = resolver != null ? resolver : candidate -> DuplicateDecision.SEPARATE;
-
+        lastRequest = request;
+        lastInventoryByPath.clear();
         try {
-            Path musicRoot = request.lotroRoot().resolve("Music");
-            List<Path> libraryRoots = new ArrayList<>();
-            if (Files.isDirectory(musicRoot)) {
-                libraryRoots.add(normalizePath(musicRoot));
+            ScanRoots roots = resolveRoots(request, progress);
+            if (roots.libraryRoots().isEmpty() && roots.setRoots().isEmpty()) {
+                removeMissingSongFiles(Set.of());
+                lastAnalysis = new DuplicateAnalysis(List.of(), List.of(), 0, 0, request.defaultStatusId());
+                notifyProgress(progress, new ScanProgress(0, 0, 0, 0, "No library roots to scan"));
+                return lastAnalysis;
             }
 
-            Path setRoot = resolveSetExportDir(request.setExportDir(), musicRoot);
-            if (setRoot != null && !isUnderMusicRoot(setRoot, musicRoot)) {
-                notifyProgress(progress, new ScanProgress(
-                        0, 0, 0, 0,
-                        "Warning: set export dir is outside Music — not excluded from scan ("
-                                + setRoot + ")"));
-                setRoot = null;
-            } else if (setRoot != null && !Files.isDirectory(setRoot)) {
-                notifyProgress(progress, new ScanProgress(
-                        0, 0, 0, 0,
-                        "Warning: set export dir not found — not excluded from scan ("
-                                + setRoot + ")"));
-                setRoot = null;
-            }
-            List<Path> setRoots = new ArrayList<>();
-            if (setRoot != null) {
-                setRoots.add(normalizePath(setRoot));
+            List<Path> rootsToScan = new ArrayList<>(roots.libraryRoots());
+            rootsToScan.addAll(roots.setRoots());
+            List<Path> files = collectAbcFiles(rootsToScan, roots.excludePaths());
+            files.sort((a, b) -> a.toString().compareToIgnoreCase(b.toString()));
+            // Full inventory paths — never treat a still-present peer as a "moved" file.
+            // (e.g. "Main - Copy" sorts before "Main\" and must not steal SongFile rows.)
+            Set<String> inventoryPaths = new HashSet<>();
+            for (Path path : files) {
+                inventoryPaths.add(normalizePath(path).toString());
             }
 
-            List<Path> excludePaths = loadExcludePaths(musicRoot, setRoot);
-
-            if (libraryRoots.isEmpty() && setRoots.isEmpty()) {
-                int removed = removeMissingSongFiles(Set.of());
-                ScanProgress done = new ScanProgress(0, 0, 0, removed, "No library roots to scan");
-                notifyProgress(progress, done);
-                return done;
-            }
-
-            List<Path> rootsToScan = new ArrayList<>(libraryRoots);
-            rootsToScan.addAll(setRoots);
-            List<Path> files = collectAbcFiles(rootsToScan, excludePaths);
-
-            int filesScanned = 0;
-            int songsAdded = 0;
             int songsUpdated = 0;
+            int filesScanned = 0;
             Set<String> scannedPaths = new HashSet<>();
-            List<DeferredDuplicate> deferred = new ArrayList<>();
+            List<DuplicateGrouping.InventoryPeer> peers = new ArrayList<>();
+            List<FolderDuplicateDetector.FolderFileEntry> folderEntries = new ArrayList<>();
+            Path musicRoot = roots.musicRoot();
 
             int total = files.size();
             int index = 0;
@@ -110,144 +117,716 @@ public final class SqliteLibraryScanService implements LibraryScanService {
                 index++;
                 String pathStr = normalizePath(path).toString();
                 scannedPaths.add(pathStr);
-                PathClass classification = classifyPath(pathStr, libraryRoots, setRoots, excludePaths);
+                PathClass classification = classifyPath(
+                        pathStr, roots.libraryRoots(), roots.setRoots(), roots.excludePaths());
 
                 AbcFileMetadata metadata;
                 try {
-                    metadata = parser.parse(path, name -> {
-                        try {
-                            return resolveInstrumentId(name);
-                        } catch (SQLException ex) {
-                            throw new RuntimeException(ex);
-                        }
-                    });
+                    metadata = parseFile(path);
                 } catch (IOException | RuntimeException ex) {
                     notifyProgress(progress, new ScanProgress(
-                            filesScanned, songsAdded, songsUpdated, 0,
+                            filesScanned, 0, songsUpdated, 0,
                             "Error reading " + path.getFileName() + " (" + index + "/" + total + ")"));
                     continue;
                 }
 
                 String mtime = fileMtime(path);
                 String fileHash = fileHash(path);
+                String fingerprint = ContentFingerprint.compute(metadata, null);
+                Long songId = findSongIdByPath(pathStr);
+                boolean indexed = songId != null;
 
-                if (songFileExists(pathStr)) {
-                    ensureSongFromParsed(metadata, pathStr, mtime, fileHash, classification, request.defaultStatusId());
+                if (indexed) {
+                    ensureSongFromParsed(
+                            metadata, pathStr, mtime, fileHash, classification, request.defaultStatusId());
                     filesScanned++;
                     songsUpdated++;
                     notifyProgress(progress, new ScanProgress(
-                            filesScanned, songsAdded, songsUpdated, 0,
+                            filesScanned, 0, songsUpdated, 0,
                             "Updated " + path.getFileName() + " (" + index + "/" + total + ")"));
-                    continue;
-                }
-
-                RenameCandidate rename = findRenameCandidate(pathStr);
-                if (rename != null) {
-                    relocateSongFile(
-                            rename.songId(), rename.oldPath(), pathStr, metadata, mtime, fileHash, classification);
-                    filesScanned++;
-                    songsUpdated++;
-                    notifyProgress(progress, new ScanProgress(
-                            filesScanned, songsAdded, songsUpdated, 0,
-                            "Renamed to " + path.getFileName() + " (" + index + "/" + total + ")"));
-                    continue;
-                }
-
-                if (classification.primaryLibrary()) {
-                    String normTitle = normalizeTitle(metadata.title());
-                    String composers = metadata.composers() == null ? "" : metadata.composers().strip();
-                    int partCount = metadata.parts().size();
-                    List<Long> existingIds = findSongsByLogicalIdentity(normTitle, composers, partCount);
-                    if (!existingIds.isEmpty()) {
-                        deferred.add(new DeferredDuplicate(
-                                pathStr, metadata, mtime, fileHash, classification, existingIds));
+                } else {
+                    RenameCandidate rename = findRenameCandidate(pathStr);
+                    if (rename != null) {
+                        relocateSongFile(
+                                rename.songId(), rename.oldPath(), pathStr, metadata, mtime, fileHash,
+                                classification);
+                        songId = rename.songId();
+                        indexed = true;
+                        filesScanned++;
+                        songsUpdated++;
                         notifyProgress(progress, new ScanProgress(
-                                filesScanned, songsAdded, songsUpdated, 0,
-                                "Duplicate pending " + path.getFileName() + " (" + index + "/" + total + ")"));
-                        continue;
-                    }
-                }
-
-                ensureSongFromParsed(metadata, pathStr, mtime, fileHash, classification, request.defaultStatusId());
-                filesScanned++;
-                songsAdded++;
-                notifyProgress(progress, new ScanProgress(
-                        filesScanned, songsAdded, songsUpdated, 0,
-                        "Added " + path.getFileName() + " (" + index + "/" + total + ")"));
-            }
-
-            for (DeferredDuplicate dup : deferred) {
-                Long moveSongId = null;
-                String moveOldPath = null;
-                for (long sid : dup.existingIds()) {
-                    List<String> existingPaths = getFilePathsForSong(sid);
-                    List<String> missing = existingPaths.stream()
-                            .filter(p -> !scannedPaths.contains(normalizePathString(p)))
-                            .toList();
-                    if (existingPaths.size() == 1 && missing.size() == 1) {
-                        moveSongId = sid;
-                        moveOldPath = missing.get(0);
-                        break;
-                    }
-                }
-                if (moveSongId != null && moveOldPath != null) {
-                    relocateSongFile(
-                            moveSongId, moveOldPath, dup.pathStr(), dup.metadata(),
-                            dup.mtime(), dup.fileHash(), dup.classification());
-                    filesScanned++;
-                    songsUpdated++;
-                    continue;
-                }
-
-                long existingId = dup.existingIds().get(0);
-                String existingTitle = loadSongTitle(existingId);
-                DuplicateCandidate candidate = new DuplicateCandidate(
-                        existingId,
-                        existingTitle,
-                        dup.pathStr(),
-                        dup.metadata().title(),
-                        dup.metadata().composers(),
-                        dup.metadata().parts().size());
-                DuplicateDecision decision = effectiveResolver.resolve(candidate);
-                if (decision == null) {
-                    decision = DuplicateDecision.KEEP_EXISTING;
-                }
-                switch (decision) {
-                    case KEEP_EXISTING -> {
-                        // leave new file unindexed
-                    }
-                    case KEEP_NEW -> {
-                        List<String> paths = getFilePathsForSong(existingId);
-                        if (!paths.isEmpty()) {
-                            relocateSongFile(
-                                    existingId, paths.get(0), dup.pathStr(), dup.metadata(),
-                                    dup.mtime(), dup.fileHash(), dup.classification());
+                                filesScanned, 0, songsUpdated, 0,
+                                "Renamed to " + path.getFileName() + " (" + index + "/" + total + ")"));
+                    } else {
+                        // Only relocate when the old path is absent from the complete inventory
+                        // (true move). Copies that still exist alongside must become duplicate peers.
+                        Long moved = tryIdentityMove(
+                                metadata, pathStr, mtime, fileHash, classification, inventoryPaths);
+                        if (moved != null) {
+                            songId = moved;
+                            indexed = true;
                             filesScanned++;
                             songsUpdated++;
+                            notifyProgress(progress, new ScanProgress(
+                                    filesScanned, 0, songsUpdated, 0,
+                                    "Moved to " + path.getFileName() + " (" + index + "/" + total + ")"));
+                        } else {
+                            notifyProgress(progress, new ScanProgress(
+                                    filesScanned, 0, songsUpdated, 0,
+                                    "Inventoried " + path.getFileName() + " (" + index + "/" + total + ")"));
                         }
                     }
-                    case SEPARATE -> {
-                        ensureSongFromParsed(
-                                dup.metadata(), dup.pathStr(), dup.mtime(), dup.fileHash(),
-                                dup.classification(), request.defaultStatusId());
-                        filesScanned++;
-                        songsAdded++;
+                }
+
+                InventoriedFile inventoried = new InventoriedFile(
+                        path, pathStr, metadata, mtime, fileHash, fingerprint, classification, songId, indexed);
+                lastInventoryByPath.put(pathStr, inventoried);
+
+                Path libraryRoot = bestLibraryRoot(path, roots.libraryRoots());
+                peers.add(new DuplicateGrouping.InventoryPeer(
+                        path,
+                        metadata,
+                        fileHash,
+                        fingerprint,
+                        songId,
+                        indexed,
+                        libraryRoot == null ? musicRoot : libraryRoot,
+                        classification.primaryLibrary()));
+
+                if (classification.primaryLibrary() && libraryRoot != null) {
+                    String identity = DuplicateGrouping.logicalIdentityKey(
+                            metadata.title(), metadata.composers(), metadata.parts().size());
+                    String relToLibrary;
+                    try {
+                        relToLibrary = libraryRoot.relativize(path).toString().replace('\\', '/')
+                                .toLowerCase(Locale.ROOT);
+                    } catch (RuntimeException ex) {
+                        relToLibrary = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                    }
+                    folderEntries.add(new FolderDuplicateDetector.FolderFileEntry(
+                            path,
+                            relToLibrary,
+                            fileHash,
+                            identity,
+                            metadata.title()));
+                }
+            }
+
+            // Auto-relocate remaining identity moves already handled per-file above.
+
+            List<DuplicateGrouping.IndexedAssociation> associations = loadIndexedAssociations(musicRoot);
+            List<DuplicateGroup> groups = DuplicateGrouping.buildGroups(peers, associations);
+
+            List<FolderDuplicateCluster> clusters = List.of();
+            if (musicRoot != null) {
+                clusters = FolderDuplicateDetector.detect(musicRoot, folderEntries);
+            }
+
+            // Drop file groups fully covered under folders that are exact tree duplicates?
+            // Keep both; UI reviews folders first and can demote. Filter file groups under
+            // REVIEW_INDIVIDUALLY later at apply time.
+
+            lastAnalysis = new DuplicateAnalysis(
+                    groups, clusters, lastInventoryByPath.size(), songsUpdated, request.defaultStatusId());
+            notifyProgress(progress, new ScanProgress(
+                    filesScanned, 0, songsUpdated, 0,
+                    "Analysis complete: " + lastInventoryByPath.size() + " file(s), "
+                            + groups.size() + " duplicate group(s), "
+                            + clusters.size() + " folder cluster(s)"));
+            return lastAnalysis;
+        } catch (SQLException | RuntimeException ex) {
+            throw new LibraryException("Library analysis failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    @Override
+    public CleanupApplyResult apply(DuplicateCleanupPlan plan, Consumer<ScanProgress> progress)
+            throws LibraryException {
+        Objects.requireNonNull(plan, "plan");
+        List<String> validation = DuplicateCleanupPlanValidator.validatePartial(lastAnalysis, plan);
+        if (!validation.isEmpty()) {
+            throw new LibraryException("Invalid cleanup plan: " + String.join("; ", validation));
+        }
+
+        int filesKept = 0;
+        int filesKeptSeparate = 0;
+        int filesIgnored = 0;
+        int filesTrashed = 0;
+        int foldersExcluded = 0;
+        int foldersRemoved = 0;
+        int foldersTrashed = 0;
+        List<String> errors = new ArrayList<>();
+
+        try {
+            Path musicRoot = lastRequest == null ? null : lastRequest.lotroRoot().resolve("Music");
+
+            // Folder resolutions first
+            Set<String> suppressedPathPrefixes = new HashSet<>();
+            for (FolderResolution resolution : plan.folderResolutions()) {
+                Path folder = normalizePath(resolution.folderPath());
+                String folderStr = folder.toString();
+                try {
+                    switch (resolution.disposition()) {
+                        case KEEP_AND_SCAN -> {
+                            // no-op
+                        }
+                        case REVIEW_INDIVIDUALLY -> {
+                            // no-op at folder level
+                        }
+                        case REMOVE_FROM_LIBRARY -> {
+                            int removed = deleteSongFilesUnder(folderStr);
+                            foldersRemoved++;
+                            suppressedPathPrefixes.add(folderStr);
+                            notifyProgress(progress, new ScanProgress(
+                                    0, 0, 0, removed, "Removed from library: " + folder.getFileName()));
+                        }
+                        case EXCLUDE_FROM_SCANS -> {
+                            String rulePath = musicRelativeRulePath(musicRoot, folder);
+                            addExcludeFolderRule(rulePath);
+                            deleteSongFilesUnder(folderStr);
+                            foldersExcluded++;
+                            suppressedPathPrefixes.add(folderStr);
+                            notifyProgress(progress, new ScanProgress(
+                                    0, 0, 0, 0, "Excluded from scans: " + folder.getFileName()));
+                        }
+                        case TRASH -> {
+                            trashAbcFilesUnder(folder, errors);
+                            try {
+                                if (Files.isDirectory(folder) && isDirectoryEmptyOfAbc(folder)) {
+                                    trashService.moveToTrash(folder);
+                                }
+                            } catch (Exception ex) {
+                                errors.add("Failed to trash folder " + folder + ": " + ex.getMessage());
+                            }
+                            deleteSongFilesUnder(folderStr);
+                            foldersTrashed++;
+                            suppressedPathPrefixes.add(folderStr);
+                            notifyProgress(progress, new ScanProgress(
+                                    0, 0, 0, 0, "Trashed folder: " + folder.getFileName()));
+                        }
+                    }
+                } catch (Exception ex) {
+                    errors.add("Folder " + folder + ": " + ex.getMessage());
+                }
+            }
+
+            Long defaultStatusId = lastAnalysis == null ? null : lastAnalysis.defaultStatusId();
+            Connection connection = database.connection();
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                for (FileResolution resolution : plan.fileResolutions()) {
+                    Path path = normalizePath(resolution.path());
+                    String pathStr = path.toString();
+                    if (suppressedPathPrefixes.stream().anyMatch(prefix -> pathHasFolderPrefix(pathStr, prefix))) {
+                        continue;
+                    }
+                    // Skip synthetic / missing indexed stubs that are not real inventory files when ignoring
+                    InventoriedFile inventoried = lastInventoryByPath.get(pathStr);
+                    try {
+                        switch (resolution.disposition()) {
+                            case IGNORE -> filesIgnored++;
+                            case TRASH -> {
+                                if (Files.exists(path)) {
+                                    trashService.moveToTrash(path);
+                                }
+                                deleteSongFileByPath(pathStr);
+                                filesTrashed++;
+                            }
+                            case KEEP_SEPARATE -> {
+                                if (inventoried == null) {
+                                    if (!Files.isRegularFile(path)) {
+                                        errors.add("KEEP_SEPARATE missing file: " + path);
+                                        break;
+                                    }
+                                    AbcFileMetadata metadata = parseFile(path);
+                                    ensureSongFromParsed(
+                                            metadata, pathStr, fileMtime(path), fileHash(path),
+                                            new PathClass(true, false, false), defaultStatusId);
+                                } else if (!inventoried.indexed()) {
+                                    ensureSongFromParsed(
+                                            inventoried.metadata(), pathStr, inventoried.mtime(),
+                                            inventoried.fileHash(), inventoried.classification(), defaultStatusId);
+                                }
+                                filesKeptSeparate++;
+                            }
+                            case KEEP -> {
+                                Long bindSongId = resolution.bindSongId();
+                                if (bindSongId == null) {
+                                    bindSongId = findSingleSongIdInGroup(resolution.groupId());
+                                }
+                                AbcFileMetadata metadata = inventoried != null
+                                        ? inventoried.metadata()
+                                        : parseFile(path);
+                                String mtime = inventoried != null ? inventoried.mtime() : fileMtime(path);
+                                String hash = inventoried != null ? inventoried.fileHash() : fileHash(path);
+                                PathClass classification = inventoried != null
+                                        ? inventoried.classification()
+                                        : new PathClass(true, false, false);
+
+                                if (bindSongId != null) {
+                                    List<String> existingPaths = getFilePathsForSong(bindSongId);
+                                    String oldPath = existingPaths.isEmpty() ? null : existingPaths.get(0);
+                                    if (oldPath != null && !normalizePathString(oldPath).equals(pathStr)) {
+                                        relocateSongFile(
+                                                bindSongId, oldPath, pathStr, metadata, mtime, hash, classification);
+                                    } else if (oldPath == null) {
+                                        // Song exists without file — insert SongFile
+                                        insertSongFileOnly(bindSongId, pathStr, mtime, hash, metadata, classification);
+                                        updateSongMetadata(bindSongId, metadata, partsToJson(metadata), Instant.now().toString());
+                                    } else {
+                                        ensureSongFromParsed(
+                                                metadata, pathStr, mtime, hash, classification, defaultStatusId);
+                                    }
+                                } else if (inventoried == null || !inventoried.indexed()) {
+                                    ensureSongFromParsed(
+                                            metadata, pathStr, mtime, hash, classification, defaultStatusId);
+                                }
+                                filesKept++;
+                            }
+                        }
+                    } catch (Exception ex) {
+                        errors.add(path + ": " + ex.getMessage());
                     }
                 }
+                connection.commit();
+            } catch (SQLException ex) {
+                connection.rollback();
+                throw ex;
+            } finally {
+                connection.setAutoCommit(previousAutoCommit);
+            }
+
+            String message = String.format(
+                    "Cleanup applied: keep=%d separate=%d ignore=%d trash=%d excludeFolders=%d",
+                    filesKept, filesKeptSeparate, filesIgnored, filesTrashed, foldersExcluded);
+            notifyProgress(progress, new ScanProgress(0, filesKept + filesKeptSeparate, 0, filesTrashed, message));
+            return new CleanupApplyResult(
+                    filesKept, filesKeptSeparate, filesIgnored, filesTrashed,
+                    foldersExcluded, foldersRemoved, foldersTrashed, errors, message);
+        } catch (SQLException | RuntimeException ex) {
+            throw new LibraryException("Cleanup apply failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    @Override
+    public ScanProgress reconcile(ScanRequest request, Consumer<ScanProgress> progress)
+            throws LibraryException {
+        Objects.requireNonNull(request, "request");
+        try {
+            ScanRoots roots = resolveRoots(request, progress);
+            if (roots.libraryRoots().isEmpty() && roots.setRoots().isEmpty()) {
+                int removed = removeMissingSongFiles(Set.of());
+                ScanProgress done = new ScanProgress(0, 0, 0, removed, "No library roots to scan");
+                notifyProgress(progress, done);
+                return done;
+            }
+
+            List<Path> rootsToScan = new ArrayList<>(roots.libraryRoots());
+            rootsToScan.addAll(roots.setRoots());
+            List<Path> files = collectAbcFiles(rootsToScan, roots.excludePaths());
+            files.sort((a, b) -> a.toString().compareToIgnoreCase(b.toString()));
+
+            List<DuplicateGrouping.InventoryPeer> peers = new ArrayList<>();
+            Map<String, InventoriedFile> inventory = new LinkedHashMap<>();
+            Set<String> scannedPaths = new HashSet<>();
+            int songsUpdated = 0;
+            int filesScanned = 0;
+
+            int total = files.size();
+            int index = 0;
+            for (Path path : files) {
+                index++;
+                String pathStr = normalizePath(path).toString();
+                scannedPaths.add(pathStr);
+                PathClass classification = classifyPath(
+                        pathStr, roots.libraryRoots(), roots.setRoots(), roots.excludePaths());
+                AbcFileMetadata metadata;
+                try {
+                    metadata = parseFile(path);
+                } catch (IOException | RuntimeException ex) {
+                    continue;
+                }
+                String mtime = fileMtime(path);
+                String fileHash = fileHash(path);
+                String fingerprint = ContentFingerprint.compute(metadata, null);
+                Long songId = findSongIdByPath(pathStr);
+                boolean indexed = songId != null;
+
+                if (indexed) {
+                    ensureSongFromParsed(
+                            metadata, pathStr, mtime, fileHash, classification, request.defaultStatusId());
+                    filesScanned++;
+                    songsUpdated++;
+                } else {
+                    RenameCandidate rename = findRenameCandidate(pathStr);
+                    if (rename != null) {
+                        relocateSongFile(
+                                rename.songId(), rename.oldPath(), pathStr, metadata, mtime, fileHash,
+                                classification);
+                        songId = rename.songId();
+                        indexed = true;
+                        filesScanned++;
+                        songsUpdated++;
+                    }
+                }
+
+                inventory.put(pathStr, new InventoriedFile(
+                        path, pathStr, metadata, mtime, fileHash, fingerprint, classification, songId, indexed));
+                Path libraryRoot = bestLibraryRoot(path, roots.libraryRoots());
+                peers.add(new DuplicateGrouping.InventoryPeer(
+                        path,
+                        metadata,
+                        fileHash,
+                        fingerprint,
+                        songId,
+                        indexed,
+                        libraryRoot == null ? roots.musicRoot() : libraryRoot,
+                        classification.primaryLibrary()));
+                notifyProgress(progress, new ScanProgress(
+                        filesScanned, 0, songsUpdated, 0,
+                        "Reconcile " + path.getFileName() + " (" + index + "/" + total + ")"));
+            }
+
+            List<DuplicateGrouping.IndexedAssociation> associations =
+                    loadIndexedAssociations(roots.musicRoot());
+            List<DuplicateGroup> groups = DuplicateGrouping.buildGroups(peers, associations);
+            Set<Path> duplicatePaths = new HashSet<>();
+            for (DuplicateGroup group : groups) {
+                for (DuplicateFile file : group.files()) {
+                    duplicatePaths.add(normalizePath(file.path()));
+                }
+            }
+
+            int songsAdded = 0;
+            for (InventoriedFile item : inventory.values()) {
+                if (item.indexed()) {
+                    continue;
+                }
+                if (item.classification().scanExcluded()) {
+                    continue;
+                }
+                // Set-only copies are indexed without duplicate gating
+                if (item.classification().setCopy() && !item.classification().primaryLibrary()) {
+                    ensureSongFromParsed(
+                            item.metadata(), item.pathStr(), item.mtime(), item.fileHash(),
+                            item.classification(), request.defaultStatusId());
+                    songsAdded++;
+                    filesScanned++;
+                    continue;
+                }
+                if (!item.classification().primaryLibrary()) {
+                    continue;
+                }
+                if (duplicatePaths.contains(item.path())) {
+                    continue;
+                }
+                ensureSongFromParsed(
+                        item.metadata(), item.pathStr(), item.mtime(), item.fileHash(),
+                        item.classification(), request.defaultStatusId());
+                songsAdded++;
+                filesScanned++;
             }
 
             int songsRemoved = removeMissingSongFiles(scannedPaths);
             ScanProgress done = new ScanProgress(
                     filesScanned, songsAdded, songsUpdated, songsRemoved,
-                    "Scan complete: " + filesScanned + " file(s), "
+                    "Reconcile complete: " + filesScanned + " file(s), "
                             + songsAdded + " added, "
                             + songsUpdated + " updated, "
                             + songsRemoved + " removed");
             notifyProgress(progress, done);
             return done;
         } catch (SQLException | RuntimeException ex) {
-            throw new LibraryException("Library scan failed: " + ex.getMessage(), ex);
+            throw new LibraryException("Library reconcile failed: " + ex.getMessage(), ex);
         }
+    }
+
+    /** Exposed for tests. */
+    DuplicateAnalysis lastAnalysis() {
+        return lastAnalysis;
+    }
+
+    private Long tryIdentityMove(
+            AbcFileMetadata metadata,
+            String pathStr,
+            String mtime,
+            String fileHash,
+            PathClass classification,
+            Set<String> inventoryPaths) throws SQLException {
+        String normTitle = normalizeTitle(metadata.title());
+        String composers = metadata.composers() == null ? "" : metadata.composers().strip();
+        int partCount = metadata.parts().size();
+        List<Long> existingIds = findSongsByLogicalIdentity(normTitle, composers, partCount);
+        for (long sid : existingIds) {
+            List<String> existingPaths = getFilePathsForSong(sid);
+            List<String> missing = existingPaths.stream()
+                    .filter(p -> !inventoryPaths.contains(normalizePathString(p)))
+                    .toList();
+            if (existingPaths.size() != 1 || missing.size() != 1) {
+                continue;
+            }
+            String oldPath = missing.get(0);
+            // Still on disk ⇒ copy/duplicate, not a move — even if sort order hid it so far.
+            try {
+                if (Files.isRegularFile(Path.of(oldPath))) {
+                    continue;
+                }
+            } catch (RuntimeException ignored) {
+                // treat as missing
+            }
+            relocateSongFile(sid, oldPath, pathStr, metadata, mtime, fileHash, classification);
+            return sid;
+        }
+        return null;
+    }
+
+    /** True when path is the folder or a file/dir strictly inside it (not a sibling like "Main - Copy"). */
+    private static boolean pathHasFolderPrefix(String pathStr, String folderPrefix) {
+        if (pathStr == null || folderPrefix == null) {
+            return false;
+        }
+        if (pathStr.equals(folderPrefix)) {
+            return true;
+        }
+        return pathStr.startsWith(folderPrefix + "\\") || pathStr.startsWith(folderPrefix + "/");
+    }
+
+    private Long findSingleSongIdInGroup(String groupId) {
+        if (lastAnalysis == null) {
+            return null;
+        }
+        for (DuplicateGroup group : lastAnalysis.groups()) {
+            if (!group.groupId().equals(groupId)) {
+                continue;
+            }
+            List<Long> ids = group.files().stream()
+                    .map(DuplicateFile::currentSongId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            return ids.size() == 1 ? ids.get(0) : null;
+        }
+        return null;
+    }
+
+    private ScanRoots resolveRoots(ScanRequest request, Consumer<ScanProgress> progress) throws SQLException {
+        Path musicRoot = request.lotroRoot().resolve("Music");
+        List<Path> libraryRoots = new ArrayList<>();
+        if (Files.isDirectory(musicRoot)) {
+            libraryRoots.add(normalizePath(musicRoot));
+            musicRoot = normalizePath(musicRoot);
+        } else {
+            musicRoot = null;
+        }
+
+        Path setRoot = resolveSetExportDir(request.setExportDir(), musicRoot == null
+                ? request.lotroRoot().resolve("Music")
+                : musicRoot);
+        Path musicForExclude = musicRoot == null ? request.lotroRoot().resolve("Music") : musicRoot;
+        if (setRoot != null && !isUnderMusicRoot(setRoot, musicForExclude)) {
+            notifyProgress(progress, new ScanProgress(
+                    0, 0, 0, 0,
+                    "Warning: set export dir is outside Music — not excluded from scan ("
+                            + setRoot + ")"));
+            setRoot = null;
+        } else if (setRoot != null && !Files.isDirectory(setRoot)) {
+            notifyProgress(progress, new ScanProgress(
+                    0, 0, 0, 0,
+                    "Warning: set export dir not found — not excluded from scan ("
+                            + setRoot + ")"));
+            setRoot = null;
+        }
+        List<Path> setRoots = new ArrayList<>();
+        if (setRoot != null) {
+            setRoots.add(normalizePath(setRoot));
+        }
+        List<Path> excludePaths = loadExcludePaths(musicForExclude, setRoot);
+        return new ScanRoots(musicRoot, libraryRoots, setRoots, excludePaths);
+    }
+
+    private AbcFileMetadata parseFile(Path path) throws IOException {
+        return parser.parse(path, name -> {
+            try {
+                return resolveInstrumentId(name);
+            } catch (SQLException ex) {
+                throw new RuntimeException(ex);
+            }
+        });
+    }
+
+    private List<DuplicateGrouping.IndexedAssociation> loadIndexedAssociations(Path libraryRoot)
+            throws SQLException {
+        List<DuplicateGrouping.IndexedAssociation> out = new ArrayList<>();
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                """
+                        SELECT s.id, sf.file_path, s.title, s.composers,
+                               json_array_length(COALESCE(s.parts, '[]'))
+                        FROM Song s
+                        JOIN SongFile sf ON sf.song_id = s.id
+                        WHERE sf.is_primary_library = 1 AND sf.scan_excluded = 0
+                        """);
+             ResultSet rs = statement.executeQuery()) {
+            while (rs.next()) {
+                long songId = rs.getLong(1);
+                String filePath = rs.getString(2);
+                String title = rs.getString(3);
+                String composers = rs.getString(4);
+                int parts = rs.getInt(5);
+                Path path;
+                try {
+                    path = normalizePath(Path.of(filePath));
+                } catch (RuntimeException ex) {
+                    continue;
+                }
+                out.add(new DuplicateGrouping.IndexedAssociation(
+                        songId, path, title, composers, parts, libraryRoot));
+            }
+        }
+        return out;
+    }
+
+    private void addExcludeFolderRule(String path) throws SQLException {
+        String now = Instant.now().toString();
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                """
+                        INSERT INTO FolderRule (rule_type, path, enabled, include_in_export, created_at, updated_at)
+                        VALUES ('exclude', ?, 1, 0, ?, ?)
+                        """)) {
+            statement.setString(1, path);
+            statement.setString(2, now);
+            statement.setString(3, now);
+            statement.executeUpdate();
+        }
+    }
+
+    private static String musicRelativeRulePath(Path musicRoot, Path folder) {
+        if (musicRoot != null) {
+            try {
+                Path rel = normalizePath(musicRoot).relativize(normalizePath(folder));
+                return rel.toString().replace('\\', '/');
+            } catch (RuntimeException ignored) {
+                // fall through
+            }
+        }
+        return normalizePath(folder).toString();
+    }
+
+    private int deleteSongFilesUnder(String folderPrefix) throws SQLException {
+        int songsBefore = countSongs();
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                "SELECT id, file_path FROM SongFile");
+             ResultSet rs = statement.executeQuery()) {
+            List<Long> ids = new ArrayList<>();
+            while (rs.next()) {
+                String filePath = rs.getString(2);
+                if (filePath != null && pathHasFolderPrefix(filePath, folderPrefix)) {
+                    ids.add(rs.getLong(1));
+                }
+            }
+            try (PreparedStatement delete = database.connection().prepareStatement(
+                    "DELETE FROM SongFile WHERE id = ?")) {
+                for (Long id : ids) {
+                    delete.setLong(1, id);
+                    delete.executeUpdate();
+                }
+            }
+        }
+        cleanupOrphanedSongs();
+        return Math.max(0, songsBefore - countSongs());
+    }
+
+    private void deleteSongFileByPath(String pathStr) throws SQLException {
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                "DELETE FROM SongFile WHERE file_path = ?")) {
+            statement.setString(1, pathStr);
+            statement.executeUpdate();
+        }
+        cleanupOrphanedSongs();
+    }
+
+    private void trashAbcFilesUnder(Path folder, List<String> errors) {
+        if (!Files.isDirectory(folder)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(folder)) {
+            List<Path> abcFiles = walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".abc"))
+                    .sorted(Comparator.reverseOrder())
+                    .toList();
+            for (Path abc : abcFiles) {
+                try {
+                    trashService.moveToTrash(abc);
+                } catch (Exception ex) {
+                    errors.add("Failed to trash " + abc + ": " + ex.getMessage());
+                }
+            }
+        } catch (IOException ex) {
+            errors.add("Failed to walk " + folder + ": " + ex.getMessage());
+        }
+    }
+
+    private static boolean isDirectoryEmptyOfAbc(Path folder) throws IOException {
+        try (Stream<Path> walk = Files.walk(folder)) {
+            return walk.filter(Files::isRegularFile)
+                    .noneMatch(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".abc"));
+        }
+    }
+
+    private void insertSongFileOnly(
+            long songId,
+            String filePath,
+            String fileMtime,
+            String fileHash,
+            AbcFileMetadata metadata,
+            PathClass classification) throws SQLException {
+        String now = Instant.now().toString();
+        try (PreparedStatement insertFile = database.connection().prepareStatement(
+                """
+                        INSERT INTO SongFile (song_id, file_path, file_mtime, file_hash, export_timestamp,
+                           is_primary_library, is_set_copy, scan_excluded, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """)) {
+            insertFile.setLong(1, songId);
+            insertFile.setString(2, filePath);
+            insertFile.setString(3, fileMtime);
+            insertFile.setString(4, fileHash);
+            insertFile.setString(5, metadata.exportTimestamp());
+            insertFile.setInt(6, classification.primaryLibrary() ? 1 : 0);
+            insertFile.setInt(7, classification.setCopy() ? 1 : 0);
+            insertFile.setInt(8, classification.scanExcluded() ? 1 : 0);
+            insertFile.setString(9, now);
+            insertFile.setString(10, now);
+            insertFile.executeUpdate();
+        }
+    }
+
+    private Long findSongIdByPath(String pathStr) throws SQLException {
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                "SELECT song_id FROM SongFile WHERE file_path = ?")) {
+            statement.setString(1, pathStr);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getLong(1);
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Path bestLibraryRoot(Path path, List<Path> libraryRoots) {
+        Path best = null;
+        int bestLen = -1;
+        Path normalized = normalizePath(path);
+        for (Path root : libraryRoots) {
+            Path nr = normalizePath(root);
+            if (normalized.startsWith(nr) && nr.toString().length() > bestLen) {
+                best = nr;
+                bestLen = nr.toString().length();
+            }
+        }
+        return best;
     }
 
     private static void notifyProgress(Consumer<ScanProgress> progress, ScanProgress value) {
@@ -265,7 +844,6 @@ public final class SqliteLibraryScanService implements LibraryScanService {
             return null;
         }
         Path p = Path.of(raw);
-        // Relative values are Music-relative (never process CWD), matching LotroPaths.
         if (!p.isAbsolute()) {
             p = musicRoot.resolve(p);
         }
@@ -300,7 +878,6 @@ public final class SqliteLibraryScanService implements LibraryScanService {
                     } else {
                         continue;
                     }
-                    // Only Music-tree excludes apply to library scan (Python parity intent).
                     if (isUnderMusicRoot(resolved, musicRoot)) {
                         excludes.add(resolved);
                     }
@@ -428,16 +1005,6 @@ public final class SqliteLibraryScanService implements LibraryScanService {
         }
     }
 
-    private boolean songFileExists(String pathStr) throws SQLException {
-        try (PreparedStatement statement = database.connection().prepareStatement(
-                "SELECT 1 FROM SongFile WHERE file_path = ?")) {
-            statement.setString(1, pathStr);
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next();
-            }
-        }
-    }
-
     private RenameCandidate findRenameCandidate(String newPath) throws SQLException {
         Path parent;
         try {
@@ -505,20 +1072,6 @@ public final class SqliteLibraryScanService implements LibraryScanService {
             }
         }
         return paths;
-    }
-
-    private String loadSongTitle(long songId) throws SQLException {
-        try (PreparedStatement statement = database.connection().prepareStatement(
-                "SELECT title FROM Song WHERE id = ?")) {
-            statement.setLong(1, songId);
-            try (ResultSet rs = statement.executeQuery()) {
-                if (rs.next()) {
-                    String title = rs.getString(1);
-                    return title == null ? "" : title;
-                }
-            }
-        }
-        return "";
     }
 
     private long ensureSongFromParsed(
@@ -884,12 +1437,22 @@ public final class SqliteLibraryScanService implements LibraryScanService {
     private record RenameCandidate(long songId, String oldPath) {
     }
 
-    private record DeferredDuplicate(
+    private record InventoriedFile(
+            Path path,
             String pathStr,
             AbcFileMetadata metadata,
             String mtime,
             String fileHash,
+            String fingerprint,
             PathClass classification,
-            List<Long> existingIds) {
+            Long songId,
+            boolean indexed) {
+    }
+
+    private record ScanRoots(
+            Path musicRoot,
+            List<Path> libraryRoots,
+            List<Path> setRoots,
+            List<Path> excludePaths) {
     }
 }
