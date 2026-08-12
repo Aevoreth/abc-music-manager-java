@@ -2,6 +2,10 @@
 
 All notable changes to ABC Music Manager are documented here. Most recent at the top.
 
+## Unreleased
+
+- Added User Guide with in-app viewer
+
 ## Version 0.3.1b
 
 - Fixed an issue with relay workers not being able to be deployed from built executables due to the required scripts and worker not being bundled with the app.
