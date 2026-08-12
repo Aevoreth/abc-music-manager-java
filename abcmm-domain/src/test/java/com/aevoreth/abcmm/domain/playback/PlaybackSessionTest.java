@@ -139,6 +139,11 @@ class PlaybackSessionTest {
         }
 
         @Override
+        public void panic() {
+            stop();
+        }
+
+        @Override
         public void seek(Duration position) {
         }
 

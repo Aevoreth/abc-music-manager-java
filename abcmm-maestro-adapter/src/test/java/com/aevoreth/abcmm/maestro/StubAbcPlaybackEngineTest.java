@@ -1,5 +1,6 @@
 package com.aevoreth.abcmm.maestro;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,6 +43,19 @@ class StubAbcPlaybackEngineTest {
             assertEquals(25, engine.getStereo());
             engine.stop();
             assertEquals(PlaybackState.STOPPED, engine.getState());
+            engine.play();
+            engine.panic();
+            assertEquals(PlaybackState.STOPPED, engine.getState());
+            assertEquals(Duration.ZERO, engine.getPosition().position());
+        }
+    }
+
+    @Test
+    void panicBeforeLoadIsNoOp() {
+        try (StubAbcPlaybackEngine engine = new StubAbcPlaybackEngine()) {
+            assertEquals(PlaybackState.IDLE, engine.getState());
+            assertDoesNotThrow(engine::panic);
+            assertEquals(PlaybackState.IDLE, engine.getState());
         }
     }
 

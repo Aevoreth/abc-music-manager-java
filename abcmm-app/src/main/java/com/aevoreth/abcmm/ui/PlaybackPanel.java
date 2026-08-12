@@ -72,6 +72,8 @@ public final class PlaybackPanel extends JPanel {
     private static final int TEMPO_CENTER = 100;
     /** Magnetic zone around 100% so the slider lightly snaps to normal tempo. */
     private static final int TEMPO_SNAP_THRESHOLD = 3;
+    /** Defer single-click stop so a double-click can panic instead (Python parity). */
+    private static final int STOP_DOUBLE_CLICK_MS = 250;
     private static final int DEFAULT_STEREO = 50;
     /** Java-only extras key for the parts/playlist dialog size. */
     static final String LIST_SIZE_PREF_KEY = "java_playback_parts_playlist_size";
@@ -126,6 +128,7 @@ public final class PlaybackPanel extends JPanel {
     private boolean suppressVolume;
     private boolean suppressListSizePersist;
     private final Timer positionTimer;
+    private final Timer stopClickTimer;
 
     public PlaybackPanel() {
         super(new BorderLayout(6, 4));
@@ -146,7 +149,7 @@ public final class PlaybackPanel extends JPanel {
 
         styleTransportButton(prevButton, "Previous");
         styleTransportButton(playPauseButton, "Play / Pause");
-        styleTransportButton(stopButton, "Stop");
+        styleTransportButton(stopButton, "Stop (double-click for MIDI panic)");
         styleTransportButton(nextButton, "Next");
         styleTransportButton(listButton, "Show / hide parts and playlist");
 
@@ -199,6 +202,9 @@ public final class PlaybackPanel extends JPanel {
         center.add(Box.createVerticalStrut(4));
         center.add(bottom);
         add(center, BorderLayout.CENTER);
+
+        stopClickTimer = new Timer(STOP_DOUBLE_CLICK_MS, e -> runSafe(() -> session.engine().stop()));
+        stopClickTimer.setRepeats(false);
 
         buildListDialogContent();
         wireControls();
@@ -380,7 +386,15 @@ public final class PlaybackPanel extends JPanel {
 
         prevButton.addActionListener(e -> runSafe(() -> session.previous()));
         nextButton.addActionListener(e -> runSafe(() -> session.next()));
-        stopButton.addActionListener(e -> runSafe(() -> session.engine().stop()));
+        stopButton.addActionListener(e -> onStopClicked());
+        stopButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() >= 2) {
+                    onStopDoubleClicked();
+                }
+            }
+        });
         playPauseButton.addActionListener(e -> runSafe(this::togglePlayPause));
         listButton.addActionListener(e -> {
             if (listButton.isSelected()) {
@@ -393,6 +407,19 @@ public final class PlaybackPanel extends JPanel {
         tempoSlider.addChangeListener(tempoListener());
         stereoSlider.addChangeListener(stereoListener());
         volumeSlider.addChangeListener(volumeListener());
+    }
+
+    /**
+     * Single-click defers stop so a double-click can cancel it and panic instead.
+     * Swing fires the button action on mouse-release, then {@code mouseClicked}.
+     */
+    private void onStopClicked() {
+        stopClickTimer.restart();
+    }
+
+    private void onStopDoubleClicked() {
+        stopClickTimer.stop();
+        runSafe(() -> session.engine().panic());
     }
 
     private ChangeListener tempoListener() {

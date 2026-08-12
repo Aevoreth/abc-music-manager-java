@@ -31,7 +31,7 @@ Bandleader library and live-set edition (see [CHANGELOG.md](CHANGELOG.md)):
 - Library scan, filters/search, song detail (including ABC metadata write-back), duplicate review
 - Setlists, set export, ABCP, PluginData / Songbook
 - Players, bands, layout grids, setlist part assignments
-- Maestro ABC audition (`LotroAbcPlaybackEngine`) with mute/solo, tempo, stereo, volume
+- Maestro ABC audition (`LotroAbcPlaybackEngine`) with mute/solo, tempo, stereo, volume, MIDI panic
 - Set Play + Cloudflare relay + Band Assistant (`--assistant` or browser `/playback`)
 - In-app User Guide (**Help → User Guide**)
 - Windows zip + MSI via tag-push GitHub Actions

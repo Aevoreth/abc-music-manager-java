@@ -70,6 +70,24 @@ class LotroAbcPlaybackEngineTest {
             assertTrue(engine.getPosition().position().toMillis() >= 0);
             engine.stop();
             assertEquals(PlaybackState.STOPPED, engine.getState());
+            engine.play();
+            engine.panic();
+            assertEquals(PlaybackState.STOPPED, engine.getState());
+        }
+    }
+
+    @Test
+    void panicBeforeLoadDoesNotThrowWhenMidiAvailable() throws Exception {
+        LotroAbcPlaybackEngine engine;
+        try {
+            engine = new LotroAbcPlaybackEngine();
+        } catch (MidiUnavailableException | RuntimeException ex) {
+            assumeTrue(false, "MIDI unavailable: " + ex.getMessage());
+            return;
+        }
+        try (engine) {
+            engine.panic();
+            assertEquals(PlaybackState.IDLE, engine.getState());
         }
     }
 }

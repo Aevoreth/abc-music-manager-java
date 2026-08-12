@@ -90,7 +90,7 @@ This edition does **not** bundle the ~200MB soundfont.
 Via `abcmm-maestro-adapter` only:
 
 - Parse/load ABC through Maestro APIs wrapped as `AbcPlaybackEngine`
-- Drive play / pause / stop / seek / mute / solo / volume / tempo
+- Drive play / pause / stop / panic / seek / mute / solo / volume / tempo
 - Rely on `LotroSequencerWrapper.injectPatchChanges` for seek / 16+ channel patch+pan restoration
 
 Public types returned to the app are ABCMM domain objects only.

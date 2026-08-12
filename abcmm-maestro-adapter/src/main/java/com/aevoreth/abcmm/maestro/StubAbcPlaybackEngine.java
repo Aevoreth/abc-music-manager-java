@@ -82,6 +82,13 @@ public final class StubAbcPlaybackEngine implements AbcPlaybackEngine {
     }
 
     @Override
+    public void panic() throws PlaybackException {
+        if (loadedSong != null) {
+            stop();
+        }
+    }
+
+    @Override
     public void seek(Duration newPosition) throws PlaybackException {
         requireLoaded("seek");
         Objects.requireNonNull(newPosition, "position");

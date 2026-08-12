@@ -33,6 +33,12 @@ See [Playback bar](playback.md) and [ABC Playback settings](settings/abc-playbac
 
 ---
 
+## Playback: hanging notes {#playback-hanging-notes}
+
+If a note keeps sounding after Stop, double-click **Stop** to send MIDI panic (all notes off on every channel).
+
+---
+
 ## ABC file not found when playing
 
 The database path may be stale if files moved. Re-scan the library. If duplicates were resolved, ensure the kept copy still exists and was not moved to the Recycle Bin.

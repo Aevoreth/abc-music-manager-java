@@ -13,7 +13,7 @@ Playback converts ABC to MIDI internally and plays it through a synthesizer usin
 | **Scrub bar** | Seek within the current song |
 | **Previous** | Go to the previous queue item (or restart when appropriate) |
 | **Play / Pause** | Start, pause, or resume playback |
-| **Stop** | Stop playback |
+| **Stop** | Stop playback; double-click for MIDI panic (silences hanging notes) |
 | **Next** | Next track in the playlist |
 | **Parts / Playlist** | Open the parts mute/solo and queue dialog |
 | **Tempo** | Slider (about 50%–200%; snaps near 100%) |
@@ -46,7 +46,7 @@ The bar’s **Stereo** slider is width only: **0 = mono**, **100 = full stereo**
 
 Playback uses a configurable soundfont (SF2). Leave the path empty in Settings to use automatic lookup (often under `%LOCALAPPDATA%\MaestroCommon`) or a download prompt.
 
-If playback fails silently, check [Troubleshooting → Playback](troubleshooting.md#playback-no-sound).
+If playback fails silently, check [Troubleshooting → Playback](troubleshooting.md#playback-no-sound). If a note keeps sounding after Stop, [double-click Stop for MIDI panic](troubleshooting.md#playback-hanging-notes).
 
 ---
 

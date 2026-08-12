@@ -17,6 +17,12 @@ public interface AbcPlaybackEngine extends AutoCloseable {
 
     void stop() throws PlaybackException;
 
+    /**
+     * MIDI panic: silence hanging notes on all channels. Stops playback if a song
+     * is loaded. Safe to call when idle (no song loaded).
+     */
+    void panic() throws PlaybackException;
+
     void seek(Duration position) throws PlaybackException;
 
     void setPartMuted(int partIndex, boolean muted) throws PlaybackException;

@@ -14,7 +14,9 @@ import java.util.logging.Logger;
 
 import javax.sound.midi.InvalidMidiDataException;
 import javax.sound.midi.MidiEvent;
+import javax.sound.midi.MidiMessage;
 import javax.sound.midi.MidiUnavailableException;
+import javax.sound.midi.Receiver;
 import javax.sound.midi.Sequence;
 import javax.sound.midi.ShortMessage;
 import javax.sound.midi.Track;
@@ -31,7 +33,9 @@ import com.aevoreth.abcmm.domain.playback.PlaybackState;
 import com.digero.common.abctomidi.AbcInfo;
 import com.digero.common.abctomidi.AbcToMidi;
 import com.digero.common.midi.LotroSequencerWrapper;
+import com.digero.common.midi.LotroShortMessage;
 import com.digero.common.midi.MidiConstants;
+import com.digero.common.midi.MidiFactory;
 import com.digero.common.midi.MidiUtils;
 import com.digero.common.midi.PanGenerator;
 import com.digero.common.midi.SequencerEvent.SequencerProperty;
@@ -46,6 +50,8 @@ import com.digero.common.util.SoundFontDownloader;
 public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
 
     private static final Logger LOG = Logger.getLogger(LotroAbcPlaybackEngine.class.getName());
+    /** MIDI CC 120 — All Sound Off. Not in Maestro {@link MidiConstants}. */
+    private static final int ALL_SOUND_OFF = 0x78;
 
     private final LotroSequencerWrapper sequencer;
     private final VolumeTransceiver volumeTransceiver;
@@ -180,6 +186,47 @@ public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
         state = PlaybackState.STOPPED;
         fire(PlaybackEventType.STATE_CHANGED);
         fire(PlaybackEventType.POSITION_CHANGED);
+    }
+
+    @Override
+    public void panic() throws PlaybackException {
+        ensureOpen();
+        if (loadedSong != null && sequencer.getSequence() != null) {
+            stop();
+        }
+        sendMidiPanic();
+    }
+
+    /**
+     * Silence hanging notes on every LOTRO ABC channel (0–24), matching Python
+     * TinySoundFont {@code sounds_off} including channels 16–24.
+     */
+    private void sendMidiPanic() {
+        Receiver receiver = sequencer.getReceiver();
+        if (receiver == null) {
+            return;
+        }
+        for (int channel = 0; channel < MidiConstants.CHANNEL_COUNT_ABC; channel++) {
+            try {
+                receiver.send(MidiFactory.createSustainOff(channel), -1L);
+                receiver.send(createControlChange(channel, ALL_SOUND_OFF, 0), -1L);
+                receiver.send(MidiFactory.createAllNotesOff(channel), -1L);
+                LotroShortMessage noteOff = new LotroShortMessage();
+                for (int note = MidiConstants.LOWEST_NOTE_ID; note <= MidiConstants.HIGHEST_NOTE_ID; note++) {
+                    noteOff.setMessage(ShortMessage.NOTE_OFF, channel, note, 0);
+                    receiver.send(noteOff, -1L);
+                }
+            } catch (InvalidMidiDataException | RuntimeException ex) {
+                LOG.log(Level.FINE, "MIDI panic failed on channel " + channel, ex);
+            }
+        }
+    }
+
+    private static MidiMessage createControlChange(int channel, int controller, int value)
+            throws InvalidMidiDataException {
+        LotroShortMessage msg = new LotroShortMessage();
+        msg.setMessage(ShortMessage.CONTROL_CHANGE, channel, controller, value);
+        return msg;
     }
 
     @Override

@@ -4,6 +4,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+- Added MIDI panic (double-click Stop) to silence hanging notes
 - Added User Guide with in-app viewer
 - Added Help → About (version, MIT license, third-party credits)
 - Aligned Maven project version with 0.3.x numbering (`0.3.2-SNAPSHOT`)
