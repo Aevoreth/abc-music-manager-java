@@ -6,6 +6,8 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Point;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.Instant;
@@ -49,6 +51,7 @@ import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
+import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
@@ -63,6 +66,9 @@ import com.aevoreth.abcmm.domain.setplay.SetPlaySessionState;
  */
 public final class SetPlayPanel extends JPanel {
 
+    /** Extras key in preferences.json for Set Play divider sizes. */
+    static final String SPLIT_PREF_KEY = "set_play_splitter_state";
+
     private static final int COL_STATUS = 0;
     private static final int COL_SKIP = 1;
     private static final int COL_TITLE = 2;
@@ -75,16 +81,24 @@ public final class SetPlayPanel extends JPanel {
     private static final Color STATUS_NEXT = new Color(0x5C_9F_D6);
     private static final Color STATUS_SKIP = new Color(0xE0_5A_5A);
 
+    private static final int MAIN_SPLIT_DEFAULT = 320;
+    private static final int MAIN_SPLIT_MIN = 160;
+    private static final int TOP_SPLIT_MIN = 200;
+    private static final int BOTTOM_SPLIT_MIN = 120;
+    private static final int SECONDARY_PANE_MIN = 80;
+
     private SetlistRepository setlistRepository;
     private BandRepository bandRepository;
     private PlayLogRepository playLogRepository;
     private SetPlayLayoutBuilder layoutBuilder;
+    private Preferences preferences;
 
     private SetPlaySessionState session = new SetPlaySessionState(List.of());
     private final List<SetlistItemInfo> songRows = new ArrayList<>();
     private SetlistInfo loadedSetlist;
     private final Set<Long> highlightPlayers = new HashSet<>();
     private boolean checkboxGuard;
+    private boolean splitsRestored;
 
     private final JLabel setlistNameLabel = new JLabel("—");
     private final SetlistPickerCombo setlistCombo = new SetlistPickerCombo();
@@ -99,6 +113,10 @@ public final class SetPlayPanel extends JPanel {
     private final JPanel playersInner = new JPanel();
     private final SetPlayBandGridPanel gridPanel = new SetPlayBandGridPanel();
     private final StatusCellRenderer statusRenderer = new StatusCellRenderer();
+
+    private JSplitPane topSplit;
+    private JSplitPane bottomSplit;
+    private JSplitPane mainSplit;
 
     public SetPlayPanel() {
         super(new BorderLayout(6, 6));
@@ -201,9 +219,10 @@ public final class SetPlayPanel extends JPanel {
         statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         tablePanel.add(statusLabel, BorderLayout.SOUTH);
 
-        JSplitPane topSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, tablePanel);
-        topSplit.setResizeWeight(0.28);
-        topSplit.setContinuousLayout(true);
+        JSplitPane topSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, tablePanel);
+        topSplitPane.setResizeWeight(0.28);
+        topSplitPane.setContinuousLayout(true);
+        topSplit = topSplitPane;
 
         playersInner.setLayout(new BoxLayout(playersInner, BoxLayout.Y_AXIS));
         JScrollPane playersScroll = new JScrollPane(playersInner);
@@ -211,20 +230,50 @@ public final class SetPlayPanel extends JPanel {
         playersScroll.setPreferredSize(new Dimension(180, 200));
         playersScroll.setMinimumSize(new Dimension(140, 120));
 
-        JSplitPane bottomSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, playersScroll, gridPanel);
-        bottomSplit.setResizeWeight(0.22);
-        bottomSplit.setContinuousLayout(true);
+        JSplitPane bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, playersScroll, gridPanel);
+        bottomSplitPane.setResizeWeight(0.22);
+        bottomSplitPane.setContinuousLayout(true);
+        bottomSplit = bottomSplitPane;
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, bottomSplit);
-        mainSplit.setResizeWeight(0.45);
-        mainSplit.setContinuousLayout(true);
-        mainSplit.setDividerLocation(320);
+        JSplitPane mainSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, bottomSplit);
+        mainSplitPane.setResizeWeight(0.45);
+        mainSplitPane.setContinuousLayout(true);
+        mainSplitPane.setDividerLocation(MAIN_SPLIT_DEFAULT);
+        mainSplit = mainSplitPane;
 
         add(mainSplit, BorderLayout.CENTER);
 
         loadBtn.addActionListener(e -> loadSet());
         advanceBtn.addActionListener(e -> advance());
         markSetBtn.addActionListener(e -> markSetAsPlayed());
+
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                maybeRestoreSplits();
+            }
+        });
+    }
+
+    public void setPreferences(Preferences preferences) {
+        this.preferences = preferences;
+        splitsRestored = false;
+        if (isShowing()) {
+            maybeRestoreSplits();
+        }
+    }
+
+    public void persistUiState(Preferences preferences) {
+        if (preferences == null || mainSplit == null || topSplit == null || bottomSplit == null) {
+            return;
+        }
+        Map<String, Object> state = new LinkedHashMap<>();
+        putSplitSizes(state, "main", mainSplit, MAIN_SPLIT_MIN, SECONDARY_PANE_MIN, true);
+        putSplitSizes(state, "top", topSplit, TOP_SPLIT_MIN, SECONDARY_PANE_MIN, false);
+        putSplitSizes(state, "bottom", bottomSplit, BOTTOM_SPLIT_MIN, SECONDARY_PANE_MIN, false);
+        if (!state.isEmpty()) {
+            preferences.extras().put(SPLIT_PREF_KEY, state);
+        }
     }
 
     public void bind(
@@ -268,7 +317,91 @@ public final class SetPlayPanel extends JPanel {
 
     public void onShown() {
         refreshSetlistPicker();
+        maybeRestoreSplits();
         SwingUtilities.invokeLater(gridPanel::fitCardsToView);
+    }
+
+    private void maybeRestoreSplits() {
+        if (splitsRestored || mainSplit == null) {
+            return;
+        }
+        if (mainSplit.getHeight() <= 0 || topSplit.getWidth() <= 0 || bottomSplit.getWidth() <= 0) {
+            return;
+        }
+        restoreSplits();
+        splitsRestored = true;
+    }
+
+    private void restoreSplits() {
+        Map<String, Object> saved = asStringKeyedMap(
+                preferences == null ? null : preferences.extras().get(SPLIT_PREF_KEY));
+        applySplitDivider(mainSplit, saved == null ? null : saved.get("main"), MAIN_SPLIT_DEFAULT, MAIN_SPLIT_MIN, true);
+        applySplitDivider(topSplit, saved == null ? null : saved.get("top"), -1, TOP_SPLIT_MIN, false);
+        applySplitDivider(bottomSplit, saved == null ? null : saved.get("bottom"), -1, BOTTOM_SPLIT_MIN, false);
+    }
+
+    private static void putSplitSizes(
+            Map<String, Object> state,
+            String key,
+            JSplitPane split,
+            int firstMin,
+            int secondMin,
+            boolean vertical) {
+        int first = split.getDividerLocation();
+        int total = vertical ? split.getHeight() : split.getWidth();
+        int second = Math.max(0, total - first - split.getDividerSize());
+        if (total > 0 && first >= firstMin && second >= secondMin) {
+            state.put(key, List.of(first, second));
+        }
+    }
+
+    private static void applySplitDivider(
+            JSplitPane split, Object raw, int defaultDivider, int firstMin, boolean vertical) {
+        List<Integer> sizes = asIntegerList(raw);
+        int divider = defaultDivider;
+        if (sizes != null && !sizes.isEmpty() && sizes.get(0) != null && sizes.get(0) >= firstMin) {
+            divider = sizes.get(0);
+            int total = vertical ? split.getHeight() : split.getWidth();
+            int max = Math.max(firstMin, total - split.getDividerSize() - SECONDARY_PANE_MIN);
+            divider = Math.min(divider, max);
+        }
+        if (divider >= firstMin) {
+            split.setDividerLocation(divider);
+        }
+    }
+
+    private static Map<String, Object> asStringKeyedMap(Object value) {
+        if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (entry.getKey() != null) {
+                out.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    private static List<Integer> asIntegerList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return null;
+        }
+        List<Integer> out = new ArrayList<>(list.size());
+        for (Object item : list) {
+            if (item instanceof Number number) {
+                out.add(number.intValue());
+            } else if (item instanceof String text) {
+                try {
+                    out.add(Integer.parseInt(text.trim()));
+                } catch (NumberFormatException ignored) {
+                    out.add(null);
+                }
+            } else {
+                out.add(null);
+            }
+        }
+        return out;
     }
 
     private Long selectedSetlistId() {

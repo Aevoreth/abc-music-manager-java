@@ -148,6 +148,7 @@ public final class MainFrame extends JFrame {
         setlistsPanel.setPreferencesStore(preferencesStore);
         bandsPanel = new BandsPanel();
         setPlayPanel = new SetPlayPanel();
+        setPlayPanel.setPreferences(preferences);
         playbackPanel = new PlaybackPanel();
         statusBar = new StatusBar();
 
@@ -617,6 +618,7 @@ public final class MainFrame extends JFrame {
     private void applySavedPreferences(Preferences updated) {
         preferences = updated;
         setlistsPanel.setPreferences(preferences);
+        setPlayPanel.setPreferences(preferences);
         playbackPanel.updatePreferences(preferences);
         try {
             preferencesStore.save(preferences);
@@ -676,6 +678,7 @@ public final class MainFrame extends JFrame {
         preferences.extras().remove("java_nav_splitter");
         preferences.extras().put("library_table_header_state", libraryPanel.captureHeaderState());
         setlistsPanel.persistUiState(preferences);
+        setPlayPanel.persistUiState(preferences);
         playbackPanel.persistUiState(preferences);
         try {
             preferencesStore.save(preferences);
