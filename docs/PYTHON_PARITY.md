@@ -27,7 +27,7 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 | Set Play (live set session) | Complete | Complete | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid (Java Maestro grid styling). Broadcast via Cloudflare relay |
 | Relay / group playback | Complete | Complete | Preserve protocol where practical | Cloudflare Worker relay (`workers/set-play-relay`); Band Assistant tab / `--assistant`; browser follower `/playback` |
 | Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays CRUD + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
-| Help / About | Complete | Complete | Own identity | **Help → User Guide** in both. **Help → About** shows version, MIT license, and third-party credits (Java: FlatLaf, Maestro, soundfont, SQLite JDBC, Jackson, commonmark). Unpackaged runs show version `development`; packaged builds use `Implementation-Version` |
+| Help / About | Complete | Complete | Own identity | **Help → User Guide** in both. **Help → About** shows version, MIT license, and third-party credits (Java: FlatLaf, Maestro, soundfont, SQLite JDBC, Jackson, commonmark). Unpackaged runs show version `development`; packaged builds use Maven `Implementation-Version` |
 | Themes | Complete (LOTRO-inspired Qt) | Complete (Maestro FlatLaf) | Own visual identity | Java targets Maestro/ABC Player Flat Dark / Flat Light via FlatLaf (Appearance); not a port of Python’s LOTRO Qt theme. Future theme revisit possible |
 | Packaging | Complete (PyInstaller, Win/macOS/Linux) | Complete (Windows zip + MSI) | Own installer | Tag-push GitHub Actions (`jpackage` + trimmed jlink runtime); `ABC-Music-Manager-<version>.zip` / `.msi`. Must not package Python app or Maestro/ABC Player/ABC Tools launchers. macOS/Linux installers and code signing are not in this edition |
 | Database compatibility | Complete (SQLite v12) | Complete (R/W) | Open existing DB where practical | Creates/migrates to v12; opens shared DB read-write; interchangeable with Python |
@@ -59,14 +59,13 @@ suggestions, not a committed roadmap.
 
 7. **macOS and Linux packages** — Python ships via PyInstaller on three platforms; Java release CI is Windows zip + MSI only. Source still runs anywhere JDK 21 + Maven work.
 8. **Code signing** — Windows artifacts are unsigned (SmartScreen warnings). Signing would be a release-ops requirement, not a feature gap.
-9. **Align Maven `${project.version}` with release tags** — Modules are still `0.1.0-SNAPSHOT` while CHANGELOG / GitHub Releases use 0.3.x. The in-app User Guide and **Help → About** read `Implementation-Version` from the package manifest.
-10. **Headless CI playback tests** — Still deferred in [MAESTRO_INTEGRATION.md](MAESTRO_INTEGRATION.md) (no audio device in CI).
+9. **Headless CI playback tests** — Still deferred in [MAESTRO_INTEGRATION.md](MAESTRO_INTEGRATION.md) (no audio device in CI).
 
 ### Original requirements neither edition fully met
 
-11. **Filesystem watching** — `REQUIREMENTS.md` §3: optional low-latency rescan. Neither edition watches the Music tree; users re-run **Scan Library**.
-12. **Multiple extra library roots** — Requirements mention more than one Music root. Both editions scan LOTRO `Music\` plus folder-rule excludes / set-export skip, not an arbitrary extra-roots list.
-13. **Compact library drag onto a setlist** — Requirements mentioned drag from a compact browser; both editions use a filterable song picker instead.
+10. **Filesystem watching** — `REQUIREMENTS.md` §3: optional low-latency rescan. Neither edition watches the Music tree; users re-run **Scan Library**.
+11. **Multiple extra library roots** — Requirements mention more than one Music root. Both editions scan LOTRO `Music\` plus folder-rule excludes / set-export skip, not an arbitrary extra-roots list.
+12. **Compact library drag onto a setlist** — Requirements mentioned drag from a compact browser; both editions use a filterable song picker instead.
 
 ### Shared schema (coordinate with any remaining Python users)
 

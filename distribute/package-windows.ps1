@@ -4,7 +4,7 @@
   Build self-contained Windows ZIP + MSI for ABC Music Manager via jpackage.
 
 .PARAMETER Version
-  App version for --app-version and artifact names (e.g. 0.1.0). Must be numeric x.y.z.
+  App version for --app-version and artifact names (e.g. 0.3.2). Must be numeric x.y.z.
 
 .PARAMETER Jar
   Path to the shaded fat JAR (abc-music-manager.jar).
@@ -27,7 +27,7 @@ function Require-Command([string] $Name) {
 }
 
 if ($Version -notmatch '^\d+(\.\d+){1,3}$') {
-    throw "Version must be numeric like 0.1.0 (got: $Version)"
+    throw "Version must be numeric like 0.3.2 (got: $Version)"
 }
 
 $JarPath = (Resolve-Path -LiteralPath $Jar).Path

@@ -6,6 +6,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 - Added User Guide with in-app viewer
 - Added Help → About (version, MIT license, third-party credits)
+- Aligned Maven project version with 0.3.x numbering (`0.3.2-SNAPSHOT`)
 - Updated developer docs for Java as the active full-function edition (parity inventory, README, architecture, storage notes)
 
 ## Version 0.3.1b
