@@ -21,6 +21,13 @@ public final class SetPlaySync {
 
     public static final String STATE_TYPE = "set_play_state_v1";
 
+    /**
+     * Wire payload omits card size (Python {@code LayoutCard} is always fixed). Assistants and
+     * the browser client paint 9×7 @ 15px/unit — same as the Java Set Play grid.
+     */
+    public static final int DEFAULT_CARD_WIDTH_UNITS = 9;
+    public static final int DEFAULT_CARD_HEIGHT_UNITS = 7;
+
     private SetPlaySync() {
     }
 
@@ -149,8 +156,8 @@ public final class SetPlaySync {
                     str(d.get("player_name"), ""),
                     toInt(d.get("x"), 0),
                     toInt(d.get("y"), 0),
-                    1,
-                    1,
+                    Math.max(1, toInt(d.get("width_units"), DEFAULT_CARD_WIDTH_UNITS)),
+                    Math.max(1, toInt(d.get("height_units"), DEFAULT_CARD_HEIGHT_UNITS)),
                     str(d.get("part_number"), "---"),
                     str(d.get("part_name"), ""),
                     str(d.get("instrument_name"), ""),

@@ -34,7 +34,9 @@ class SetPlaySyncTest {
         state.bumpRevision();
 
         List<SetPlayLayoutCard> cards = List.of(new SetPlayLayoutCard(
-                5L, "Alice", 1, 2, 1, 1, "1", "Melody", "Lute",
+                5L, "Alice", 1, 2,
+                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
+                "1", "Melody", "Lute",
                 false, false, true, "—", "2", true));
 
         Map<String, Object> payload = SetPlaySync.snapshotFromLeader(
@@ -58,24 +60,48 @@ class SetPlaySyncTest {
         assertEquals(1, applied.layoutCards().size());
         assertEquals("Alice", applied.layoutCards().get(0).playerName());
         assertEquals("1", applied.layoutCards().get(0).partNumber());
+        assertEquals(SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, applied.layoutCards().get(0).widthUnits());
+        assertEquals(SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS, applied.layoutCards().get(0).heightUnits());
         assertTrue(applied.layoutCards().get(0).instrumentChangedFromPriorInSet());
     }
 
     @Test
-    void layoutPayloadOmitsSizeUnits() {
+    void layoutPayloadOmitsSizeUnitsDefaultsToStandardCard() {
         SetPlayLayoutCard card = new SetPlayLayoutCard(
                 1L, "Bob", 0, 0, 3, 2, "2", "Harmony", "Harp",
                 true, true, false, "1", "3", false);
         Map<String, Object> m = SetPlaySync.layoutCardsToPayload(List.of(card)).get(0);
         assertNull(m.get("widthUnits"));
         assertNull(m.get("heightUnits"));
+        assertNull(m.get("width_units"));
+        assertNull(m.get("height_units"));
         assertEquals(true, m.get("instrument_warning"));
         assertEquals(true, m.get("part_duplicate"));
 
         SetPlayLayoutCard back = SetPlaySync.layoutCardsFromPayload(List.of(m)).get(0);
-        assertEquals(1, back.widthUnits());
-        assertEquals(1, back.heightUnits());
+        // Wire format matches Python: no size fields; assistants use fixed 9×7 cards.
+        assertEquals(SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, back.widthUnits());
+        assertEquals(SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS, back.heightUnits());
         assertTrue(back.instrumentWarning());
         assertTrue(back.partDuplicate());
+    }
+
+    @Test
+    void layoutPayloadAcceptsOptionalSizeUnits() {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("player_id", 9L);
+        m.put("player_name", "Cara");
+        m.put("x", -4);
+        m.put("y", -3);
+        m.put("width_units", 11);
+        m.put("height_units", 8);
+        m.put("part_number", "3");
+        m.put("part_name", "Bass");
+        m.put("instrument_name", "Theorbo");
+
+        SetPlayLayoutCard back = SetPlaySync.layoutCardsFromPayload(List.of(m)).get(0);
+        assertEquals(11, back.widthUnits());
+        assertEquals(8, back.heightUnits());
+        assertEquals("Cara", back.playerName());
     }
 }
