@@ -72,13 +72,18 @@ import com.aevoreth.abcmm.ui.SongDetailDialog;
 import com.aevoreth.abcmm.ui.StatusBar;
 
 /**
- * Main application window: Library, Setlists, Bands, Set Play, fixed Playback bar, Settings, status bar.
+ * Main application window: Library, Setlists, Bands, Set Play, Band Assistant,
+ * fixed Playback bar, Settings, status bar.
  */
 public final class MainFrame extends JFrame {
 
     public static final String APP_TITLE = "ABC Music Manager";
 
-    private static final String[] NAV_SECTIONS = {"Library", "Setlists", "Bands", "Set Play"};
+    private static final String[] NAV_SECTIONS = {
+            "Library", "Setlists", "Bands", "Set Play", "Band Assistant"
+    };
+    private static final int NAV_SET_PLAY = 3;
+    private static final int NAV_BAND_ASSISTANT = 4;
 
     private final AbcPlaybackEngine playbackEngine;
     private final PlaybackSession playbackSession;
@@ -101,6 +106,7 @@ public final class MainFrame extends JFrame {
     private final SetlistsPanel setlistsPanel;
     private final BandsPanel bandsPanel;
     private final SetPlayPanel setPlayPanel;
+    private final SetPlayPanel bandAssistantPanel;
     private final PlaybackPanel playbackPanel;
     private final StatusBar statusBar;
     private final JTabbedPane navTabs;
@@ -147,8 +153,12 @@ public final class MainFrame extends JFrame {
         setlistsPanel.setPreferences(preferences);
         setlistsPanel.setPreferencesStore(preferencesStore);
         bandsPanel = new BandsPanel();
-        setPlayPanel = new SetPlayPanel();
+        setPlayPanel = new SetPlayPanel(false);
         setPlayPanel.setPreferences(preferences);
+        setPlayPanel.setPreferencesSaver(this::persistPreferencesQuietly);
+        bandAssistantPanel = new SetPlayPanel(true);
+        bandAssistantPanel.setPreferences(preferences);
+        bandAssistantPanel.setPreferencesSaver(this::persistPreferencesQuietly);
         playbackPanel = new PlaybackPanel();
         statusBar = new StatusBar();
 
@@ -157,6 +167,7 @@ public final class MainFrame extends JFrame {
         navTabs.addTab(NAV_SECTIONS[1], setlistsPanel);
         navTabs.addTab(NAV_SECTIONS[2], bandsPanel);
         navTabs.addTab(NAV_SECTIONS[3], setPlayPanel);
+        navTabs.addTab(NAV_SECTIONS[4], bandAssistantPanel);
         currentNavIndex = 0;
         navTabs.addChangeListener(e -> {
             if (suppressNavChange) {
@@ -178,8 +189,10 @@ public final class MainFrame extends JFrame {
             }
             currentNavIndex = selected;
             preferences.extras().put("java_nav_section", selected);
-            if (selected == 3) {
+            if (selected == NAV_SET_PLAY) {
                 setPlayPanel.onShown();
+            } else if (selected == NAV_BAND_ASSISTANT) {
+                bandAssistantPanel.onShown();
             }
         });
 
@@ -298,6 +311,12 @@ public final class MainFrame extends JFrame {
     }
 
     void shutdown() {
+        if (setPlayPanel != null) {
+            setPlayPanel.shutdown();
+        }
+        if (bandAssistantPanel != null) {
+            bandAssistantPanel.shutdown();
+        }
         if (playbackPanel != null) {
             playbackPanel.stopTimers();
         }
@@ -371,8 +390,10 @@ public final class MainFrame extends JFrame {
             } finally {
                 suppressNavChange = false;
             }
-            if (index == 3) {
+            if (index == NAV_SET_PLAY) {
                 setPlayPanel.onShown();
+            } else if (index == NAV_BAND_ASSISTANT) {
+                bandAssistantPanel.onShown();
             }
         }
     }
@@ -407,6 +428,12 @@ public final class MainFrame extends JFrame {
                     songRepository,
                     songLayoutRepository);
             setPlayPanel.bind(
+                    setlistRepository,
+                    bandRepository,
+                    playerRepository,
+                    songLayoutRepository,
+                    playLogRepository);
+            bandAssistantPanel.bind(
                     setlistRepository,
                     bandRepository,
                     playerRepository,
@@ -447,6 +474,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
             setPlayPanel.bind(null, null, null, null, null);
+            bandAssistantPanel.bind(null, null, null, null, null);
             statusBar.setMessage(ex.getMessage());
         }
     }
@@ -608,6 +636,10 @@ public final class MainFrame extends JFrame {
             }
             if (setPlayPanel != null) {
                 setPlayPanel.refreshSetlistPicker();
+                setPlayPanel.refreshRelayPicker();
+            }
+            if (bandAssistantPanel != null) {
+                bandAssistantPanel.refreshRelayPicker();
             }
             statusBar.setMessage("Settings entities updated.");
         } catch (LibraryException ex) {
@@ -619,6 +651,7 @@ public final class MainFrame extends JFrame {
         preferences = updated;
         setlistsPanel.setPreferences(preferences);
         setPlayPanel.setPreferences(preferences);
+        bandAssistantPanel.setPreferences(preferences);
         playbackPanel.updatePreferences(preferences);
         try {
             preferencesStore.save(preferences);
@@ -629,6 +662,8 @@ public final class MainFrame extends JFrame {
         applyPreferencesToUi(true);
         libraryPanel.setDefaultFilters(preferences.defaultFilters());
         libraryPanel.applyDefaultFilters();
+        setPlayPanel.refreshRelayPicker();
+        bandAssistantPanel.refreshRelayPicker();
         statusBar.setMessage("Preferences saved.");
     }
 
@@ -679,6 +714,7 @@ public final class MainFrame extends JFrame {
         preferences.extras().put("library_table_header_state", libraryPanel.captureHeaderState());
         setlistsPanel.persistUiState(preferences);
         setPlayPanel.persistUiState(preferences);
+        bandAssistantPanel.persistUiState(preferences);
         playbackPanel.persistUiState(preferences);
         try {
             preferencesStore.save(preferences);

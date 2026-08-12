@@ -14,11 +14,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
@@ -85,9 +88,11 @@ public final class SettingsDialog extends JDialog {
     private DefaultTableModel folderRulesModel;
     private DefaultTableModel statusesModel;
     private DefaultTableModel accountTargetsModel;
+    private DefaultTableModel setPlayRelaysModel;
     private JTable folderRulesTable;
     private JTable statusesTable;
     private JTable accountTargetsTable;
+    private JTable setPlayRelaysTable;
 
     public SettingsDialog(
             JFrame owner,
@@ -699,24 +704,226 @@ public final class SettingsDialog extends JDialog {
     private JPanel buildSetPlaybackTab() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        panel.add(new JLabel("Set Play relays and deploy wizard are not available in this milestone."),
-                BorderLayout.NORTH);
-        DefaultTableModel model = new DefaultTableModel(new Object[] {"Id", "Name", "URL"}, 0) {
+        JLabel intro = new JLabel("<html>Named relay URLs so each bandleader can use their own Cloudflare worker. "
+                + "Choose the active relay on the Set Play and Band Assistant pages.</html>");
+        panel.add(intro, BorderLayout.NORTH);
+
+        setPlayRelaysModel = new DefaultTableModel(new Object[] {"Name", "URL", "Id"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
-        for (var relay : working.setPlayRelays()) {
-            model.addRow(new Object[] {
-                    String.valueOf(relay.getOrDefault("id", "")),
+        setPlayRelaysTable = new JTable(setPlayRelaysModel);
+        setPlayRelaysTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+        setPlayRelaysTable.getColumnModel().getColumn(0).setPreferredWidth(140);
+        setPlayRelaysTable.getColumnModel().getColumn(1).setPreferredWidth(360);
+        // Keep id column for edit/delete lookup but hide it.
+        setPlayRelaysTable.getColumnModel().getColumn(2).setMinWidth(0);
+        setPlayRelaysTable.getColumnModel().getColumn(2).setMaxWidth(0);
+        setPlayRelaysTable.getColumnModel().getColumn(2).setPreferredWidth(0);
+        refillSetPlayRelaysTable();
+        panel.add(new JScrollPane(setPlayRelaysTable), BorderLayout.CENTER);
+
+        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton add = new JButton("Add relay");
+        JButton edit = new JButton("Edit");
+        JButton delete = new JButton("Delete");
+        JButton deploy = new JButton("Create your own relay (deploy helper)…");
+        add.addActionListener(e -> addSetPlayRelay());
+        edit.addActionListener(e -> editSelectedSetPlayRelay());
+        delete.addActionListener(e -> deleteSelectedSetPlayRelay());
+        deploy.addActionListener(e -> openSetPlayDeployWizard(false));
+        bar.add(add);
+        bar.add(edit);
+        bar.add(delete);
+        bar.add(deploy);
+        panel.add(bar, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private void refillSetPlayRelaysTable() {
+        if (setPlayRelaysModel == null) {
+            return;
+        }
+        setPlayRelaysModel.setRowCount(0);
+        for (Map<String, Object> relay : working.setPlayRelays()) {
+            setPlayRelaysModel.addRow(new Object[] {
                     String.valueOf(relay.getOrDefault("name", "")),
-                    String.valueOf(relay.getOrDefault("url", ""))
+                    String.valueOf(relay.getOrDefault("url", "")),
+                    String.valueOf(relay.getOrDefault("id", ""))
             });
         }
-        panel.add(new JScrollPane(new JTable(model)), BorderLayout.CENTER);
-        panel.add(stubBar("Add / edit relays / Deploy (not available yet)"), BorderLayout.SOUTH);
-        return panel;
+    }
+
+    private void addSetPlayRelay() {
+        Optional<Map<String, Object>> edited = editRelayDialog(null);
+        if (edited.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> relays = new ArrayList<>(working.setPlayRelays());
+        relays.add(edited.get());
+        working.setSetPlayRelays(relays);
+        if (working.setPlaySelectedRelayId() == null || working.setPlaySelectedRelayId().isBlank()) {
+            working.setSetPlaySelectedRelayId(String.valueOf(edited.get().get("id")));
+        }
+        refillSetPlayRelaysTable();
+    }
+
+    private void editSelectedSetPlayRelay() {
+        int row = setPlayRelaysTable == null ? -1 : setPlayRelaysTable.getSelectedRow();
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this, "Select a relay to edit.", "Relay", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        String id = String.valueOf(setPlayRelaysModel.getValueAt(row, 2));
+        Map<String, Object> existing = null;
+        for (Map<String, Object> relay : working.setPlayRelays()) {
+            if (id.equals(String.valueOf(relay.get("id")))) {
+                existing = relay;
+                break;
+            }
+        }
+        if (existing == null) {
+            return;
+        }
+        Optional<Map<String, Object>> edited = editRelayDialog(existing);
+        if (edited.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> relays = new ArrayList<>();
+        for (Map<String, Object> relay : working.setPlayRelays()) {
+            if (id.equals(String.valueOf(relay.get("id")))) {
+                relays.add(edited.get());
+            } else {
+                relays.add(relay);
+            }
+        }
+        working.setSetPlayRelays(relays);
+        refillSetPlayRelaysTable();
+    }
+
+    private void deleteSelectedSetPlayRelay() {
+        int row = setPlayRelaysTable == null ? -1 : setPlayRelaysTable.getSelectedRow();
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this, "Select a relay to delete.", "Relay", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        String id = String.valueOf(setPlayRelaysModel.getValueAt(row, 2));
+        String name = String.valueOf(setPlayRelaysModel.getValueAt(row, 0));
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "Delete relay \"" + name + "\"?",
+                "Delete relay",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+        List<Map<String, Object>> relays = new ArrayList<>();
+        for (Map<String, Object> relay : working.setPlayRelays()) {
+            if (!id.equals(String.valueOf(relay.get("id")))) {
+                relays.add(relay);
+            }
+        }
+        working.setSetPlayRelays(relays);
+        if (id.equals(working.setPlaySelectedRelayId())) {
+            working.setSetPlaySelectedRelayId(relays.isEmpty()
+                    ? null
+                    : String.valueOf(relays.get(0).get("id")));
+        }
+        refillSetPlayRelaysTable();
+    }
+
+    private Optional<Map<String, Object>> editRelayDialog(Map<String, Object> existing) {
+        JTextField nameField = new JTextField(24);
+        JTextField urlField = new JTextField(36);
+        nameField.setText(existing == null ? "" : String.valueOf(existing.getOrDefault("name", "")));
+        urlField.setText(existing == null ? "" : String.valueOf(existing.getOrDefault("url", "")));
+        JPanel form = new JPanel(new GridBagLayout());
+        GridBagConstraints c = formConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        form.add(new JLabel("Name:"), c);
+        c.gridx = 1;
+        form.add(nameField, c);
+        c.gridx = 0;
+        c.gridy = 1;
+        form.add(new JLabel("URL:"), c);
+        c.gridx = 1;
+        form.add(urlField, c);
+        if (existing != null) {
+            c.gridx = 0;
+            c.gridy = 2;
+            c.gridwidth = 2;
+            JButton redeploy = new JButton("Redeploy worker on Cloudflare…");
+            redeploy.setToolTipText(
+                    "Remove the Worker and deploy again from the bundled template. Rarely needed.");
+            redeploy.addActionListener(e -> {
+                int ok = JOptionPane.showConfirmDialog(
+                        this,
+                        "This will run the deploy assistant after attempting to delete the existing Worker.\n\n"
+                                + "You must sign in to Cloudflare with the same account that already hosts this relay.\n\n"
+                                + "Continue?",
+                        "Redeploy relay worker?",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (ok != JOptionPane.YES_OPTION) {
+                    return;
+                }
+                SetPlayRelayDeployWizard wiz = new SetPlayRelayDeployWizard(this, urlField::setText, true);
+                String url = wiz.showAndGetUrl();
+                if (url != null && !url.isBlank()) {
+                    urlField.setText(url);
+                }
+            });
+            form.add(redeploy, c);
+        }
+        int result = JOptionPane.showConfirmDialog(
+                this,
+                form,
+                existing == null ? "Add relay" : "Edit relay",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) {
+            return Optional.empty();
+        }
+        String name = nameField.getText() == null ? "" : nameField.getText().strip();
+        String url = urlField.getText() == null ? "" : urlField.getText().strip().replaceAll("/+$", "");
+        if (name.isEmpty() || url.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Name and URL are required.", "Relay", JOptionPane.WARNING_MESSAGE);
+            return Optional.empty();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", existing == null
+                ? UUID.randomUUID().toString()
+                : String.valueOf(existing.getOrDefault("id", UUID.randomUUID().toString())));
+        out.put("name", name);
+        out.put("url", url);
+        return Optional.of(out);
+    }
+
+    private void openSetPlayDeployWizard(boolean deleteWorkerFirst) {
+        SetPlayRelayDeployWizard wiz = new SetPlayRelayDeployWizard(this, null, deleteWorkerFirst);
+        String url = wiz.showAndGetUrl();
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        Map<String, Object> seed = new LinkedHashMap<>();
+        seed.put("id", UUID.randomUUID().toString());
+        seed.put("name", "My relay");
+        seed.put("url", url);
+        Optional<Map<String, Object>> edited = editRelayDialog(seed);
+        if (edited.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> relays = new ArrayList<>(working.setPlayRelays());
+        relays.add(edited.get());
+        working.setSetPlayRelays(relays);
+        if (working.setPlaySelectedRelayId() == null || working.setPlaySelectedRelayId().isBlank()) {
+            working.setSetPlaySelectedRelayId(String.valueOf(edited.get().get("id")));
+        }
+        refillSetPlayRelaysTable();
     }
 
     private static JPanel formPanel() {

@@ -19,9 +19,9 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
 | Part assignments | Complete | Complete | Preserve stored data | Setlist grid UI with song-layout baseline + overrides; dedicated song-layout library editor deferred (would change DB structure) |
 | ABC audition (audio engine + transport) | Complete (custom TinySoundFont path) | Complete | Use Maestro Java engine | Audible ABC sampling only (not Set Play). `LotroAbcPlaybackEngine`; library/setlist → queue; mute/solo; tempo/stereo/volume transport |
-| Set Play (live set session) | Complete | Complete (solo/local) | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid (Java Maestro grid styling). Relays / Band Assistant still not started |
-| Relay / group playback | Complete | Not started | Preserve protocol where practical | Cloudflare Worker relay; Band Assistant / browser follower |
-| Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays still stubbed; LOTRO Documents auto-detect + Scan Account Targets |
+| Set Play (live set session) | Complete | Complete | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid (Java Maestro grid styling). Broadcast via Cloudflare relay |
+| Relay / group playback | Complete | Complete | Preserve protocol where practical | Cloudflare Worker relay (`workers/set-play-relay`); Band Assistant tab / `--assistant`; browser follower `/playback` |
+| Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays CRUD + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
 | Themes | Complete (LOTRO-inspired Qt) | Complete (Maestro FlatLaf) | Own visual identity | Java targets Maestro/ABC Player Flat Dark / Flat Light via FlatLaf (Appearance); not a port of Python’s LOTRO Qt theme. Future theme revisit possible |
 | Packaging | Complete (PyInstaller) | Not started | Own installer later | Java must not package Python app or Maestro/ABC Player/ABC Tools launchers |
 | Database compatibility | Complete (SQLite v12) | Complete (R/W) | Open existing DB where practical | Creates/migrates to v12; opens shared DB read-write; interchangeable with Python |
@@ -56,10 +56,11 @@ Completed bandleader library + management slice:
 3. Settings dialog: Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD
 4. Shared `preferences.json` load/save (including Java `theme`)
 5. Library scanning with progress + duplicate resolution
-6. Navigation: Library | Setlists | Bands | Set Play (top tabs; Players under Bands)
+6. Navigation: Library | Setlists | Bands | Set Play | Band Assistant (top tabs; Players under Bands)
 7. Player / Band / layout grid management
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
 9. Library song detail + inline metadata / play history / Raw ABC; Maestro ABC audition transport
 10. Solo Set Play (local session: Load set, NOW/NEXT/Skip/Advance, play logging, Your players + up-next grid)
+11. Set Play relays / Band Assistant (`set_play_state_v1`, Broadcast, share link, deploy wizard)
 
-Later: Set Play relays / Band Assistant, dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.
+Later: dedicated song-layout library editor (schema change), empty-state Open User Guide, portable packaging.

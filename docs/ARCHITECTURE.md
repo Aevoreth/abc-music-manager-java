@@ -101,6 +101,19 @@ Note: `SCHEMA.md` in the Python repo may lag the code — prefer the migration l
 the schema yet. Do not invent an incompatible schema without documenting the
 incompatibility and migration path.
 
+## Set Play relay worker
+
+The Cloudflare Worker under [`workers/set-play-relay/`](../workers/set-play-relay/)
+is a **maintained copy** of the Python edition’s relay (Durable Object +
+`/playback` Band Assistant page). It is bundled for the Settings deploy wizard
+and is **not** a Git submodule of the Python repo.
+
+- Keep wire protocol `set_play_state_v1` compatible with Python clients and the
+  browser page
+- When the Python worker changes, re-copy deliberately (exclude `node_modules`)
+- Deploy artifacts (`set-play-relay-deploy/`, `node_modules`, `.wrangler`) are
+  gitignored
+
 ## Maestro updates
 
 1. Review `java24` changelog / commits

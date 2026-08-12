@@ -55,6 +55,10 @@ public final class SetPlaySessionState {
         return revision;
     }
 
+    public void setRevision(int revision) {
+        this.revision = Math.max(0, revision);
+    }
+
     public void bumpRevision() {
         revision++;
     }

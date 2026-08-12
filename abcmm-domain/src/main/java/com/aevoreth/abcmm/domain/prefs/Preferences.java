@@ -203,6 +203,38 @@ public final class Preferences {
         this.setPlaySelectedRelayId = setPlaySelectedRelayId;
     }
 
+    /**
+     * Base URL for the selected Set Play relay (wss/https), no trailing slash.
+     * Falls back to the first configured relay.
+     */
+    public String activeSetPlayRelayUrl() {
+        if (setPlayRelays == null || setPlayRelays.isEmpty()) {
+            return "";
+        }
+        if (setPlaySelectedRelayId != null && !setPlaySelectedRelayId.isBlank()) {
+            for (Map<String, Object> relay : setPlayRelays) {
+                if (relay == null) {
+                    continue;
+                }
+                Object id = relay.get("id");
+                if (id != null && setPlaySelectedRelayId.equals(String.valueOf(id))) {
+                    Object url = relay.get("url");
+                    return url == null ? "" : String.valueOf(url).strip().replaceAll("/+$", "");
+                }
+            }
+        }
+        for (Map<String, Object> relay : setPlayRelays) {
+            if (relay == null) {
+                continue;
+            }
+            Object url = relay.get("url");
+            if (url != null && !String.valueOf(url).isBlank()) {
+                return String.valueOf(url).strip().replaceAll("/+$", "");
+            }
+        }
+        return "";
+    }
+
     public String partNamePattern() {
         return partNamePattern;
     }

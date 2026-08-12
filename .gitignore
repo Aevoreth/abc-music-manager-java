@@ -32,3 +32,8 @@ preferences.json
 # JVM crash / heap dumps
 hs_err_pid*
 *.hprof
+
+# Set Play relay worker deploy artifacts
+workers/set-play-relay/node_modules/
+workers/set-play-relay/.wrangler/
+set-play-relay-deploy/
