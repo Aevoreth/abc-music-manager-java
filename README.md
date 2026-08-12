@@ -97,6 +97,8 @@ Pushing a version tag (`vX.Y.Z`) runs GitHub Actions packaging on Windows and pu
 
 End users do **not** need to install a JDK. Artifacts are currently unsigned (Windows SmartScreen may warn).
 
+In-app help: **Help → User Guide** (also **Open User Guide** on an empty Library). Source pages live in [`docs/user/`](docs/user/index.md).
+
 Local packaging (Windows, JDK 21 + [WiX 3.11](https://github.com/wixtoolset/wix3/releases) on `PATH`):
 
 ```powershell

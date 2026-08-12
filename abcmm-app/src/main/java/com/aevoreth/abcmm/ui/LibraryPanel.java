@@ -120,6 +120,8 @@ public final class LibraryPanel extends JPanel {
     };
     private Runnable libraryChangedListener = () -> {
     };
+    private Runnable openUserGuideListener = () -> {
+    };
     private SetlistRepository setlistRepository;
     private SongRepository songRepository;
     private PlayLogRepository playLogRepository;
@@ -208,6 +210,11 @@ public final class LibraryPanel extends JPanel {
 
     public void setEditSongListener(Consumer<LibrarySong> editSongListener) {
         this.editSongListener = Objects.requireNonNullElse(editSongListener, song -> {
+        });
+    }
+
+    public void setOpenUserGuideListener(Runnable openUserGuideListener) {
+        this.openUserGuideListener = Objects.requireNonNullElse(openUserGuideListener, () -> {
         });
     }
 
@@ -777,7 +784,12 @@ public final class LibraryPanel extends JPanel {
                         + "</div></html>",
                 JLabel.CENTER);
         message.setFont(message.getFont().deriveFont(Font.PLAIN, 14f));
+        JButton openGuide = new JButton("Open User Guide");
+        openGuide.addActionListener(e -> openUserGuideListener.run());
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        south.add(openGuide);
         empty.add(message, BorderLayout.CENTER);
+        empty.add(south, BorderLayout.SOUTH);
         return empty;
     }
 

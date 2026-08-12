@@ -29,6 +29,7 @@
     <archunit.version>1.4.1</archunit.version>
     <sqlite.version>3.49.1.0</sqlite.version>
     <jackson.version>2.19.0</jackson.version>
+    <commonmark.version>0.24.0</commonmark.version>
   </properties>
 
   <dependencyManagement>
@@ -62,6 +63,16 @@
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
         <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.commonmark</groupId>
+        <artifactId>commonmark</artifactId>
+        <version>${commonmark.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.commonmark</groupId>
+        <artifactId>commonmark-ext-gfm-tables</artifactId>
+        <version>${commonmark.version}</version>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>

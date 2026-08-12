@@ -10,7 +10,7 @@ matrix inventories capabilities; it is **not** a mandate to implement everything
 |------|---------------|-------------|---------------------------|-------|
 | Library scanning | Complete | Complete (redesigned duplicates) | Preserve behavior where practical | Scan `.abc` under LOTRO Music roots; folder rules; primary vs set-copy. Java uses inventory-first peer `DuplicateGroup`s (exact hash + logical identity), batch review, cleanup plan, Recycle Bin trash, folder-cluster exclude — not Python’s existing-vs-new / first-scanned asymmetry |
 | Song metadata | Complete | Complete | Preserve Maestro metadata | Library table + Song detail (Basic Info / Parts / Notes & Lyrics / Raw ABC); Save writes title/composer/parts to ABC as needed; inline rating/status; Playback History / PlayLog; scan writes Maestro-compatible %%/header fields via `AbcMetadataParser`; dedicated song-layout library editor deferred (would change DB structure) |
-| Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted; empty-state Open User Guide deferred until broader Java↔Python parity |
+| Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted; empty-state **Open User Guide** + **Help → User Guide** |
 | Setlists | Complete | Complete (builder + set export + ABCP import) | Preserve stored data | Folders, tree drag reorder/move between folders, song order, timing, per-set band layout / part overrides; set package export (folder/zip + optional CSV/ABCP); standalone ABCP export/import; ABCP import shows a local-only notice (Java) |
 | ABCP support | Complete | Complete | Preserve interchange | XML playlist read/write compatible with ABC Player; import matches exact `SongFile.file_path` values (Python parity); Java prompts that import is for locally created playlists, not shared setlists |
 | Songbook export | Complete | Complete | Preserve PluginData format | Manual File → Write PluginData…; UTF-8 Lua `SongbookData.plugindata` to enabled AccountTargets (Python `plugindata_writer`; HTA is format reference only) |
@@ -63,4 +63,4 @@ Completed bandleader library + management slice:
 10. Solo Set Play (local session: Load set, NOW/NEXT/Skip/Advance, play logging, Your players + up-next grid)
 11. Set Play relays / Band Assistant (`set_play_state_v1`, Broadcast, share link, deploy wizard)
 
-Later: dedicated song-layout library editor (schema change), empty-state Open User Guide.
+Later: dedicated song-layout library editor (schema change).

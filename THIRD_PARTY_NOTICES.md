@@ -58,6 +58,13 @@ This prototype does not bundle the soundfont binary.
 
 ## Other Maven dependencies
 
+See the module `pom.xml` files for versions. Notable runtime libraries include:
+
+- **SQLite JDBC** (Xerial) — Apache License 2.0
+- **Jackson** — Apache License 2.0
+- **commonmark-java** (+ GFM tables) — BSD-2-Clause (in-app User Guide Markdown rendering)
+
 Runtime and test dependencies (JUnit 5, ArchUnit, Apache Commons, ICU4J, and others
 mirrored for Maestro compilation) are distributed under their respective open-source
-licenses as declared in their Maven POM files.
+licenses as declared in their Maven POM files. Full dependency trees are produced by
+Maven at build time.

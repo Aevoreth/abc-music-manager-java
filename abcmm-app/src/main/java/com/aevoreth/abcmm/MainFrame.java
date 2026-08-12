@@ -71,6 +71,7 @@ import com.aevoreth.abcmm.ui.SetlistsPanel;
 import com.aevoreth.abcmm.ui.SettingsDialog;
 import com.aevoreth.abcmm.ui.SongDetailDialog;
 import com.aevoreth.abcmm.ui.StatusBar;
+import com.aevoreth.abcmm.ui.UserGuideDialog;
 
 /**
  * Main application window: Library, Setlists, Bands, Set Play, Band Assistant,
@@ -243,6 +244,7 @@ public final class MainFrame extends JFrame {
             setlistsPanel.navigateToSetlist(setlistId);
         });
         libraryPanel.setLibraryChangedListener(() -> reloadLibrary(libraryPanel.currentFilter()));
+        libraryPanel.setOpenUserGuideListener(() -> UserGuideDialog.open(this));
         libraryPanel.setHeaderStateListener(state -> {
             preferences.extras().put("library_table_header_state", state);
             persistPreferencesQuietly();
@@ -378,6 +380,12 @@ public final class MainFrame extends JFrame {
         file.addSeparator();
         file.add(exit);
         menuBar.add(file);
+
+        JMenu help = new JMenu("Help");
+        JMenuItem userGuide = new JMenuItem("User Guide");
+        userGuide.addActionListener(e -> UserGuideDialog.open(this));
+        help.add(userGuide);
+        menuBar.add(help);
         return menuBar;
     }
 
