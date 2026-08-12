@@ -22,7 +22,9 @@ public final class SetPlayWorkerPaths {
 
     /**
      * Directory containing {@code package.json} and {@code wrangler.toml}.
-     * Dev: {@code <repo>/workers/set-play-relay}. Packaged: sibling of the running jar if present.
+     * Dev: {@code <repo>/workers/set-play-relay}.
+     * Packaged (jpackage): {@code <app-image>/app/workers/set-play-relay} next to the main jar,
+     * or {@code <app-image>/workers/set-play-relay} beside the launcher.
      */
     public static Optional<Path> workerTemplateBundlePath() {
         Path fromProp = pathFromSystemProperty();
@@ -31,17 +33,35 @@ public final class SetPlayWorkerPaths {
         }
         Path repo = findRepoRoot();
         if (repo != null) {
-            Path p = repo.resolve("workers").resolve("set-play-relay");
-            if (Files.isDirectory(p) && Files.isRegularFile(p.resolve("package.json"))) {
-                return Optional.of(p);
+            Optional<Path> fromRepo = asWorkerTemplate(repo.resolve("workers").resolve("set-play-relay"));
+            if (fromRepo.isPresent()) {
+                return fromRepo;
             }
         }
         Path jarDir = jarParentDirectory();
         if (jarDir != null) {
-            Path p = jarDir.resolve("workers").resolve("set-play-relay");
-            if (Files.isDirectory(p) && Files.isRegularFile(p.resolve("package.json"))) {
-                return Optional.of(p);
+            Optional<Path> besideJar = asWorkerTemplate(jarDir.resolve("workers").resolve("set-play-relay"));
+            if (besideJar.isPresent()) {
+                return besideJar;
             }
+            // jpackage: jar lives under app/; also accept workers next to the .exe
+            Path appImageRoot = jarDir.getParent();
+            if (appImageRoot != null) {
+                Optional<Path> besideExe = asWorkerTemplate(
+                        appImageRoot.resolve("workers").resolve("set-play-relay"));
+                if (besideExe.isPresent()) {
+                    return besideExe;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<Path> asWorkerTemplate(Path candidate) {
+        if (candidate != null
+                && Files.isDirectory(candidate)
+                && Files.isRegularFile(candidate.resolve("package.json"))) {
+            return Optional.of(candidate);
         }
         return Optional.empty();
     }

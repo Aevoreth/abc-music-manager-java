@@ -111,6 +111,10 @@ and is **not** a Git submodule of the Python repo.
 - Keep wire protocol `set_play_state_v1` compatible with Python clients and the
   browser page
 - When the Python worker changes, re-copy deliberately (exclude `node_modules`)
+- Windows packaging (`distribute/package-windows.ps1`) copies the template into
+  the jpackage `--input` tree so the app-image / MSI ship
+  `app/workers/set-play-relay/` (no `node_modules` / `.wrangler`) for the deploy
+  wizard; `SetPlayWorkerPaths` resolves that path next to the main jar
 - Deploy artifacts (`set-play-relay-deploy/`, `node_modules`, `.wrangler`) are
   gitignored
 

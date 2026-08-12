@@ -68,6 +68,43 @@ New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
 Copy-Item -LiteralPath $JarPath -Destination (Join-Path $InputDir $MainJarName) -Force
 
+# Bundle Set Play Cloudflare Worker template for the in-app deploy wizard.
+# Lands under app/workers/set-play-relay/ in the jpackage image (see SetPlayWorkerPaths).
+$WorkerSrc = Join-Path $RepoRoot 'workers\set-play-relay'
+$WorkerDest = Join-Path $InputDir 'workers\set-play-relay'
+if (-not (Test-Path -LiteralPath (Join-Path $WorkerSrc 'package.json'))) {
+    throw "Set Play worker template missing: $WorkerSrc (expected package.json)"
+}
+Write-Host "Bundling Set Play worker template from $WorkerSrc ..."
+$skipDirNames = @('node_modules', '.wrangler', '.cache')
+function Copy-WorkerTemplate([string] $Src, [string] $Dest) {
+    New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+    Get-ChildItem -LiteralPath $Src -Force | ForEach-Object {
+        if ($_.PSIsContainer -and ($_.Name -in $skipDirNames)) {
+            return
+        }
+        if (-not $_.PSIsContainer -and ($_.Name -like '*wrangler-account*')) {
+            return
+        }
+        $target = Join-Path $Dest $_.Name
+        if ($_.PSIsContainer) {
+            Copy-WorkerTemplate -Src $_.FullName -Dest $target
+        } else {
+            Copy-Item -LiteralPath $_.FullName -Destination $target -Force
+        }
+    }
+}
+Copy-WorkerTemplate -Src $WorkerSrc -Dest $WorkerDest
+if (-not (Test-Path -LiteralPath (Join-Path $WorkerDest 'package.json'))) {
+    throw "Failed to copy worker template to $WorkerDest"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $WorkerDest 'wrangler.toml'))) {
+    throw "Worker template incomplete (missing wrangler.toml): $WorkerDest"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $WorkerDest 'src\index.ts'))) {
+    throw "Worker template incomplete (missing src\index.ts): $WorkerDest"
+}
+
 Write-Host "Resolving trimmed module set via jdeps..."
 $jdepsOut = & jdeps --print-module-deps -R --ignore-missing-deps --multi-release 21 $JarPath 2>&1
 if ($LASTEXITCODE -ne 0) {
@@ -122,6 +159,12 @@ $appImageDir = Join-Path $ImageDest $AppName
 if (-not (Test-Path -LiteralPath $appImageDir)) {
     throw "Expected app-image directory missing: $appImageDir"
 }
+
+$bundledWorker = Join-Path $appImageDir 'app\workers\set-play-relay\package.json'
+if (-not (Test-Path -LiteralPath $bundledWorker)) {
+    throw "Packaged app-image is missing Set Play worker template at app\workers\set-play-relay\"
+}
+Write-Host "Verified worker template in app-image: app\workers\set-play-relay\"
 
 # Clear read-only flags that some JDKs set on packaged files (breaks zip/cleanup).
 Get-ChildItem -LiteralPath $appImageDir -Recurse -Force | ForEach-Object {
