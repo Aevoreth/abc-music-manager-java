@@ -89,6 +89,20 @@ public interface SetlistRepository {
             Integer overrideChangeDurationSeconds,
             Long songLayoutId) throws LibraryException;
 
+    /**
+     * If a library {@code SongLayout} exists for {@code (songId, bandLayoutId)}, link it on the
+     * item and copy its assignments into {@code SetlistBandAssignment} when the item has no
+     * override rows yet. No-op when no matching song layout exists.
+     */
+    void snapshotSongLayoutToItem(long itemId, long songId, long bandLayoutId)
+            throws LibraryException;
+
+    /**
+     * Clear each item's setlist assignments, then snapshot from the song's layout for
+     * {@code newBandLayoutId} (or unlink layouts when {@code newBandLayoutId} is null).
+     */
+    void remapItemsToBandLayout(long setlistId, Long newBandLayoutId) throws LibraryException;
+
     void updateItem(
             long itemId,
             Integer overrideChangeDurationSeconds,

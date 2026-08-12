@@ -41,6 +41,9 @@ import javax.swing.ListSelectionModel;
 import javax.swing.TransferHandler;
 import javax.swing.table.AbstractTableModel;
 
+import com.aevoreth.abcmm.domain.band.BandRepository;
+import com.aevoreth.abcmm.domain.band.PlayerRepository;
+import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.PartNameFormatter;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
@@ -58,7 +61,7 @@ import com.aevoreth.abcmm.storage.AbcMetadataParser;
 import com.aevoreth.abcmm.storage.AbcMetadataRewriter;
 
 /**
- * Song detail: Basic Info, Parts, Notes/Lyrics, Raw ABC.
+ * Song detail: Basic Info, Parts, Layouts, Notes/Lyrics, Raw ABC.
  */
 public final class SongDetailDialog extends JDialog {
 
@@ -68,6 +71,7 @@ public final class SongDetailDialog extends JDialog {
     private final PreferencesStore preferencesStore;
     private final long songId;
     private final List<StatusInfo> statuses;
+    private final SongLayoutsPanel layoutsPanel;
 
     private final JTextField titleField = new JTextField(32);
     private final JTextField composersField = new JTextField(32);
@@ -116,7 +120,10 @@ public final class SongDetailDialog extends JDialog {
             Preferences preferences,
             PreferencesStore preferencesStore,
             long songId,
-            List<StatusInfo> statuses) {
+            List<StatusInfo> statuses,
+            BandRepository bandRepository,
+            PlayerRepository playerRepository,
+            SongLayoutRepository songLayoutRepository) {
         super(owner, "Song detail", ModalityType.APPLICATION_MODAL);
         this.songRepository = songRepository;
         this.playLogRepository = playLogRepository;
@@ -124,6 +131,8 @@ public final class SongDetailDialog extends JDialog {
         this.preferencesStore = Objects.requireNonNull(preferencesStore, "preferencesStore");
         this.songId = songId;
         this.statuses = statuses == null ? List.of() : List.copyOf(statuses);
+        this.layoutsPanel = new SongLayoutsPanel(
+                bandRepository, playerRepository, songLayoutRepository, songId);
 
         statusCombo.setRenderer((list, value, index, isSelected, cellHasFocus) -> {
             JLabel label = new JLabel(value == null ? "" : value.name());
@@ -145,6 +154,7 @@ public final class SongDetailDialog extends JDialog {
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Basic Info", buildBasicInfoTab());
         tabs.addTab("Parts", buildPartsTab());
+        tabs.addTab("Layouts", layoutsPanel);
         tabs.addTab("Notes and Lyrics", buildNotesTab());
         tabs.addTab("Raw ABC", buildAbcTab());
 
@@ -161,8 +171,8 @@ public final class SongDetailDialog extends JDialog {
         root.add(tabs, BorderLayout.CENTER);
         root.add(buttons, BorderLayout.SOUTH);
         setContentPane(root);
-        setMinimumSize(new Dimension(720, 560));
-        setSize(780, 620);
+        setMinimumSize(new Dimension(780, 600));
+        setSize(860, 680);
         setLocationRelativeTo(owner);
         loadSong();
     }
@@ -465,6 +475,7 @@ public final class SongDetailDialog extends JDialog {
             }
             partsModel.setParts(data.parts());
             partsDirty = false;
+            layoutsPanel.setParts(data.parts());
             loadAbcContent();
         } catch (LibraryException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Song detail", JOptionPane.ERROR_MESSAGE);

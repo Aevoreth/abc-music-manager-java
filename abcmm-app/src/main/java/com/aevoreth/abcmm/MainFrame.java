@@ -505,7 +505,16 @@ public final class MainFrame extends JFrame {
             return;
         }
         SongDetailDialog dialog = new SongDetailDialog(
-                this, songRepository, playLogRepository, preferences, preferencesStore, song.id(), statuses);
+                this,
+                songRepository,
+                playLogRepository,
+                preferences,
+                preferencesStore,
+                song.id(),
+                statuses,
+                bandRepository,
+                playerRepository,
+                songLayoutRepository);
         if (dialog.showDialog()) {
             reloadLibrary(libraryPanel.currentFilter());
             try {

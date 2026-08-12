@@ -43,11 +43,17 @@ Use **Save to file** on this tab to write the raw text and re-parse metadata.
 
 ---
 
-## Song layouts (not in this edition)
+## Song layouts {#song-layouts}
 
-A dedicated **song layout** editor in the library (pairing a band layout with per-song part assignments) is **not available** in the Java edition yet.
+The **Layouts** tab stores part assignments for this song, one layout per band.
 
-For live shows, assign parts on the **Setlists** page when a band layout is selected. See [Setlists → Part assignments](setlists.md#set-part-assignment) and [Bands](bands.md).
+- **Add layout…** — choose a band that does not already have a layout for this song
+- Click a player card to assign an ABC part (saved immediately)
+- **Delete** — removes this song’s layout for that band. Setlists that already imported the layout keep their own copy
+
+When you later add the song to a setlist whose band matches one of these layouts, those assignments are copied onto the setlist item. Editing the library layout afterward does not change existing setlists, and editing a setlist does not change the song.
+
+See [Setlists → Part assignments](setlists.md#set-part-assignment) and [Bands](bands.md).
 
 Band layouts still affect Set Play’s up-next grid and (when stereo mode is `band_layout`) playback panning.
 

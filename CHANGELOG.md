@@ -11,6 +11,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 - Updated developer docs for Java as the active full-function edition (parity inventory, README, architecture, storage notes)
 - Added drag-and-drop (and Move up / Move down) to rearrange the ABC playback queue
 - Added saving the current playback queue as a setlist
+- Added a Layouts tab on Song detail to assign parts per band; matching layouts are copied onto a setlist when the song is added and then stay independent
 
 ## Version 0.3.1b
 

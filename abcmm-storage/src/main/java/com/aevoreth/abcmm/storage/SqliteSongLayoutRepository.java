@@ -7,6 +7,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
@@ -63,6 +64,84 @@ public final class SqliteSongLayoutRepository implements SongLayoutRepository {
             return new SongLayoutInfo(id, songId, bandLayoutId, blankToNull(name));
         } catch (SQLException ex) {
             throw new LibraryException("Failed to create song layout", ex);
+        }
+    }
+
+    @Override
+    public List<SongLayoutInfo> listSongLayouts(long songId) throws LibraryException {
+        String sql = """
+                SELECT id, song_id, band_layout_id, name
+                FROM SongLayout
+                WHERE song_id = ?
+                ORDER BY name, id
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, songId);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<SongLayoutInfo> rows = new ArrayList<>();
+                while (rs.next()) {
+                    rows.add(mapLayout(rs));
+                }
+                return List.copyOf(rows);
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to list song layouts", ex);
+        }
+    }
+
+    @Override
+    public Optional<SongLayoutInfo> findSongLayout(long songId, long bandLayoutId)
+            throws LibraryException {
+        String sql = """
+                SELECT id, song_id, band_layout_id, name
+                FROM SongLayout
+                WHERE song_id = ? AND band_layout_id = ?
+                ORDER BY name
+                LIMIT 1
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, songId);
+            statement.setLong(2, bandLayoutId);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapLayout(rs));
+                }
+                return Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to find song layout", ex);
+        }
+    }
+
+    @Override
+    public void deleteSongLayout(long songLayoutId) throws LibraryException {
+        try {
+            try (PreparedStatement clearSong = database.connection().prepareStatement(
+                    "UPDATE Song SET last_song_layout_id = NULL WHERE last_song_layout_id = ?")) {
+                clearSong.setLong(1, songLayoutId);
+                clearSong.executeUpdate();
+            } catch (SQLException ex) {
+                if (!isMissingColumn(ex)) {
+                    throw ex;
+                }
+            }
+            try (PreparedStatement unlink = database.connection().prepareStatement(
+                    "UPDATE SetlistItem SET song_layout_id = NULL WHERE song_layout_id = ?")) {
+                unlink.setLong(1, songLayoutId);
+                unlink.executeUpdate();
+            }
+            try (PreparedStatement delAssign = database.connection().prepareStatement(
+                    "DELETE FROM SongLayoutAssignment WHERE song_layout_id = ?")) {
+                delAssign.setLong(1, songLayoutId);
+                delAssign.executeUpdate();
+            }
+            try (PreparedStatement delLayout = database.connection().prepareStatement(
+                    "DELETE FROM SongLayout WHERE id = ?")) {
+                delLayout.setLong(1, songLayoutId);
+                delLayout.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to delete song layout", ex);
         }
     }
 
@@ -171,5 +250,10 @@ public final class SqliteSongLayoutRepository implements SongLayoutRepository {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.strip();
+    }
+
+    private static boolean isMissingColumn(SQLException ex) {
+        String message = ex.getMessage();
+        return message != null && message.toLowerCase().contains("no such column");
     }
 }

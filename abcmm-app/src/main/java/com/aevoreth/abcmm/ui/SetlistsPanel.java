@@ -1429,7 +1429,6 @@ public final class SetlistsPanel extends JPanel {
                 }
                 warnings.add(SetlistSongWarningChecker.warningMessage(
                         bandLayoutId,
-                        item.songLayoutId(),
                         item.partsJson(),
                         slots,
                         layoutAssigns,
@@ -1595,26 +1594,17 @@ public final class SetlistsPanel extends JPanel {
     }
 
     /**
-     * Create or reuse a song layout for {@code (song, band layout)}, link it on the setlist
-     * item, and seed null assignments for layout players when the layout is new/empty.
+     * Link a matching library song layout when one exists, and snapshot its assignments onto
+     * the setlist item if that item has no overrides yet.
      */
     private Long ensureSongLayout(SetlistItemInfo item, long bandLayoutId) throws LibraryException {
-        if (songLayoutRepository == null || setlistRepository == null || bandRepository == null) {
+        if (songLayoutRepository == null || setlistRepository == null) {
             return item.songLayoutId();
         }
-        SongLayoutInfo layout = songLayoutRepository.getOrCreateSongLayout(
-                item.songId(), bandLayoutId, "Default");
-        List<SongLayoutAssignmentInfo> existing = songLayoutRepository.listAssignments(layout.id());
-        if (existing.isEmpty()) {
-            for (BandLayoutSlotInfo slot : bandRepository.listSlots(bandLayoutId)) {
-                songLayoutRepository.setAssignment(layout.id(), slot.playerId(), null);
-            }
-        }
-        if (!Objects.equals(item.songLayoutId(), layout.id())) {
-            setlistRepository.updateItem(
-                    item.id(), item.overrideChangeDurationSeconds(), layout.id());
-        }
-        return layout.id();
+        setlistRepository.snapshotSongLayoutToItem(item.id(), item.songId(), bandLayoutId);
+        return songLayoutRepository.findSongLayout(item.songId(), bandLayoutId)
+                .map(SongLayoutInfo::id)
+                .orElse(item.songLayoutId());
     }
 
     private void editDetails() {
@@ -1637,6 +1627,10 @@ public final class SetlistsPanel extends JPanel {
                                 details.setDate(),
                                 details.setTime(),
                                 details.targetDurationSeconds());
+                        if (!Objects.equals(setlist.bandLayoutId(), details.bandLayoutId())) {
+                            setlistRepository.remapItemsToBandLayout(
+                                    setlist.id(), details.bandLayoutId());
+                        }
                         reload();
                         selectSetlistInTree(setlist.id());
                     } catch (LibraryException ex) {

@@ -80,6 +80,8 @@ Available when a band layout is selected for the set (panel titled **Part assign
 
 Completing assignments for all songs in the set gives the most value for Set Play and export.
 
+If the song already has a [library layout](song-detail-and-layouts.md#song-layouts) for the set’s band, those assignments are copied onto the setlist item when the song is added (or when you later choose that band for the set). The setlist copy is independent: changing the song’s layout later does not update this set, and changing this set does not update the song.
+
 ---
 
 ## Import ABCP {#import-abcp}

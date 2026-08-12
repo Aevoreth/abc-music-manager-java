@@ -22,7 +22,7 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 | Band management | Complete | Complete | Preserve stored data | Bands, members, layouts, snapped layout grid; Change Player cascades song/setlist assignments |
 | Player management | Complete | Complete | Preserve stored data | Players + instruments; filters (name/level/class/instrument); searchable layout picker |
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
-| Part assignments | Complete (library editor buggy) | Complete on setlists; library editor deferred | Preserve stored data | Setlist grid UI with song-layout baseline + overrides. v12 `SongLayout` / `SongLayoutAssignment` already exist; Java creates them from the setlist editor. Dedicated library song-layout editor (Python **Actions → Layout**) is not in Java — UI gap, not a schema change |
+| Part assignments | Complete (library editor buggy) | Complete (library + setlists) | Preserve stored data | Library **Layouts** tab edits `SongLayout` / `SongLayoutAssignment` (one per band). Adding a song to a setlist with a matching band copies those assignments onto the setlist item; setlist edits stay in `SetlistBandAssignment` and do not write back |
 | ABC audition (audio engine + transport) | Complete (custom TinySoundFont path) | Complete | Use Maestro Java engine | Audible ABC sampling only (not Set Play). `LotroAbcPlaybackEngine`; library/setlist → queue; mute/solo; queue reorder; save queue as setlist; tempo/stereo/volume; MIDI panic (double-click Stop). See [playback gaps](#playback-transport) |
 | Set Play (live set session) | Complete | Complete | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid (Java Maestro grid styling). Broadcast via Cloudflare relay |
 | Relay / group playback | Complete | Complete | Preserve protocol where practical | Cloudflare Worker relay (`workers/set-play-relay`); Band Assistant tab / `--assistant`; browser follower `/playback` |
@@ -39,7 +39,7 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 - **Playback chrome:** Java bottom bar (ABC Player-like) vs Python top toolbar.
 - **Stereo width:** Java **0 = mono, 100 = full stereo**; Python **0 = wide L/R, 100 = centered**.
 - **Themes and packaging:** own visual identity and Windows jpackage, not a Qt/PyInstaller clone.
-- **Song-layout editing:** Java assigns parts on Setlists (and persists `SongLayout` rows); Python’s library Layout editor exists but is documented as not fully working.
+- **Song-layout editing:** Java assigns parts on the library song **Layouts** tab (canonical per band) and on Setlists (independent per-item copies). Python’s library Layout editor exists but is documented as not fully working.
 
 ## Remaining gaps and suggested requirements
 
@@ -48,24 +48,23 @@ suggestions, not a committed roadmap.
 
 ### Product / UI
 
-1. **Library song-layout editor** — Create and edit `SongLayout` / assignments from Library (Python **Actions → Layout** / Song detail Layouts tab) without opening a setlist. Schema already supports this.
-2. **Playback transport extras** {#playback-transport} — Python still has a **Layout** picker on the transport for stereo. Java covers mute/solo, queue reorder, save queue as setlist, tempo/stereo/volume, and MIDI panic (double-click Stop).
-3. **Library table extras from original requirements** — Notes/Lyrics indicators and a **Total Plays** column are in `REQUIREMENTS.md` and stored on `Song`, but neither edition shows them as table columns today.
-4. **Frequency-of-play filter** — Original requirements asked for “plays in last N days”; both editions filter by last-played instead. Keep last-played unless testers want play-count windows.
-5. **Instrument / made-for filter** — Marked future in Python requirements; parts tooltips already show made-for.
-6. **Standalone Analyze duplicate folders…** — Only needed if users want folder-cluster review without a full library scan.
+1. **Playback transport extras** {#playback-transport} — Python still has a **Layout** picker on the transport for stereo. Java covers mute/solo, queue reorder, save queue as setlist, tempo/stereo/volume, and MIDI panic (double-click Stop).
+2. **Library table extras from original requirements** — Notes/Lyrics indicators and a **Total Plays** column are in `REQUIREMENTS.md` and stored on `Song`, but neither edition shows them as table columns today.
+3. **Frequency-of-play filter** — Original requirements asked for “plays in last N days”; both editions filter by last-played instead. Keep last-played unless testers want play-count windows.
+4. **Instrument / made-for filter** — Marked future in Python requirements; parts tooltips already show made-for.
+5. **Standalone Analyze duplicate folders…** — Only needed if users want folder-cluster review without a full library scan.
 
 ### Platform and operations
 
-7. **macOS and Linux packages** — Python ships via PyInstaller on three platforms; Java release CI is Windows zip + MSI only. Source still runs anywhere JDK 21 + Maven work.
-8. **Code signing** — Windows artifacts are unsigned (SmartScreen warnings). Signing would be a release-ops requirement, not a feature gap.
-9. **Headless CI playback tests** — Still deferred in [MAESTRO_INTEGRATION.md](MAESTRO_INTEGRATION.md) (no audio device in CI).
+6. **macOS and Linux packages** — Python ships via PyInstaller on three platforms; Java release CI is Windows zip + MSI only. Source still runs anywhere JDK 21 + Maven work.
+7. **Code signing** — Windows artifacts are unsigned (SmartScreen warnings). Signing would be a release-ops requirement, not a feature gap.
+8. **Headless CI playback tests** — Still deferred in [MAESTRO_INTEGRATION.md](MAESTRO_INTEGRATION.md) (no audio device in CI).
 
 ### Original requirements neither edition fully met
 
-10. **Filesystem watching** — `REQUIREMENTS.md` §3: optional low-latency rescan. Neither edition watches the Music tree; users re-run **Scan Library**.
-11. **Multiple extra library roots** — Requirements mention more than one Music root. Both editions scan LOTRO `Music\` plus folder-rule excludes / set-export skip, not an arbitrary extra-roots list.
-12. **Compact library drag onto a setlist** — Requirements mentioned drag from a compact browser; both editions use a filterable song picker instead.
+9. **Filesystem watching** — `REQUIREMENTS.md` §3: optional low-latency rescan. Neither edition watches the Music tree; users re-run **Scan Library**.
+10. **Multiple extra library roots** — Requirements mention more than one Music root. Both editions scan LOTRO `Music\` plus folder-rule excludes / set-export skip, not an arbitrary extra-roots list.
+11. **Compact library drag onto a setlist** — Requirements mentioned drag from a compact browser; both editions use a filterable song picker instead.
 
 ### Shared schema (coordinate with any remaining Python users)
 
@@ -109,11 +108,11 @@ Completed bandleader library + management slice (this edition):
 6. Navigation: Library | Setlists | Bands | Set Play | Band Assistant (top tabs; Players under Bands)
 7. Player / Band / layout grid management
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
-9. Library song detail + inline metadata / play history / Raw ABC; Maestro ABC audition transport
+9. Library song detail + inline metadata / play history / Raw ABC / Layouts tab; Maestro ABC audition transport
 10. Solo Set Play (local session: Load set, NOW/NEXT/Skip/Advance, play logging, Your players + up-next grid)
 11. Set Play relays / Band Assistant (`set_play_state_v1`, Broadcast, share link, deploy wizard)
 12. In-app User Guide (**Help → User Guide**)
 13. Windows zip + MSI packaging (tag-push GitHub Actions)
 14. Help → About (version, MIT license, third-party credits)
 
-Later (see [remaining gaps](#remaining-gaps-and-suggested-requirements)): library song-layout editor; playback extras; non-Windows packages.
+Later (see [remaining gaps](#remaining-gaps-and-suggested-requirements)): playback extras; non-Windows packages.

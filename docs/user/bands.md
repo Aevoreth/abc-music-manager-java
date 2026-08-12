@@ -11,9 +11,9 @@ The **Bands** tab has two sub-tabs: **Bands** (rosters and layouts) and **Player
 | **Band** | A named group (e.g. your regular ensemble) |
 | **Player** | A character with instrument capabilities |
 | **Band layout** | Grid placement of players for a performance formation |
-| **Song layout** | Maps parts to players for one song + one band layout (created from setlist assignment in this edition) |
+| **Song layout** | Maps parts to players for one song + one band (edited on the song’s Layouts tab) |
 
-Part assignment for shows is done on [Setlists](setlists.md#set-part-assignment). There is no separate library song-layout editor yet.
+Part assignment for a song can be prepared in [Song detail → Layouts](song-detail-and-layouts.md#song-layouts). Show-specific copies are edited on [Setlists](setlists.md#set-part-assignment).
 
 ---
 

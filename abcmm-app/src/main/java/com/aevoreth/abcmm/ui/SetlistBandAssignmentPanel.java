@@ -82,7 +82,6 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     private final Map<Long, String> helpByPlayer = new HashMap<>();
     private final List<SongPartMeta> assignmentParts = new ArrayList<>();
     private final Map<Integer, Long> partToPlayer = new HashMap<>();
-    private final Map<Long, Integer> layoutPartByPlayer = new HashMap<>();
 
     private Long itemId;
     private double panX;
@@ -193,7 +192,6 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         helpByPlayer.clear();
         assignmentParts.clear();
         partToPlayer.clear();
-        layoutPartByPlayer.clear();
         itemId = null;
         panX = 0;
         panY = 0;
@@ -217,7 +215,6 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         helpByPlayer.clear();
         assignmentParts.clear();
         partToPlayer.clear();
-        layoutPartByPlayer.clear();
         itemId = setlistItemId;
 
         if (bandLayoutId == null) {
@@ -229,14 +226,6 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         }
         if (setlistItemId == null) {
             hintLabel.setText("Select a song in the set list.");
-            canvas.setVisible(false);
-            revalidate();
-            repaint();
-            return;
-        }
-        if (songLayoutId == null) {
-            hintLabel.setText(
-                    "Select a song in the set list. Song layout will be created when a band layout is set.");
             canvas.setVisible(false);
             revalidate();
             repaint();
@@ -268,10 +257,11 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             }
 
             Map<Long, Integer> layoutAssigns = new HashMap<>();
-            for (SongLayoutAssignmentInfo a : songLayoutRepository.listAssignments(songLayoutId)) {
-                layoutAssigns.put(a.playerId(), a.partNumber());
+            if (songLayoutId != null) {
+                for (SongLayoutAssignmentInfo a : songLayoutRepository.listAssignments(songLayoutId)) {
+                    layoutAssigns.put(a.playerId(), a.partNumber());
+                }
             }
-            layoutPartByPlayer.putAll(layoutAssigns);
 
             Map<Long, Integer> overrides = new HashMap<>();
             Set<Long> overridePlayers = new HashSet<>();
@@ -571,12 +561,7 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             return;
         }
         try {
-            Integer baseline = layoutPartByPlayer.get(playerId);
-            if (Objects.equals(partNumber, baseline)) {
-                setlistRepository.deleteBandAssignment(itemId, playerId);
-            } else {
-                setlistRepository.upsertBandAssignment(itemId, playerId, partNumber);
-            }
+            setlistRepository.upsertBandAssignment(itemId, playerId, partNumber);
             if (assignmentChangedHandler != null) {
                 assignmentChangedHandler.run();
             }

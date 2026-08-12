@@ -8,7 +8,10 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
+import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
+import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
 import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
@@ -376,11 +379,6 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             if (sameLayout) {
                 songLayoutId = item.songLayoutId();
                 copyAssignments = true;
-            } else if (newBandLayoutId != null) {
-                songLayoutId = songLayouts
-                        .getOrCreateSongLayout(item.songId(), newBandLayoutId, "Default")
-                        .id();
-                copyAssignments = false;
             } else {
                 songLayoutId = null;
                 copyAssignments = false;
@@ -429,7 +427,6 @@ public final class SqliteSetlistRepository implements SetlistRepository {
         List<SetlistItemInfo> targetItems = listItems(targetSetlistId);
 
         if (!copyItemDetails) {
-            Long targetBl = target.bandLayoutId();
             List<Long> targetItemIds = new ArrayList<>(targetItems.size());
             for (SetlistItemInfo item : targetItems) {
                 targetItemIds.add(item.id());
@@ -438,18 +435,12 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             int basePos = prepend ? 0 : targetItemIds.size();
             for (int i = 0; i < sourceItems.size(); i++) {
                 SetlistItemInfo item = sourceItems.get(i);
-                Long songLayoutId = null;
-                if (targetBl != null) {
-                    songLayoutId = songLayouts
-                            .getOrCreateSongLayout(item.songId(), targetBl, "Default")
-                            .id();
-                }
                 long newId = addItem(
                         targetSetlistId,
                         item.songId(),
                         basePos + i,
                         null,
-                        songLayoutId);
+                        null);
                 newItemIds.add(newId);
             }
             List<Long> allIds = new ArrayList<>(newItemIds.size() + targetItemIds.size());
@@ -484,12 +475,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                     target.setDate(),
                     target.setTime(),
                     target.targetDurationSeconds());
-            for (SetlistItemInfo item : targetItems) {
-                long newLayoutId = songLayouts
-                        .getOrCreateSongLayout(item.songId(), sourceBl, "Default")
-                        .id();
-                updateItem(item.id(), item.overrideChangeDurationSeconds(), newLayoutId);
-            }
+            remapItemsToBandLayout(targetSetlistId, sourceBl);
             targetItems = listItems(targetSetlistId);
         }
 
@@ -506,11 +492,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             Long songLayoutId;
             boolean copyAssignments;
             if (keepTargetLayout) {
-                songLayoutId = originalTargetBl == null
-                        ? null
-                        : songLayouts
-                                .getOrCreateSongLayout(item.songId(), originalTargetBl, "Default")
-                                .id();
+                songLayoutId = null;
                 copyAssignments = false;
             } else {
                 songLayoutId = item.songLayoutId();
@@ -653,6 +635,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                  created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """;
+        long itemId;
         try (PreparedStatement statement = database.connection().prepareStatement(
                 sql, Statement.RETURN_GENERATED_KEYS)) {
             statement.setLong(1, setlistId);
@@ -663,9 +646,64 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             statement.setString(6, now);
             statement.setString(7, now);
             statement.executeUpdate();
-            return generatedId(statement);
+            itemId = generatedId(statement);
         } catch (SQLException ex) {
             throw new LibraryException("Failed to add setlist item", ex);
+        }
+        if (songLayoutId == null) {
+            Long bandLayoutId = requireSetlist(setlistId).bandLayoutId();
+            if (bandLayoutId != null) {
+                snapshotSongLayoutToItem(itemId, songId, bandLayoutId);
+            }
+        }
+        return itemId;
+    }
+
+    @Override
+    public void snapshotSongLayoutToItem(long itemId, long songId, long bandLayoutId)
+            throws LibraryException {
+        Optional<SongLayoutInfo> found = songLayouts.findSongLayout(songId, bandLayoutId);
+        if (found.isEmpty()) {
+            return;
+        }
+        long songLayoutId = found.get().id();
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                "UPDATE SetlistItem SET song_layout_id = ?, updated_at = ? WHERE id = ?")) {
+            statement.setLong(1, songLayoutId);
+            statement.setString(2, SqliteTimestamps.now());
+            statement.setLong(3, itemId);
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to link song layout on setlist item", ex);
+        }
+        if (!listBandAssignments(itemId).isEmpty()) {
+            return;
+        }
+        for (SongLayoutAssignmentInfo assignment : songLayouts.listAssignments(songLayoutId)) {
+            upsertBandAssignment(itemId, assignment.playerId(), assignment.partNumber());
+        }
+    }
+
+    @Override
+    public void remapItemsToBandLayout(long setlistId, Long newBandLayoutId) throws LibraryException {
+        for (SetlistItemInfo item : listItems(setlistId)) {
+            clearBandAssignments(item.id());
+            if (newBandLayoutId == null) {
+                updateItem(item.id(), item.overrideChangeDurationSeconds(), null);
+            } else {
+                updateItem(item.id(), item.overrideChangeDurationSeconds(), null);
+                snapshotSongLayoutToItem(item.id(), item.songId(), newBandLayoutId);
+            }
+        }
+    }
+
+    private void clearBandAssignments(long setlistItemId) throws LibraryException {
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                "DELETE FROM SetlistBandAssignment WHERE setlist_item_id = ?")) {
+            statement.setLong(1, setlistItemId);
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to clear setlist band assignments", ex);
         }
     }
 
@@ -832,17 +870,6 @@ public final class SqliteSetlistRepository implements SetlistRepository {
     }
 
     private void removeSetlistItemsAndOrphanLayouts(long setlistId) throws SQLException {
-        List<Long> songLayoutIds = new ArrayList<>();
-        try (PreparedStatement select = database.connection().prepareStatement(
-                "SELECT song_layout_id FROM SetlistItem WHERE setlist_id = ? AND song_layout_id IS NOT NULL")) {
-            select.setLong(1, setlistId);
-            try (ResultSet rs = select.executeQuery()) {
-                while (rs.next()) {
-                    songLayoutIds.add(rs.getLong(1));
-                }
-            }
-        }
-
         try (PreparedStatement clearSong = database.connection().prepareStatement(
                 """
                 UPDATE Song SET last_setlist_item_id = NULL
@@ -869,29 +896,6 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                 "DELETE FROM SetlistItem WHERE setlist_id = ?")) {
             deleteItems.setLong(1, setlistId);
             deleteItems.executeUpdate();
-        }
-
-        for (Long songLayoutId : songLayoutIds) {
-            boolean stillUsed;
-            try (PreparedStatement check = database.connection().prepareStatement(
-                    "SELECT 1 FROM SetlistItem WHERE song_layout_id = ? LIMIT 1")) {
-                check.setLong(1, songLayoutId);
-                try (ResultSet rs = check.executeQuery()) {
-                    stillUsed = rs.next();
-                }
-            }
-            if (!stillUsed) {
-                try (PreparedStatement delAssign = database.connection().prepareStatement(
-                        "DELETE FROM SongLayoutAssignment WHERE song_layout_id = ?")) {
-                    delAssign.setLong(1, songLayoutId);
-                    delAssign.executeUpdate();
-                }
-                try (PreparedStatement delLayout = database.connection().prepareStatement(
-                        "DELETE FROM SongLayout WHERE id = ?")) {
-                    delLayout.setLong(1, songLayoutId);
-                    delLayout.executeUpdate();
-                }
-            }
         }
     }
 

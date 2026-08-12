@@ -17,8 +17,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 final class SetlistSongWarningChecker {
 
-    static final String MSG_NO_SONG_LAYOUT =
-            "No song layout is linked for this setlist's band. Link or create a layout in the assignment panel.";
     static final String MSG_INSTRUMENT =
             "A player is assigned a part that requires an instrument they do not have "
                     + "(including instruments matched by the same name).";
@@ -37,7 +35,6 @@ final class SetlistSongWarningChecker {
      */
     static String warningMessage(
             Long bandLayoutId,
-            Long songLayoutId,
             String partsJson,
             List<BandLayoutSlotInfo> slots,
             Map<Long, Integer> songLayoutAssigns,
@@ -46,9 +43,6 @@ final class SetlistSongWarningChecker {
             Map<Long, Set<Long>> equivalentInstrumentIds) {
         if (bandLayoutId == null) {
             return null;
-        }
-        if (songLayoutId == null) {
-            return MSG_NO_SONG_LAYOUT;
         }
 
         List<PartMeta> parts = parseParts(partsJson);
