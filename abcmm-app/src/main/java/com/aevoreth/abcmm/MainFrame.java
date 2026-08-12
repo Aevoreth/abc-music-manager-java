@@ -60,6 +60,7 @@ import com.aevoreth.abcmm.storage.SqliteSettingsRepository;
 import com.aevoreth.abcmm.storage.SqliteSongLayoutRepository;
 import com.aevoreth.abcmm.storage.SqliteSongRepository;
 import com.aevoreth.abcmm.ui.AbcmmThemer;
+import com.aevoreth.abcmm.ui.AboutDialog;
 import com.aevoreth.abcmm.ui.AppIcons;
 import com.aevoreth.abcmm.ui.BandsPanel;
 import com.aevoreth.abcmm.ui.LibraryPanel;
@@ -384,7 +385,11 @@ public final class MainFrame extends JFrame {
         JMenu help = new JMenu("Help");
         JMenuItem userGuide = new JMenuItem("User Guide");
         userGuide.addActionListener(e -> UserGuideDialog.open(this));
+        JMenuItem about = new JMenuItem("About");
+        about.addActionListener(e -> AboutDialog.open(this));
         help.add(userGuide);
+        help.addSeparator();
+        help.add(about);
         menuBar.add(help);
         return menuBar;
     }

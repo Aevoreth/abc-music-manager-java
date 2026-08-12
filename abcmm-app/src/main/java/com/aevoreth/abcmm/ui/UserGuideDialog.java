@@ -142,12 +142,8 @@ public final class UserGuideDialog extends JDialog {
     }
 
     private static String titleWithVersion() {
-        String version = null;
-        Package pkg = UserGuideDialog.class.getPackage();
-        if (pkg != null) {
-            version = pkg.getImplementationVersion();
-        }
-        if (version == null || version.isBlank()) {
+        String version = AppInfo.implementationVersion();
+        if (version == null) {
             return APP_TITLE + " — User Guide";
         }
         return APP_TITLE + " — User Guide (v" + version + ")";

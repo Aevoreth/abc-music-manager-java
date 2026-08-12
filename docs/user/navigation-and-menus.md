@@ -34,6 +34,7 @@ The main window uses tabs across the top:
 | Item | Action |
 |------|--------|
 | **User Guide** | Opens this documentation |
+| **About** | Version, MIT license summary, and third-party credits |
 
 ---
 

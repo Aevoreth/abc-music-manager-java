@@ -5,6 +5,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 ## Unreleased
 
 - Added User Guide with in-app viewer
+- Added Help → About (version, MIT license, third-party credits)
 - Updated developer docs for Java as the active full-function edition (parity inventory, README, architecture, storage notes)
 
 ## Version 0.3.1b

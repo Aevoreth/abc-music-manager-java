@@ -27,7 +27,7 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 | Set Play (live set session) | Complete | Complete | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid (Java Maestro grid styling). Broadcast via Cloudflare relay |
 | Relay / group playback | Complete | Complete | Preserve protocol where practical | Cloudflare Worker relay (`workers/set-play-relay`); Band Assistant tab / `--assistant`; browser follower `/playback` |
 | Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays CRUD + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
-| Help / About | Complete | Partial | Own identity | **Help → User Guide** in both. Python **Help → About** (version, license, third-party) is not in Java yet; version appears in the User Guide viewer when the package manifest has `Implementation-Version` |
+| Help / About | Complete | Complete | Own identity | **Help → User Guide** in both. **Help → About** shows version, MIT license, and third-party credits (Java: FlatLaf, Maestro, soundfont, SQLite JDBC, Jackson, commonmark). Unpackaged runs show version `development`; packaged builds use `Implementation-Version` |
 | Themes | Complete (LOTRO-inspired Qt) | Complete (Maestro FlatLaf) | Own visual identity | Java targets Maestro/ABC Player Flat Dark / Flat Light via FlatLaf (Appearance); not a port of Python’s LOTRO Qt theme. Future theme revisit possible |
 | Packaging | Complete (PyInstaller, Win/macOS/Linux) | Complete (Windows zip + MSI) | Own installer | Tag-push GitHub Actions (`jpackage` + trimmed jlink runtime); `ABC-Music-Manager-<version>.zip` / `.msi`. Must not package Python app or Maestro/ABC Player/ABC Tools launchers. macOS/Linux installers and code signing are not in this edition |
 | Database compatibility | Complete (SQLite v12) | Complete (R/W) | Open existing DB where practical | Creates/migrates to v12; opens shared DB read-write; interchangeable with Python |
@@ -49,25 +49,24 @@ suggestions, not a committed roadmap.
 ### Product / UI
 
 1. **Library song-layout editor** — Create and edit `SongLayout` / assignments from Library (Python **Actions → Layout** / Song detail Layouts tab) without opening a setlist. Schema already supports this.
-2. **Help → About** — Version, license summary, and third-party credits in-app (Python has this; Java User Guide has a Legal page but no About dialog).
-3. **Playback transport extras** {#playback-transport} — Python still has: MIDI panic (double-click Stop), **Export playlist as set**, and a **Layout** picker on the transport for stereo. Java covers mute/solo, queue, tempo/stereo/volume.
-4. **Library table extras from original requirements** — Notes/Lyrics indicators and a **Total Plays** column are in `REQUIREMENTS.md` and stored on `Song`, but neither edition shows them as table columns today.
-5. **Frequency-of-play filter** — Original requirements asked for “plays in last N days”; both editions filter by last-played instead. Keep last-played unless testers want play-count windows.
-6. **Instrument / made-for filter** — Marked future in Python requirements; parts tooltips already show made-for.
-7. **Standalone Analyze duplicate folders…** — Only needed if users want folder-cluster review without a full library scan.
+2. **Playback transport extras** {#playback-transport} — Python still has: MIDI panic (double-click Stop), **Export playlist as set**, and a **Layout** picker on the transport for stereo. Java covers mute/solo, queue, tempo/stereo/volume.
+3. **Library table extras from original requirements** — Notes/Lyrics indicators and a **Total Plays** column are in `REQUIREMENTS.md` and stored on `Song`, but neither edition shows them as table columns today.
+4. **Frequency-of-play filter** — Original requirements asked for “plays in last N days”; both editions filter by last-played instead. Keep last-played unless testers want play-count windows.
+5. **Instrument / made-for filter** — Marked future in Python requirements; parts tooltips already show made-for.
+6. **Standalone Analyze duplicate folders…** — Only needed if users want folder-cluster review without a full library scan.
 
 ### Platform and operations
 
-8. **macOS and Linux packages** — Python ships via PyInstaller on three platforms; Java release CI is Windows zip + MSI only. Source still runs anywhere JDK 21 + Maven work.
-9. **Code signing** — Windows artifacts are unsigned (SmartScreen warnings). Signing would be a release-ops requirement, not a feature gap.
-10. **Align Maven `${project.version}` with release tags** — Modules are still `0.1.0-SNAPSHOT` while CHANGELOG / GitHub Releases use 0.3.x. The in-app User Guide reads `Implementation-Version` from the package manifest.
-11. **Headless CI playback tests** — Still deferred in [MAESTRO_INTEGRATION.md](MAESTRO_INTEGRATION.md) (no audio device in CI).
+7. **macOS and Linux packages** — Python ships via PyInstaller on three platforms; Java release CI is Windows zip + MSI only. Source still runs anywhere JDK 21 + Maven work.
+8. **Code signing** — Windows artifacts are unsigned (SmartScreen warnings). Signing would be a release-ops requirement, not a feature gap.
+9. **Align Maven `${project.version}` with release tags** — Modules are still `0.1.0-SNAPSHOT` while CHANGELOG / GitHub Releases use 0.3.x. The in-app User Guide and **Help → About** read `Implementation-Version` from the package manifest.
+10. **Headless CI playback tests** — Still deferred in [MAESTRO_INTEGRATION.md](MAESTRO_INTEGRATION.md) (no audio device in CI).
 
 ### Original requirements neither edition fully met
 
-12. **Filesystem watching** — `REQUIREMENTS.md` §3: optional low-latency rescan. Neither edition watches the Music tree; users re-run **Scan Library**.
-13. **Multiple extra library roots** — Requirements mention more than one Music root. Both editions scan LOTRO `Music\` plus folder-rule excludes / set-export skip, not an arbitrary extra-roots list.
-14. **Compact library drag onto a setlist** — Requirements mentioned drag from a compact browser; both editions use a filterable song picker instead.
+11. **Filesystem watching** — `REQUIREMENTS.md` §3: optional low-latency rescan. Neither edition watches the Music tree; users re-run **Scan Library**.
+12. **Multiple extra library roots** — Requirements mention more than one Music root. Both editions scan LOTRO `Music\` plus folder-rule excludes / set-export skip, not an arbitrary extra-roots list.
+13. **Compact library drag onto a setlist** — Requirements mentioned drag from a compact browser; both editions use a filterable song picker instead.
 
 ### Shared schema (coordinate with any remaining Python users)
 
@@ -116,5 +115,6 @@ Completed bandleader library + management slice (this edition):
 11. Set Play relays / Band Assistant (`set_play_state_v1`, Broadcast, share link, deploy wizard)
 12. In-app User Guide (**Help → User Guide**)
 13. Windows zip + MSI packaging (tag-push GitHub Actions)
+14. Help → About (version, MIT license, third-party credits)
 
-Later (see [remaining gaps](#remaining-gaps-and-suggested-requirements)): library song-layout editor; Help → About; playback extras; non-Windows packages.
+Later (see [remaining gaps](#remaining-gaps-and-suggested-requirements)): library song-layout editor; playback extras; non-Windows packages.
