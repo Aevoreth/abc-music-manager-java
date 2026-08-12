@@ -9,7 +9,7 @@ inventories capabilities and remaining gaps; it is not a mandate to clone every
 Python UI detail.
 
 Inspected against local Python v0.2.9b and this Java tree (changelog through
-0.3.1b plus unreleased User Guide).
+0.3.2b).
 
 | Area | Python status | Java status | Compatibility requirement | Notes |
 |------|---------------|-------------|---------------------------|-------|

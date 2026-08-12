@@ -4,10 +4,12 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+## Version 0.3.2b
+
 - Added MIDI panic (double-click Stop) to silence hanging notes
 - Added User Guide with in-app viewer
 - Added Help → About (version, MIT license, third-party credits)
-- Aligned Maven project version with 0.3.x numbering (`0.3.2-SNAPSHOT`)
+- Aligned Maven project version with 0.3.x numbering
 - Updated developer docs for Java as the active full-function edition (parity inventory, README, architecture, storage notes)
 - Added drag-and-drop (and Move up / Move down) to rearrange the ABC playback queue
 - Added saving the current playback queue as a setlist
