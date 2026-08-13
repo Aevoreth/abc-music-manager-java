@@ -9,24 +9,23 @@
   <body>
     <div class="app">
       <header class="top-bar">
-        <div class="brand">
-          <h1>Band Assistant</h1>
-          <p class="subtitle">Follow along with the bandleader’s set</p>
+        <h1>Band Assistant</h1>
+        <nav class="tabs" role="tablist" aria-label="Band Assistant views">
+          <button type="button" class="tab active" role="tab" aria-selected="true" data-tab="connection">
+            Connect
+          </button>
+          <button type="button" class="tab" role="tab" aria-selected="false" data-tab="playback" disabled>
+            Playback
+          </button>
+          <button type="button" class="tab" role="tab" aria-selected="false" data-tab="parts" disabled>
+            Parts
+          </button>
+        </nav>
+        <div class="top-bar-end">
+          <button type="button" id="download-btn" class="btn" hidden disabled>Download ZIP</button>
+          <p id="status-pill" class="status-pill">Not connected</p>
         </div>
-        <p id="status-pill" class="status-pill">Not connected</p>
       </header>
-
-      <nav class="tabs" role="tablist" aria-label="Band Assistant views">
-        <button type="button" class="tab active" role="tab" aria-selected="true" data-tab="connection">
-          Connect
-        </button>
-        <button type="button" class="tab" role="tab" aria-selected="false" data-tab="playback" disabled>
-          Playback
-        </button>
-        <button type="button" class="tab" role="tab" aria-selected="false" data-tab="parts" disabled>
-          Parts
-        </button>
-      </nav>
 
       <section id="panel-connection" class="tab-panel active" role="tabpanel">
         <div class="panel-card connect-card">
@@ -60,7 +59,6 @@
             <button type="button" id="connect-btn" class="btn primary">Connect</button>
             <button type="button" id="disconnect-btn" class="btn" disabled>Disconnect</button>
             <button type="button" id="reconnect-btn" class="btn" disabled>Reconnect</button>
-            <button type="button" id="download-btn" class="btn" hidden disabled>Download ZIP</button>
           </div>
           <p id="status" class="status">Enter a set code or open a share link.</p>
           <dl class="conn-meta">
@@ -82,63 +80,73 @@
 
       <section id="panel-playback" class="tab-panel" role="tabpanel" hidden>
         <div class="playback-stack">
-          <div class="song-banner current" id="current-song">
-            <span class="song-label">Current</span>
-            <span class="song-title" id="current-title">—</span>
-            <span class="song-meta" id="current-meta"></span>
-          </div>
-          <div class="song-banner next" id="next-song">
-            <span class="song-label">Next</span>
-            <span class="song-title" id="next-title">—</span>
-            <span class="song-meta" id="next-meta"></span>
-          </div>
-          <div class="setlist-split">
-            <aside class="left-col">
-              <div class="panel-card">
-                <h2>Set info</h2>
-                <div id="set-info" class="set-info">—</div>
-              </div>
-              <div class="panel-card">
-                <h2>Your players</h2>
-                <p class="hint">Highlight players on the band layout (local only).</p>
-                <div id="players-list" class="players-list"></div>
-              </div>
-            </aside>
-            <div class="panel-card table-card">
-              <h2>Setlist</h2>
-              <div class="table-wrap">
-                <table id="song-table" class="song-table">
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Title</th>
-                      <th>Parts</th>
-                      <th>Duration</th>
-                      <th>Artist</th>
-                    </tr>
-                  </thead>
-                  <tbody id="song-tbody"></tbody>
-                </table>
-              </div>
+          <div class="now-next-sticky">
+            <div class="song-banner current" id="current-song">
+              <span class="song-label">Current</span>
+              <span class="song-title" id="current-title">—</span>
+              <span class="song-meta" id="current-meta"></span>
+            </div>
+            <div class="song-banner next" id="next-song">
+              <span class="song-label">Next</span>
+              <span class="song-title" id="next-title">—</span>
+              <span class="song-meta" id="next-meta"></span>
             </div>
           </div>
-          <div class="panel-card grid-card">
-            <h2>Band layout <span class="hint-inline">(up next)</span></h2>
-            <div id="layout-viewport" class="layout-viewport">
-              <button type="button" id="recenter-btn" class="btn recenter-btn" hidden>
-                Re-center
-              </button>
-              <canvas id="layout-canvas" aria-label="Band layout"></canvas>
-              <p id="layout-empty" class="empty-hint">Waiting for band layout…</p>
+          <div class="playback-scroll">
+            <div class="setlist-split">
+              <aside class="left-col">
+                <div class="panel-card">
+                  <h2>Set info</h2>
+                  <div id="set-info" class="set-info">—</div>
+                </div>
+                <div class="panel-card">
+                  <h2>Your players</h2>
+                  <p class="hint">Highlight players on the band layout (local only).</p>
+                  <div id="players-list" class="players-list"></div>
+                </div>
+              </aside>
+              <div class="panel-card table-card">
+                <h2>Setlist</h2>
+                <div class="table-wrap">
+                  <table id="song-table" class="song-table">
+                    <thead>
+                      <tr>
+                        <th>Status</th>
+                        <th>Title</th>
+                        <th>Parts</th>
+                        <th>Duration</th>
+                        <th>Artist</th>
+                      </tr>
+                    </thead>
+                    <tbody id="song-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="panel-card grid-card">
+              <h2>Band layout <span class="hint-inline">(up next)</span></h2>
+              <div id="layout-viewport" class="layout-viewport">
+                <button type="button" id="recenter-btn" class="btn recenter-btn" hidden>
+                  Re-center
+                </button>
+                <canvas id="layout-canvas" aria-label="Band layout"></canvas>
+                <p id="layout-empty" class="empty-hint">Waiting for band layout…</p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       <section id="panel-parts" class="tab-panel" role="tabpanel" hidden>
-        <div class="panel-card table-card">
-          <h2>Parts</h2>
-          <p class="hint">Read-only. Same NOW / NEXT / skip highlighting as Playback.</p>
+        <div class="panel-card table-card parts-card">
+          <div class="parts-toolbar">
+            <h2>Parts</h2>
+            <details class="player-filter">
+              <summary id="parts-player-summary">Players: All</summary>
+              <div id="parts-player-filter" class="player-filter-list"></div>
+            </details>
+            <button type="button" id="instruments-btn" class="btn">Instruments needed…</button>
+          </div>
           <div class="table-wrap">
             <table id="parts-table" class="song-table parts-table">
               <thead id="parts-head"></thead>
@@ -148,6 +156,14 @@
         </div>
       </section>
     </div>
+    <dialog id="instruments-dialog" class="instruments-dialog">
+      <div class="instruments-dialog-head">
+        <h2>Instruments needed</h2>
+        <button type="button" id="instruments-copy-all" class="btn">Copy all</button>
+        <button type="button" id="instruments-close" class="btn">Close</button>
+      </div>
+      <div id="instruments-body" class="instruments-grid"></div>
+    </dialog>
     <script src="/playback/playback.js"></script>
   </body>
 </html>

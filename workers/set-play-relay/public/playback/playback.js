@@ -54,6 +54,13 @@
     playback: document.getElementById("panel-playback"),
     parts: document.getElementById("panel-parts"),
   };
+  const instrumentsBtn = document.getElementById("instruments-btn");
+  const instrumentsDialog = document.getElementById("instruments-dialog");
+  const instrumentsBody = document.getElementById("instruments-body");
+  const instrumentsCopyAll = document.getElementById("instruments-copy-all");
+  const instrumentsClose = document.getElementById("instruments-close");
+  const partsPlayerFilter = document.getElementById("parts-player-filter");
+  const partsPlayerSummary = document.getElementById("parts-player-summary");
 
   /** @type {WebSocket | null} */
   let ws = null;
@@ -61,6 +68,9 @@
   let lastCode = null;
   /** @type {Set<number>} */
   const highlightPlayers = new Set();
+  /** @type {Set<number>} */
+  const partsSelectedPlayers = new Set();
+  let lastPlayerFilterKey = "";
   /** @type {Array<object>} */
   let lastCards = [];
   /** @type {object | null} */
@@ -161,12 +171,29 @@
     return null;
   }
 
+  function zipDownloadFileName() {
+    const meta = lastSnapshot && lastSnapshot.set_meta ? lastSnapshot.set_meta : {};
+    const raw = String(meta.name || lastCode || "set").trim();
+    let base = raw
+      .replace(/[\\/:*?"<>|\x00-\x1F]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/^[.]+/, "")
+      .replace(/[.]+$/, "");
+    if (!base) base = lastCode || "set";
+    if (base.length > 120) base = base.slice(0, 120).trim();
+    return base + ".zip";
+  }
+
   function updateDownloadButton() {
     if (!downloadBtn) return;
     const pin = (pinInput && pinInput.value ? pinInput.value : "").trim();
-    const ready = !!(lastCode && pin && lastSnapshot && lastSnapshot.zip_available);
-    downloadBtn.hidden = !ready;
-    downloadBtn.disabled = !ready;
+    const zip = !!(lastCode && lastSnapshot && lastSnapshot.zip_available);
+    downloadBtn.hidden = !zip;
+    downloadBtn.disabled = !zip || !pin;
+    downloadBtn.title = zip && !pin
+      ? "Enter the download PIN on the Connect tab"
+      : "";
   }
 
   function wsUrlForCode(code) {
@@ -403,7 +430,12 @@
     const body = document.getElementById("parts-tbody");
     if (!head || !body) return;
     const sheet = data.parts_sheet || {};
-    const columns = Array.isArray(sheet.columns) ? sheet.columns : [];
+    const allColumns = Array.isArray(sheet.columns) ? sheet.columns : [];
+    renderPartsPlayerFilter(allColumns);
+    const columns = allColumns.filter((c) => {
+      if (c.player_id == null || partsSelectedPlayers.size === 0) return true;
+      return partsSelectedPlayers.has(Number(c.player_id));
+    });
     const sheetRows = Array.isArray(sheet.rows) ? sheet.rows : [];
     const byItem = new Map(sheetRows.map((r) => [Number(r.item_id), r]));
     const played = new Set((data.played_item_ids || []).map(Number));
@@ -418,7 +450,7 @@
       : rows;
 
     const hr = document.createElement("tr");
-    hr.innerHTML = ["<th>Status</th>", "<th>Title</th>"]
+    hr.innerHTML = ["<th>Status</th>", "<th>Title</th>", "<th>Duration</th>", "<th>Parts</th>"]
       .concat(columns.map((c) => `<th>${escapeHtml(c.title || c.key || "")}</th>`))
       .join("");
     head.replaceChildren(hr);
@@ -435,18 +467,139 @@
       else if (isNext) tr.className = "row-next";
       else if (isPlayed) tr.className = "row-played";
       const cells = byItem.get(id);
-      const cellHtml = columns.map((c, i) => {
-        const val = cells && Array.isArray(cells.cells) ? cells.cells[i] : "";
-        const tintIdx = i % 12;
+      const cellHtml = columns.map((c) => {
+        const sourceIndex = allColumns.indexOf(c);
+        const val = cells && Array.isArray(cells.cells) ? cells.cells[sourceIndex] : "";
+        const tintIdx = tintIndexForColumn(allColumns, c);
         return `<td class="part-tint-${tintIdx}">${escapeHtml(val || "")}</td>`;
       });
       tr.innerHTML = [
         statusBadgeCell(isSkipped, isCurrent, isNext, isPlayed),
         `<td>${escapeHtml(r.title || "")}</td>`,
+        `<td>${fmtDuration(r.duration_seconds)}</td>`,
+        `<td>${escapeHtml(String(r.part_count ?? "—"))}</td>`,
         ...cellHtml,
       ].join("");
       body.appendChild(tr);
     }
+  }
+
+  function tintIndexForColumn(allColumns, col) {
+    const idx = allColumns.indexOf(col);
+    return (idx < 0 ? 0 : idx) % 8;
+  }
+
+  function uniquePlayersFromColumns(columns) {
+    const out = [];
+    const seen = new Set();
+    for (const c of columns) {
+      if (c.player_id == null) continue;
+      const id = Number(c.player_id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, name: c.title || `Player ${id}` });
+    }
+    return out;
+  }
+
+  function renderPartsPlayerFilter(columns) {
+    if (!partsPlayerFilter || !partsPlayerSummary) return;
+    const players = uniquePlayersFromColumns(columns);
+    const key = players.map((p) => p.id + ":" + p.name).join("|")
+      + "#" + [...partsSelectedPlayers].sort().join(",");
+    if (key === lastPlayerFilterKey) return;
+    lastPlayerFilterKey = key;
+    partsPlayerFilter.replaceChildren();
+    if (!players.length) {
+      partsPlayerSummary.textContent = "Players: —";
+      return;
+    }
+    const selectedCount = players.filter((p) => partsSelectedPlayers.has(p.id)).length;
+    partsPlayerSummary.textContent = selectedCount === 0 || selectedCount === players.length
+      ? "Players: All"
+      : `Players: ${selectedCount}`;
+    for (const p of players) {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = partsSelectedPlayers.size === 0 || partsSelectedPlayers.has(p.id);
+      cb.addEventListener("change", () => {
+        const ids = players.map((x) => x.id);
+        if (partsSelectedPlayers.size === 0) {
+          for (const id of ids) partsSelectedPlayers.add(id);
+        }
+        if (cb.checked) partsSelectedPlayers.add(p.id);
+        else partsSelectedPlayers.delete(p.id);
+        if (partsSelectedPlayers.size === 0 || partsSelectedPlayers.size === ids.length) {
+          partsSelectedPlayers.clear();
+        }
+        if (lastSnapshot) renderParts(lastSnapshot);
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(p.name));
+      partsPlayerFilter.appendChild(label);
+    }
+  }
+
+  function instrumentsMarkdown(entry) {
+    const name = entry && entry.player_name ? String(entry.player_name) : "Player";
+    const inst = Array.isArray(entry && entry.instruments) ? entry.instruments : [];
+    const lines = [`**${name}**`];
+    if (!inst.length) lines.push("- (none)");
+    else for (const item of inst) lines.push(`- ${item}`);
+    return lines.join("\n") + "\n";
+  }
+
+  function visibleInstrumentsNeeded() {
+    const sheet = lastSnapshot && lastSnapshot.parts_sheet ? lastSnapshot.parts_sheet : {};
+    const list = Array.isArray(sheet.instruments_needed) ? sheet.instruments_needed : [];
+    if (partsSelectedPlayers.size === 0) return list;
+    return list.filter((n) => partsSelectedPlayers.has(Number(n.player_id)));
+  }
+
+  function openInstrumentsDialog() {
+    if (!instrumentsDialog || !instrumentsBody) return;
+    const needed = visibleInstrumentsNeeded();
+    instrumentsBody.replaceChildren();
+    if (!needed.length) {
+      const empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = "No instruments listed.";
+      instrumentsBody.appendChild(empty);
+    } else {
+      for (const n of needed) {
+        const card = document.createElement("div");
+        card.className = "instruments-card";
+        const h = document.createElement("h3");
+        h.textContent = n.player_name || "Player";
+        const ul = document.createElement("ul");
+        const inst = Array.isArray(n.instruments) ? n.instruments : [];
+        if (!inst.length) {
+          const li = document.createElement("li");
+          li.textContent = "(none)";
+          ul.appendChild(li);
+        } else {
+          for (const item of inst) {
+            const li = document.createElement("li");
+            li.textContent = item;
+            ul.appendChild(li);
+          }
+        }
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "btn";
+        copy.textContent = "Copy";
+        copy.addEventListener("click", () => {
+          navigator.clipboard.writeText(instrumentsMarkdown(n)).catch(() => {});
+        });
+        card.appendChild(h);
+        card.appendChild(ul);
+        card.appendChild(copy);
+        instrumentsBody.appendChild(card);
+      }
+    }
+    if (typeof instrumentsDialog.showModal === "function") instrumentsDialog.showModal();
+    else instrumentsDialog.setAttribute("open", "");
   }
 
   async function downloadZip() {
@@ -464,7 +617,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = lastCode + ".zip";
+      a.download = zipDownloadFileName();
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -764,6 +917,20 @@
   });
   if (downloadBtn) downloadBtn.addEventListener("click", () => downloadZip());
   if (pinInput) pinInput.addEventListener("input", () => updateDownloadButton());
+  if (instrumentsBtn) instrumentsBtn.addEventListener("click", () => openInstrumentsDialog());
+  if (instrumentsClose && instrumentsDialog) {
+    instrumentsClose.addEventListener("click", () => {
+      if (typeof instrumentsDialog.close === "function") instrumentsDialog.close();
+      else instrumentsDialog.removeAttribute("open");
+    });
+  }
+  if (instrumentsCopyAll) {
+    instrumentsCopyAll.addEventListener("click", () => {
+      const needed = visibleInstrumentsNeeded();
+      const text = needed.map(instrumentsMarkdown).join("\n");
+      navigator.clipboard.writeText(text).catch(() => {});
+    });
+  }
   setInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") connect(setInput.value);
   });

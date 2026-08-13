@@ -6,6 +6,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GridLayout;
 import java.awt.Point;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
@@ -68,6 +69,7 @@ import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
+import com.aevoreth.abcmm.domain.prefs.LotroPaths;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
@@ -82,6 +84,7 @@ import com.aevoreth.abcmm.domain.setplay.SetPlayRelayInfo;
 import com.aevoreth.abcmm.domain.setplay.SetPlayRelayRepository;
 import com.aevoreth.abcmm.domain.setplay.SetPlaySessionRules;
 import com.aevoreth.abcmm.domain.setplay.SetPlaySessionState;
+import com.aevoreth.abcmm.domain.setplay.SetPlayZipNames;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayRelayClient;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayRelayHttp;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayShareUrls;
@@ -104,6 +107,12 @@ public final class SetPlayPanel extends JPanel {
     private static final int COL_DUR = 4;
     private static final int COL_ARTIST = 5;
     private static final int COL_ACTIONS = 6;
+
+    private static final int PARTS_COL_STATUS = 0;
+    private static final int PARTS_COL_TITLE = 1;
+    private static final int PARTS_COL_DUR = 2;
+    private static final int PARTS_COL_COUNT = 3;
+    private static final int PARTS_COL_FIRST_PLAYER = 4;
 
     private static final Color STATUS_NOW = new Color(0x4C_AF_50);
     private static final Color STATUS_NEXT = new Color(0x5C_9F_D6);
@@ -1310,13 +1319,8 @@ public final class SetPlayPanel extends JPanel {
         }
         JFileChooser chooser = new JFileChooser();
         chooser.setFileFilter(new FileNameExtensionFilter("Zip archives", "zip"));
-        String exportDir = preferences == null ? "" : preferences.setExportDir();
-        if (exportDir != null && !exportDir.isBlank()) {
-            Path dir = Path.of(exportDir);
-            if (Files.isDirectory(dir)) {
-                chooser.setCurrentDirectory(dir.toFile());
-            }
-        }
+        LotroPaths.resolveSetExportDirectory(preferences)
+                .ifPresent(dir -> chooser.setCurrentDirectory(dir.toFile()));
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION
                 || chooser.getSelectedFile() == null) {
             return;
@@ -2536,12 +2540,12 @@ public final class SetPlayPanel extends JPanel {
             setFont(font);
             if (isSelected) {
                 setBackground(table.getSelectionBackground());
-                // Keep status hue visible on selection when possible.
                 setForeground(style == RowStyle.NORMAL ? table.getSelectionForeground() : fg);
             } else {
                 setBackground(table.getBackground());
                 setForeground(fg);
             }
+            applyNowNextCellBorder(this, style);
             return c;
         }
     }
@@ -2591,6 +2595,7 @@ public final class SetPlayPanel extends JPanel {
                 base,
                 relayCode,
                 pin,
+                zipDownloadBaseName(),
                 preferences,
                 songRepository);
         dialog.setVisible(true);
@@ -2616,25 +2621,151 @@ public final class SetPlayPanel extends JPanel {
         PartsCellRenderer renderer = new PartsCellRenderer();
         for (int i = 0; i < partsTable.getColumnCount(); i++) {
             partsTable.getColumnModel().getColumn(i).setCellRenderer(renderer);
-            partsTable.getColumnModel().getColumn(i).setPreferredWidth(i < 2 ? 140 : 110);
+        }
+        packPartsColumns();
+    }
+
+    private void packPartsColumns() {
+        int n = partsTable.getColumnCount();
+        if (n == 0) {
+            return;
+        }
+        packFixedPartsColumn(PARTS_COL_STATUS);
+        if (n > PARTS_COL_TITLE) {
+            partsTable.getColumnModel().getColumn(PARTS_COL_TITLE).setMinWidth(80);
+            partsTable.getColumnModel().getColumn(PARTS_COL_TITLE).setMaxWidth(Integer.MAX_VALUE);
+            partsTable.getColumnModel().getColumn(PARTS_COL_TITLE).setPreferredWidth(220);
+        }
+        if (n > PARTS_COL_DUR) {
+            packFixedPartsColumn(PARTS_COL_DUR);
+        }
+        if (n > PARTS_COL_COUNT) {
+            packFixedPartsColumn(PARTS_COL_COUNT);
+        }
+        for (int i = PARTS_COL_FIRST_PLAYER; i < n; i++) {
+            partsTable.getColumnModel().getColumn(i).setPreferredWidth(110);
+            partsTable.getColumnModel().getColumn(i).setMinWidth(64);
+            partsTable.getColumnModel().getColumn(i).setMaxWidth(Integer.MAX_VALUE);
         }
     }
 
-    private void showInstrumentsNeeded() {
-        StringBuilder sb = new StringBuilder();
+    private void packFixedPartsColumn(int col) {
+        if (col < 0 || col >= partsTable.getColumnCount()) {
+            return;
+        }
+        TableColumn column = partsTable.getColumnModel().getColumn(col);
+        int width = 24;
+        TableCellRenderer headerRenderer = partsTable.getTableHeader().getDefaultRenderer();
+        Component header = headerRenderer.getTableCellRendererComponent(
+                partsTable, column.getHeaderValue(), false, false, 0, col);
+        width = Math.max(width, header.getPreferredSize().width);
+        for (int row = 0; row < partsTable.getRowCount(); row++) {
+            TableCellRenderer r = partsTable.getCellRenderer(row, col);
+            Component c = r.getTableCellRendererComponent(
+                    partsTable, partsTable.getValueAt(row, col), false, false, row, col);
+            width = Math.max(width, c.getPreferredSize().width);
+        }
+        width += 16;
+        column.setMinWidth(width);
+        column.setPreferredWidth(width);
+        column.setMaxWidth(width);
+    }
+
+    private List<SetPlayPartsSheet.InstrumentsNeeded> visibleInstrumentsNeeded() {
+        List<SetPlayPartsSheet.InstrumentsNeeded> out = new ArrayList<>();
         boolean selectedOnly = partsShowSelectedOnly != null && partsShowSelectedOnly.isSelected();
         for (SetPlayPartsSheet.InstrumentsNeeded n : partsSheet.instrumentsNeeded()) {
             if (selectedOnly && !highlightPlayers.contains(n.playerId())) {
                 continue;
             }
-            sb.append(n.playerName()).append('\n');
-            for (String inst : n.instruments()) {
-                sb.append("  • ").append(inst).append('\n');
-            }
-            sb.append('\n');
+            out.add(n);
         }
-        String text = sb.toString().isBlank() ? "No instruments listed." : sb.toString();
-        JOptionPane.showMessageDialog(this, text, "Instruments needed", JOptionPane.INFORMATION_MESSAGE);
+        return out;
+    }
+
+    private static String instrumentsMarkdown(SetPlayPartsSheet.InstrumentsNeeded needed) {
+        StringBuilder sb = new StringBuilder();
+        String name = needed.playerName() == null || needed.playerName().isBlank()
+                ? "Player"
+                : needed.playerName();
+        sb.append("**").append(name).append("**\n");
+        if (needed.instruments().isEmpty()) {
+            sb.append("- (none)\n");
+        } else {
+            for (String inst : needed.instruments()) {
+                sb.append("- ").append(inst).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String instrumentsMarkdownAll(List<SetPlayPartsSheet.InstrumentsNeeded> needed) {
+        StringBuilder sb = new StringBuilder();
+        for (SetPlayPartsSheet.InstrumentsNeeded n : needed) {
+            if (!sb.isEmpty()) {
+                sb.append('\n');
+            }
+            sb.append(instrumentsMarkdown(n));
+        }
+        return sb.toString();
+    }
+
+    private void copyText(String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+    }
+
+    private void showInstrumentsNeeded() {
+        List<SetPlayPartsSheet.InstrumentsNeeded> needed = visibleInstrumentsNeeded();
+        if (needed.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No instruments listed.", "Instruments needed",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int cols = Math.min(3, needed.size());
+        JPanel grid = new JPanel(new GridLayout(0, cols, 16, 12));
+        for (SetPlayPartsSheet.InstrumentsNeeded n : needed) {
+            JPanel card = new JPanel();
+            card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+            JLabel name = new JLabel(n.playerName() == null ? "" : n.playerName());
+            name.setFont(name.getFont().deriveFont(Font.BOLD));
+            name.setAlignmentX(Component.LEFT_ALIGNMENT);
+            card.add(name);
+            StringBuilder bullets = new StringBuilder("<html>");
+            if (n.instruments().isEmpty()) {
+                bullets.append("• (none)");
+            } else {
+                for (int i = 0; i < n.instruments().size(); i++) {
+                    if (i > 0) {
+                        bullets.append("<br>");
+                    }
+                    bullets.append("• ").append(escapeHtml(n.instruments().get(i)));
+                }
+            }
+            bullets.append("</html>");
+            JLabel list = new JLabel(bullets.toString());
+            list.setAlignmentX(Component.LEFT_ALIGNMENT);
+            card.add(Box.createVerticalStrut(4));
+            card.add(list);
+            JButton copy = new JButton("Copy");
+            copy.setAlignmentX(Component.LEFT_ALIGNMENT);
+            copy.addActionListener(e -> copyText(instrumentsMarkdown(n)));
+            card.add(Box.createVerticalStrut(6));
+            card.add(copy);
+            grid.add(card);
+        }
+        JPanel root = new JPanel(new BorderLayout(8, 8));
+        JButton copyAll = new JButton("Copy all");
+        copyAll.addActionListener(e -> copyText(instrumentsMarkdownAll(needed)));
+        JPanel north = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        north.add(copyAll);
+        root.add(north, BorderLayout.NORTH);
+        JScrollPane scroll = new JScrollPane(grid);
+        scroll.setPreferredSize(new Dimension(Math.min(720, 240 * cols + 48), 320));
+        root.add(scroll, BorderLayout.CENTER);
+        JOptionPane.showMessageDialog(this, root, "Instruments needed", JOptionPane.PLAIN_MESSAGE);
     }
 
     private void chooseHiddenColumns() {
@@ -2679,20 +2810,22 @@ public final class SetPlayPanel extends JPanel {
 
         @Override
         public int getColumnCount() {
-            return 2 + visiblePartColumns().size();
+            return PARTS_COL_FIRST_PLAYER + visiblePartColumns().size();
         }
 
         @Override
         public String getColumnName(int column) {
-            if (column == 0) {
-                return "Status";
-            }
-            if (column == 1) {
-                return "Title";
-            }
-            List<SetPlayPartsSheet.Column> cols = visiblePartColumns();
-            int idx = column - 2;
-            return idx >= 0 && idx < cols.size() ? cols.get(idx).title() : "";
+            return switch (column) {
+                case PARTS_COL_STATUS -> "Status";
+                case PARTS_COL_TITLE -> "Title";
+                case PARTS_COL_DUR -> "Duration";
+                case PARTS_COL_COUNT -> "Parts";
+                default -> {
+                    List<SetPlayPartsSheet.Column> cols = visiblePartColumns();
+                    int idx = column - PARTS_COL_FIRST_PLAYER;
+                    yield idx >= 0 && idx < cols.size() ? cols.get(idx).title() : "";
+                }
+            };
         }
 
         @Override
@@ -2701,28 +2834,30 @@ public final class SetPlayPanel extends JPanel {
                 return "";
             }
             SetlistItemInfo row = songRows.get(rowIndex);
-            if (columnIndex == 0) {
-                return SetPlaySessionRules.statusBadgeText(session, row.id());
-            }
-            if (columnIndex == 1) {
-                return row.songTitle() == null ? "" : row.songTitle();
-            }
-            List<SetPlayPartsSheet.Column> cols = visiblePartColumns();
-            int idx = columnIndex - 2;
-            if (idx < 0 || idx >= cols.size()) {
-                return "";
-            }
-            SetPlayPartsSheet.Column col = cols.get(idx);
-            int sourceIndex = partsSheet.columns().indexOf(col);
-            for (SetPlayPartsSheet.Row sheetRow : partsSheet.rows()) {
-                if (sheetRow.itemId() == row.id()) {
-                    if (sourceIndex >= 0 && sourceIndex < sheetRow.cells().size()) {
-                        return sheetRow.cells().get(sourceIndex);
+            return switch (columnIndex) {
+                case PARTS_COL_STATUS -> SetPlaySessionRules.statusBadgeText(session, row.id());
+                case PARTS_COL_TITLE -> row.songTitle() == null ? "" : row.songTitle();
+                case PARTS_COL_DUR -> LibraryDisplayFormats.formatDuration(row.songDurationSeconds());
+                case PARTS_COL_COUNT -> row.partCount() > 0 ? String.valueOf(row.partCount()) : "—";
+                default -> {
+                    List<SetPlayPartsSheet.Column> cols = visiblePartColumns();
+                    int idx = columnIndex - PARTS_COL_FIRST_PLAYER;
+                    if (idx < 0 || idx >= cols.size()) {
+                        yield "";
                     }
-                    return "";
+                    SetPlayPartsSheet.Column col = cols.get(idx);
+                    int sourceIndex = partsSheet.columns().indexOf(col);
+                    for (SetPlayPartsSheet.Row sheetRow : partsSheet.rows()) {
+                        if (sheetRow.itemId() == row.id()) {
+                            if (sourceIndex >= 0 && sourceIndex < sheetRow.cells().size()) {
+                                yield sheetRow.cells().get(sourceIndex);
+                            }
+                            yield "";
+                        }
+                    }
+                    yield "";
                 }
-            }
-            return "";
+            };
         }
     }
 
@@ -2759,9 +2894,9 @@ public final class SetPlayPanel extends JPanel {
                 setForeground(style == RowStyle.NORMAL ? table.getSelectionForeground() : fg);
             } else {
                 Color bg = table.getBackground();
-                if (column >= 2) {
+                if (column >= PARTS_COL_FIRST_PLAYER) {
                     List<SetPlayPartsSheet.Column> cols = visiblePartColumns();
-                    int idx = column - 2;
+                    int idx = column - PARTS_COL_FIRST_PLAYER;
                     if (idx >= 0 && idx < cols.size()) {
                         SetPlayPartsSheet.Column col = cols.get(idx);
                         int canonical = 0;
@@ -2782,18 +2917,48 @@ public final class SetPlayPanel extends JPanel {
                 setBackground(bg);
                 setForeground(fg);
             }
-            setHorizontalAlignment(column == 0 ? CENTER : LEFT);
+            if (column == PARTS_COL_STATUS || column == PARTS_COL_DUR || column == PARTS_COL_COUNT) {
+                setHorizontalAlignment(CENTER);
+            } else {
+                setHorizontalAlignment(LEFT);
+            }
+            applyNowNextCellBorder(this, style);
             return c;
         }
     }
 
-    /** Soft column wash: light pastels on light theme, muted dark hues on dark theme. */
+    /** Soft column wash: 8 looping hues; dark theme stays muted. */
     private static Color playerTint(int index) {
-        float hue = Math.floorMod(index, 12) / 12f;
+        float hue = Math.floorMod(index, 8) / 8f;
         if (AbcmmThemer.isDarkMode()) {
-            return Color.getHSBColor(hue, 0.22f, 0.28f);
+            return Color.getHSBColor(hue, 0.12f, 0.22f);
         }
-        return Color.getHSBColor(hue, 0.16f, 0.94f);
+        return Color.getHSBColor(hue, 0.12f, 0.96f);
+    }
+
+    private static void applyNowNextCellBorder(javax.swing.JComponent cell, RowStyle style) {
+        int pad = 2;
+        Color line = switch (style) {
+            case NOW -> STATUS_NOW;
+            case NEXT -> STATUS_NEXT;
+            default -> null;
+        };
+        if (line != null) {
+            cell.setBorder(BorderFactory.createMatteBorder(pad, 0, pad, 0, line));
+        } else {
+            cell.setBorder(BorderFactory.createEmptyBorder(pad, 0, pad, 0));
+        }
+    }
+
+    private String zipDownloadBaseName() {
+        if (loadedSetlist != null && loadedSetlist.name() != null && !loadedSetlist.name().isBlank()) {
+            return loadedSetlist.name();
+        }
+        String label = setlistNameLabel.getText();
+        if (label != null && !label.isBlank() && !"—".equals(label.strip())) {
+            return label;
+        }
+        return relayCode;
     }
 
     private final class SongTableModel extends AbstractTableModel {

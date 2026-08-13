@@ -48,6 +48,33 @@ function randomPin(): string {
   return n.toString().padStart(6, "0");
 }
 
+/** R2 key stays zips/CODE.zip; the saved filename uses the set name. */
+function zipDownloadFileName(setName: string | null | undefined, code: string): string {
+  const fromSet = sanitizeZipBaseName(setName);
+  const fromCode = sanitizeZipBaseName(code);
+  const base = fromSet || fromCode || "set";
+  return `${base}.zip`;
+}
+
+function sanitizeZipBaseName(raw: string | null | undefined): string {
+  if (!raw) return "";
+  let s = String(raw)
+    .trim()
+    .replace(/[\\/:*?"<>|\x00-\x1F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[.]+/, "")
+    .replace(/[.]+$/, "");
+  if (s.length > 120) s = s.slice(0, 120).trim();
+  return s;
+}
+
+function zipContentDisposition(setName: string | null | undefined, code: string): string {
+  const file = zipDownloadFileName(setName, code);
+  const ascii = file.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file)}`;
+}
+
 function randomToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -466,7 +493,7 @@ export default {
         return new Response(obj.body, {
           headers: {
             "Content-Type": "application/zip",
-            "Content-Disposition": `attachment; filename="${code}.zip"`,
+            "Content-Disposition": zipContentDisposition(row.set_name, code),
             ...CORS_HEADERS,
           },
         });

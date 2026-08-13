@@ -105,6 +105,26 @@ public final class LotroPaths {
     }
 
     /**
+     * Absolute Set Export / Sets folder from preferences. Relative values are resolved
+     * under Music. The path is returned even if the folder does not exist yet.
+     */
+    public static Optional<Path> resolveSetExportDirectory(Preferences preferences) {
+        if (preferences == null) {
+            return Optional.empty();
+        }
+        String stored = preferences.setExportDir();
+        if (stored == null || stored.isBlank()) {
+            return Optional.empty();
+        }
+        String lotro = effectiveLotroRootString(preferences);
+        String resolved = resolveMusicPath(stored, lotro);
+        if (resolved == null || resolved.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(Path.of(resolved));
+    }
+
+    /**
      * If preferences have no LOTRO root and a default exists, set it. Returns {@code true}
      * when preferences were updated.
      */

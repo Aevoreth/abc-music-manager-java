@@ -25,6 +25,7 @@ import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.prefs.LotroPaths;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.setplay.SetPlayZipExtract;
+import com.aevoreth.abcmm.domain.setplay.SetPlayZipNames;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayRelayHttp;
 
 /**
@@ -36,6 +37,7 @@ public final class SetPlayDownloadDialog extends JDialog {
     private final String relayUrl;
     private final String sessionCode;
     private final String passphrase;
+    private final String setName;
     private final Preferences preferences;
     private final SongRepository songRepository;
     private final JTextField pathField = new JTextField();
@@ -46,6 +48,7 @@ public final class SetPlayDownloadDialog extends JDialog {
             String relayUrl,
             String sessionCode,
             String passphrase,
+            String setName,
             Preferences preferences,
             SongRepository songRepository) {
         super(owner, "Download ZIP", ModalityType.APPLICATION_MODAL);
@@ -53,6 +56,7 @@ public final class SetPlayDownloadDialog extends JDialog {
         this.relayUrl = relayUrl;
         this.sessionCode = sessionCode;
         this.passphrase = passphrase;
+        this.setName = setName;
         this.preferences = preferences;
         this.songRepository = songRepository;
 
@@ -114,21 +118,17 @@ public final class SetPlayDownloadDialog extends JDialog {
     }
 
     private String defaultExtractDir() {
-        if (preferences == null) {
-            return "";
-        }
-        String setExport = preferences.setExportDir();
-        if (setExport != null && !setExport.isBlank()) {
-            return setExport;
-        }
-        return LotroPaths.effectiveLotroRoot(preferences).map(Path::toString).orElse("");
+        return LotroPaths.resolveSetExportDirectory(preferences)
+                .map(Path::toString)
+                .orElseGet(() -> LotroPaths.effectiveLotroRoot(preferences).map(Path::toString).orElse(""));
     }
 
     private void saveZipAs() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Save ZIP as");
         chooser.setFileFilter(new FileNameExtensionFilter("Zip files", "zip"));
-        chooser.setSelectedFile(new java.io.File(sessionCode + ".zip"));
+        LotroPaths.resolveSetExportDirectory(preferences).ifPresent(dir -> chooser.setCurrentDirectory(dir.toFile()));
+        chooser.setSelectedFile(new java.io.File(SetPlayZipNames.downloadFileName(setName, sessionCode)));
         if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }
