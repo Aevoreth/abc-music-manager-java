@@ -1388,6 +1388,7 @@ public final class SetPlayPanel extends JPanel {
                         session.bumpRevision();
                         lastPushedRevision = session.revision();
                         refreshAll();
+                        pushRelayIfLeader();
                     }
                     statusLabel.setText("Session cleared.");
                 });
@@ -2094,11 +2095,19 @@ public final class SetPlayPanel extends JPanel {
             return;
         }
         try {
-            SetlistItemInfo nextRow = rowForItem(session.nextItemId());
-            SetlistItemInfo curRow = rowForItem(session.currentItemId());
+            Long focusId = SetPlaySessionRules.layoutFocusItemId(session);
+            SetlistItemInfo nextRow = rowForItem(focusId);
+            SetlistItemInfo curRow = null;
             Long rightId = null;
             if (session.nextItemId() != null) {
+                curRow = rowForItem(session.currentItemId());
                 int ni = session.orderItemIds().indexOf(session.nextItemId());
+                if (ni >= 0) {
+                    rightId = SetPlaySessionRules.scanNextItemId(
+                            session.orderItemIds(), session.skippedItemIds(), ni);
+                }
+            } else if (session.currentItemId() == null && focusId != null) {
+                int ni = session.orderItemIds().indexOf(focusId);
                 if (ni >= 0) {
                     rightId = SetPlaySessionRules.scanNextItemId(
                             session.orderItemIds(), session.skippedItemIds(), ni);

@@ -47,7 +47,9 @@ public final class SetPlayLayoutBuilder {
 
     /**
      * Cards show {@code nextRow} assignments; gutters: current (left), row after next (right).
-     * Empty when next is missing or has no song layout.
+     * When {@code nextRow} is missing or has no song layout, still paints player positions
+     * with placeholder part/instrument labels so Clear session / no-NEXT does not hide
+     * the formation.
      */
     public List<SetPlayLayoutCard> build(
             long bandLayoutId,
@@ -55,13 +57,12 @@ public final class SetPlayLayoutBuilder {
             SetlistItemInfo currentRow,
             SetlistItemInfo rightRow,
             List<SetlistItemInfo> setlistRows) throws LibraryException {
-        if (nextRow == null || nextRow.songLayoutId() == null) {
-            return List.of();
-        }
-
         List<BandLayoutSlotInfo> slots = bandRepository.listSlots(bandLayoutId);
         if (slots.isEmpty()) {
             return List.of();
+        }
+        if (nextRow == null || nextRow.songLayoutId() == null) {
+            return positionOnlyCards(slots);
         }
 
         Map<Integer, ExportPartMeta> partsByNum = new HashMap<>();
@@ -206,6 +207,32 @@ public final class SetPlayLayoutBuilder {
                     prevL,
                     nextL,
                     instChanged));
+        }
+        return List.copyOf(cards);
+    }
+
+    private static List<SetPlayLayoutCard> positionOnlyCards(List<BandLayoutSlotInfo> slots) {
+        List<SetPlayLayoutCard> cards = new ArrayList<>();
+        for (BandLayoutSlotInfo slot : slots) {
+            String playerName = slot.playerName() == null || slot.playerName().isBlank()
+                    ? ("#" + slot.playerId())
+                    : slot.playerName();
+            cards.add(new SetPlayLayoutCard(
+                    slot.playerId(),
+                    playerName,
+                    slot.x(),
+                    slot.y(),
+                    Math.max(1, slot.widthUnits()),
+                    Math.max(1, slot.heightUnits()),
+                    "---",
+                    "(Part Name)",
+                    "(Made for Instrument)",
+                    false,
+                    false,
+                    true,
+                    "",
+                    "",
+                    false));
         }
         return List.copyOf(cards);
     }
