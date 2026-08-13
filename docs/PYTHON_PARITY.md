@@ -24,13 +24,13 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 | Band layouts | Complete | Complete | Preserve stored data | Pan/re-center/context menu; MAX_CARDS; overlap warning on Save; band list drag-reorder; unsaved name/notes on leave |
 | Part assignments | Complete (library editor buggy) | Complete (library + setlists) | Preserve stored data | Library **Layouts** tab edits `SongLayout` / `SongLayoutAssignment` (one per band). Adding a song to a setlist with a matching band copies those assignments onto the setlist item; setlist edits stay in `SetlistBandAssignment` and do not write back |
 | ABC audition (audio engine + transport) | Complete (custom TinySoundFont path) | Complete | Use Maestro Java engine | Audible ABC sampling only (not Set Play). `LotroAbcPlaybackEngine`; library/setlist → queue; mute/solo; queue reorder; save queue as setlist; tempo/stereo/volume; MIDI panic (double-click Stop). See [playback gaps](#playback-transport) |
-| Set Play (live set session) | Complete | Complete | Preserve session semantics | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid (Java Maestro grid styling). Broadcast via Cloudflare relay |
-| Relay / group playback | Complete | Complete | Preserve protocol where practical | Cloudflare Worker relay (`workers/set-play-relay`); Band Assistant tab / `--assistant`; browser follower `/playback` |
-| Settings | Complete | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays CRUD + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
+| Set Play (live set session) | Complete | Complete | Java-only v13+ | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid; named sessions + Parts tab |
+| Relay / group playback | Complete | Complete | Java `set_play_state_v2` | Cloudflare Worker (D1 + R2 + Durable Object); Band Assistant tab / `--assistant`; browser `/playback`. Old workers and Python clients are out of scope |
+| Settings | Complete (CRUD) | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays in SQLite (token + retention) + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
 | Help / About | Complete | Complete | Own identity | **Help → User Guide** in both. **Help → About** shows version, MIT license, and third-party credits (Java: FlatLaf, Maestro, soundfont, SQLite JDBC, Jackson, commonmark). Unpackaged runs show version `development`; packaged builds use Maven `Implementation-Version` |
 | Themes | Complete (LOTRO-inspired Qt) | Complete (Maestro FlatLaf) | Own visual identity | Java targets Maestro/ABC Player Flat Dark / Flat Light via FlatLaf (Appearance); not a port of Python’s LOTRO Qt theme. Future theme revisit possible |
 | Packaging | Complete (PyInstaller, Win/macOS/Linux) | Complete (Windows zip + MSI) | Own installer | Tag-push GitHub Actions (`jpackage` + trimmed jlink runtime); `ABC-Music-Manager-<version>.zip` / `.msi`. Must not package Python app or Maestro/ABC Player/ABC Tools launchers. macOS/Linux installers and code signing are not in this edition |
-| Database compatibility | Complete (SQLite v12) | Complete (R/W) | Open existing DB where practical | Creates/migrates to v12; opens shared DB read-write; interchangeable with Python |
+| Database compatibility | Complete (SQLite v12) | Complete (R/W, v13) | Open existing DB; Java migrates to v13 | Creates/migrates to v13; opening a Python v12 DB in Java will not round-trip to Python |
 
 ## Intentional differences (not bugs)
 
@@ -88,7 +88,7 @@ See [SCHEMA_ISSUES.md](SCHEMA_ISSUES.md). Suggested in a future v13+ bump, not J
 
 | Path | Role |
 |------|------|
-| `~/.abc_music_manager/abc_music_manager.sqlite` | Library index and app entities (schema v12) |
+| `~/.abc_music_manager/abc_music_manager.sqlite` | Library index and app entities (schema v13 in Java) |
 | `~/.abc_music_manager/preferences.json` | Jackson JSON; shared key names + `extras` passthrough for unknown/Python UI keys |
 | `$ABC_MUSIC_MANAGER_DATA/` | Optional override for the data directory (portable-app hook) |
 
@@ -100,7 +100,7 @@ Java may add keys under `extras` (e.g. `java_nav_section`) without breaking Pyth
 
 Completed bandleader library + management slice (this edition):
 
-1. Open or create SQLite v12 (writable; migrate older DBs)
+1. Open or create SQLite v13 (writable; migrate older DBs; Python v12 will not round-trip)
 2. List primary-library songs in the Library table with filters
 3. Settings dialog: Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD
 4. Shared `preferences.json` load/save (including Java `theme`)
@@ -110,7 +110,7 @@ Completed bandleader library + management slice (this edition):
 8. Setlist builder (folders, metadata, songs, timing, part overrides)
 9. Library song detail + inline metadata / play history / Raw ABC / Layouts tab; Maestro ABC audition transport
 10. Solo Set Play (local session: Load set, NOW/NEXT/Skip/Advance, play logging, Your players + up-next grid)
-11. Set Play relays / Band Assistant (`set_play_state_v1`, Broadcast, share link, deploy wizard)
+11. Set Play named sessions / Band Assistant (`set_play_state_v2`, Sessions/Connect/Playback/Parts, deploy wizard with D1+R2)
 12. In-app User Guide (**Help → User Guide**)
 13. Windows zip + MSI packaging (tag-push GitHub Actions)
 14. Help → About (version, MIT license, third-party credits)

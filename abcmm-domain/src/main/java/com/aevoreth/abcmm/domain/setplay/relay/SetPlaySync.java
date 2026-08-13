@@ -12,14 +12,15 @@ import java.util.TreeSet;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
 import com.aevoreth.abcmm.domain.setplay.SetPlayLayoutCard;
+import com.aevoreth.abcmm.domain.setplay.SetPlayPartsSheet;
 import com.aevoreth.abcmm.domain.setplay.SetPlaySessionState;
 
 /**
- * JSON snapshot for Set Play relay ({@code set_play_state_v1}). Mirrors Python {@code set_play_sync}.
+ * JSON snapshot for Set Play relay ({@code set_play_state_v2}).
  */
 public final class SetPlaySync {
 
-    public static final String STATE_TYPE = "set_play_state_v1";
+    public static final String STATE_TYPE = "set_play_state_v2";
 
     /**
      * Wire payload omits card size (Python {@code LayoutCard} is always fixed). Assistants and
@@ -37,6 +38,20 @@ public final class SetPlaySync {
             List<SetlistItemInfo> songRows,
             Integer computedDurationSeconds,
             List<SetPlayLayoutCard> layoutCards) {
+        return snapshotFromLeader(
+                state, setlist, songRows, computedDurationSeconds, layoutCards,
+                SetPlayPartsSheet.empty(), false, null);
+    }
+
+    public static Map<String, Object> snapshotFromLeader(
+            SetPlaySessionState state,
+            SetlistInfo setlist,
+            List<SetlistItemInfo> songRows,
+            Integer computedDurationSeconds,
+            List<SetPlayLayoutCard> layoutCards,
+            SetPlayPartsSheet partsSheet,
+            boolean zipAvailable,
+            String sessionName) {
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(setlist, "setlist");
         Objects.requireNonNull(songRows, "songRows");
@@ -87,6 +102,9 @@ public final class SetPlaySync {
         payload.put("skipped_item_ids", new ArrayList<>(new TreeSet<>(state.skippedItemIds())));
         payload.put("next_layout_cards", layoutCardsToPayload(
                 layoutCards == null ? List.of() : layoutCards));
+        payload.put("parts_sheet", (partsSheet == null ? SetPlayPartsSheet.empty() : partsSheet).toPayload());
+        payload.put("zip_available", zipAvailable);
+        payload.put("session_name", sessionName == null ? "" : sessionName);
         return payload;
     }
 
@@ -117,7 +135,10 @@ public final class SetPlaySync {
                 ? castMapList(list)
                 : List.of();
 
-        return new AppliedSnapshot(st, meta, rows, layoutCardsFromPayload(cards));
+        return new AppliedSnapshot(st, meta, rows, layoutCardsFromPayload(cards),
+                SetPlayPartsSheet.fromPayload(data.get("parts_sheet")),
+                bool(data.get("zip_available"), false),
+                str(data.get("session_name"), ""));
     }
 
     public static List<Map<String, Object>> layoutCardsToPayload(List<SetPlayLayoutCard> cards) {
@@ -175,7 +196,10 @@ public final class SetPlaySync {
             SetPlaySessionState session,
             Map<String, Object> setMeta,
             List<Map<String, Object>> rows,
-            List<SetPlayLayoutCard> layoutCards) {
+            List<SetPlayLayoutCard> layoutCards,
+            SetPlayPartsSheet partsSheet,
+            boolean zipAvailable,
+            String sessionName) {
     }
 
     @SuppressWarnings("unchecked")

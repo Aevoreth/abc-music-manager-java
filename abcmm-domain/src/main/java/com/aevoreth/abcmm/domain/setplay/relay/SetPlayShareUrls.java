@@ -15,7 +15,10 @@ public final class SetPlayShareUrls {
     private SetPlayShareUrls() {
     }
 
-    public record ParsedShareLink(String relayWsUrl, String roomCode) {
+    public record ParsedShareLink(String relayWsUrl, String roomCode, String passphrase) {
+        public ParsedShareLink(String relayWsUrl, String roomCode) {
+            this(relayWsUrl, roomCode, null);
+        }
     }
 
     /** Strip accidental {@code /api/rooms} suffix if user pasted a full API path. */
@@ -67,6 +70,15 @@ public final class SetPlayShareUrls {
         return origin + "/playback?set=" + code;
     }
 
+    public static String buildDownloadShareUrl(String relayBaseUrl, String roomCode, String passphrase) {
+        String base = buildPlaybackShareUrl(relayBaseUrl, roomCode);
+        String pin = passphrase == null ? "" : passphrase.strip();
+        if (pin.isEmpty()) {
+            return base;
+        }
+        return base + "#p=" + pin;
+    }
+
     public static String httpsToWssWorkerUrl(String httpsUrl) {
         String u = (httpsUrl == null ? "" : httpsUrl).strip().replaceAll("/+$", "");
         if (u.startsWith("https://")) {
@@ -87,6 +99,12 @@ public final class SetPlayShareUrls {
         String raw = text == null ? "" : text.strip();
         if (raw.isEmpty()) {
             return Optional.empty();
+        }
+        String pinFromBare = null;
+        int hash = raw.indexOf('#');
+        if (hash >= 0 && !looksLikeUrl(raw)) {
+            pinFromBare = extractPinFromFragment(raw.substring(hash + 1));
+            raw = raw.substring(0, hash).strip();
         }
 
         if (looksLikeUrl(raw)) {
@@ -109,7 +127,8 @@ public final class SetPlayShareUrls {
                         || scheme.isBlank();
                 String origin = (https ? "https://" : "http://") + parsed.getHost()
                         + (parsed.getPort() > 0 ? ":" + parsed.getPort() : "");
-                return Optional.of(new ParsedShareLink(relayWsOrigin(origin), code));
+                String pin = extractPinFromFragment(parsed.getFragment());
+                return Optional.of(new ParsedShareLink(relayWsOrigin(origin), code, pin));
             } catch (IllegalArgumentException ex) {
                 return Optional.empty();
             }
@@ -130,7 +149,29 @@ public final class SetPlayShareUrls {
         if (base.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new ParsedShareLink(relayWsOrigin(base), code));
+        return Optional.of(new ParsedShareLink(relayWsOrigin(base), code, pinFromBare));
+    }
+
+    private static String extractPinFromFragment(String fragment) {
+        if (fragment == null || fragment.isBlank()) {
+            return null;
+        }
+        String raw = fragment.strip();
+        if (raw.regionMatches(true, 0, "p=", 0, 2)) {
+            String val = raw.substring(2).strip();
+            return val.isEmpty() ? null : val;
+        }
+        for (String part : raw.split("&")) {
+            int eq = part.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            if ("p".equalsIgnoreCase(part.substring(0, eq))) {
+                String val = part.substring(eq + 1).strip();
+                return val.isEmpty() ? null : val;
+            }
+        }
+        return null;
     }
 
     private static boolean looksLikeUrl(String text) {

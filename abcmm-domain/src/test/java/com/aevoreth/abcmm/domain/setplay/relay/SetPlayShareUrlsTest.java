@@ -96,12 +96,27 @@ class SetPlayShareUrlsTest {
     }
 
     @Test
-    void joinWsUrlEncodesLeaderToken() {
+    void joinWsUrlHasNoQueryToken() {
         String url = SetPlayRelayClient.joinWsUrl(
                 "wss://relay.example.com",
-                "ab12cd3",
-                "tok en");
-        assertTrue(url.startsWith("wss://relay.example.com/api/rooms/AB12CD3/ws?leaderToken="));
-        assertTrue(url.contains("tok"));
+                "ab12cd3");
+        assertEquals("wss://relay.example.com/api/rooms/AB12CD3/ws", url);
+    }
+
+    @Test
+    void downloadShareUrlAddsFragment() {
+        String url = SetPlayShareUrls.buildDownloadShareUrl(
+                "https://relay.example.com", "12AB3CD", "012345");
+        assertEquals("https://relay.example.com/playback?set=12AB3CD#p=012345", url);
+    }
+
+    @Test
+    void parseDownloadShareUrlReadsPin() {
+        Optional<SetPlayShareUrls.ParsedShareLink> parsed = SetPlayShareUrls.parseShareOrCode(
+                "https://relay.example.com/playback?set=12AB3CD#p=012345",
+                null);
+        assertTrue(parsed.isPresent());
+        assertEquals("12AB3CD", parsed.get().roomCode());
+        assertEquals("012345", parsed.get().passphrase());
     }
 }

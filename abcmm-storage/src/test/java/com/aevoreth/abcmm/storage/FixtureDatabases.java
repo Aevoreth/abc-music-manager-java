@@ -7,7 +7,7 @@ import java.sql.Statement;
 import java.time.Instant;
 
 /**
- * Builds a minimal schema-v12 SQLite fixture for tests.
+ * Builds a minimal schema-v13 SQLite fixture for tests.
  */
 final class FixtureDatabases {
 
@@ -19,7 +19,7 @@ final class FixtureDatabases {
         try (Connection connection = DriverManager.getConnection(url);
              Statement statement = connection.createStatement()) {
             statement.executeUpdate("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)");
-            statement.executeUpdate("INSERT INTO schema_version (version) VALUES (12)");
+            statement.executeUpdate("INSERT INTO schema_version (version) VALUES (13)");
 
             statement.executeUpdate("""
                     CREATE TABLE Status (

@@ -17,7 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Outbound WebSocket to Cloudflare Set Play relay.
  * Leader sends JSON text; assistant receives snapshots.
- * URL: {@code wss://host/api/rooms/CODE/ws} with optional {@code ?leaderToken=}.
+ * URL: {@code wss://host/api/rooms/CODE/ws}. Leader sends {@code Authorization: Bearer} (relay token).
  */
 public final class SetPlayRelayClient implements AutoCloseable {
 
@@ -27,6 +27,10 @@ public final class SetPlayRelayClient implements AutoCloseable {
         void onConnected();
 
         void onDisconnected();
+
+        default void onClosed(int code, String reason) {
+            onDisconnected();
+        }
 
         void onStateReceived(Map<String, Object> data);
 
@@ -48,11 +52,11 @@ public final class SetPlayRelayClient implements AutoCloseable {
     }
 
     public void openAssistant(String baseUrl, String roomCode) {
-        open(joinWsUrl(baseUrl, roomCode, null));
+        open(joinWsUrl(baseUrl, roomCode), null);
     }
 
-    public void openLeader(String baseUrl, String roomCode, String leaderToken) {
-        open(joinWsUrl(baseUrl, roomCode, leaderToken));
+    public void openLeader(String baseUrl, String roomCode, String relayToken) {
+        open(joinWsUrl(baseUrl, roomCode), relayToken);
     }
 
     public void sendSnapshot(Map<String, Object> payload) {
@@ -85,12 +89,15 @@ public final class SetPlayRelayClient implements AutoCloseable {
         }
     }
 
-    private void open(String url) {
+    private void open(String url, String bearerToken) {
         close();
         textBuffer.setLength(0);
-        httpClient.newWebSocketBuilder()
-                .connectTimeout(Duration.ofSeconds(30))
-                .buildAsync(URI.create(url), new WsListener())
+        java.net.http.WebSocket.Builder builder = httpClient.newWebSocketBuilder()
+                .connectTimeout(Duration.ofSeconds(30));
+        if (bearerToken != null && !bearerToken.isBlank()) {
+            builder.header("Authorization", "Bearer " + bearerToken.strip());
+        }
+        builder.buildAsync(URI.create(url), new WsListener())
                 .whenComplete((ws, err) -> {
                     if (err != null) {
                         listener.onError(err.getMessage() == null ? "WebSocket connect failed" : err.getMessage());
@@ -100,17 +107,12 @@ public final class SetPlayRelayClient implements AutoCloseable {
                 });
     }
 
-    static String joinWsUrl(String baseUrl, String roomCode, String leaderToken) {
+    static String joinWsUrl(String baseUrl, String roomCode) {
         String b = SetPlayShareUrls.relayWsOrigin(baseUrl).replaceAll("/+$", "");
         String code = URLEncoder.encode(
                 (roomCode == null ? "" : roomCode).strip().toUpperCase(),
                 StandardCharsets.UTF_8);
-        String path = b + "/api/rooms/" + code + "/ws";
-        if (leaderToken != null && !leaderToken.isBlank()) {
-            String t = URLEncoder.encode(leaderToken, StandardCharsets.UTF_8);
-            return path + "?leaderToken=" + t;
-        }
-        return path;
+        return b + "/api/rooms/" + code + "/ws";
     }
 
     private final class WsListener implements WebSocket.Listener {
@@ -141,7 +143,7 @@ public final class SetPlayRelayClient implements AutoCloseable {
         @Override
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
             socket.compareAndSet(webSocket, null);
-            listener.onDisconnected();
+            listener.onClosed(statusCode, reason);
             return WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
         }
 

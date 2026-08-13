@@ -138,7 +138,7 @@ public final class JsonPreferencesStore implements PreferencesStore {
         map.put("playback_tempo", preferences.playbackTempo());
         map.put("playback_stereo_mode", preferences.playbackStereoMode());
         map.put("playback_stereo_slider", preferences.playbackStereoSlider());
-        map.put("set_play_relays", preferences.setPlayRelays());
+        map.remove("set_play_relays");
         if (preferences.setPlaySelectedRelayId() != null) {
             map.put("set_play_selected_relay_id", preferences.setPlaySelectedRelayId());
         } else {

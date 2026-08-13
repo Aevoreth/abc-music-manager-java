@@ -1,11 +1,11 @@
 /**
  * Band Assistant web client — connects to the same-origin Set Play relay.
- * Protocol: set_play_state_v1 (full snapshot over WebSocket).
+ * Protocol: set_play_state_v2 (full snapshot over WebSocket).
  */
 (function () {
   "use strict";
 
-  const STATE_TYPE = "set_play_state_v1";
+  const STATE_TYPE = "set_play_state_v2";
   const CARD_W = 9;
   const CARD_H = 7;
   const PPU = 15;
@@ -25,9 +25,11 @@
   };
 
   const setInput = document.getElementById("set-input");
+  const pinInput = document.getElementById("pin-input");
   const connectBtn = document.getElementById("connect-btn");
   const disconnectBtn = document.getElementById("disconnect-btn");
   const reconnectBtn = document.getElementById("reconnect-btn");
+  const downloadBtn = document.getElementById("download-btn");
   const statusEl = document.getElementById("status");
   const statusPill = document.getElementById("status-pill");
   const setInfo = document.getElementById("set-info");
@@ -49,8 +51,8 @@
   const tabButtons = [...document.querySelectorAll(".tab")];
   const panels = {
     connection: document.getElementById("panel-connection"),
-    setlist: document.getElementById("panel-setlist"),
     playback: document.getElementById("panel-playback"),
+    parts: document.getElementById("panel-parts"),
   };
 
   /** @type {WebSocket | null} */
@@ -103,11 +105,12 @@
 
   /**
    * @param {string} raw
-   * @returns {{ code: string } | null}
+   * @returns {{ code: string, pin?: string } | null}
    */
   function parseJoinInput(raw) {
     const text = (raw || "").trim();
     if (!text) return null;
+    let pin = null;
 
     if (/^https?:\/\//i.test(text) || /^wss?:\/\//i.test(text)) {
       try {
@@ -115,13 +118,14 @@
         if (/^wss:\/\//i.test(urlStr)) urlStr = "https://" + urlStr.slice(6);
         else if (/^ws:\/\//i.test(urlStr)) urlStr = "http://" + urlStr.slice(5);
         const u = new URL(urlStr);
+        pin = pinFromFragment(u.hash);
         const setParam = u.searchParams.get("set") || u.searchParams.get("code");
         if (setParam && setParam.trim().length >= 5) {
-          return { code: setParam.trim().toUpperCase() };
+          return { code: setParam.trim().toUpperCase(), pin };
         }
         const m = u.pathname.match(/\/api\/rooms\/([^/]+)/i);
         if (m && m[1].length >= 5) {
-          return { code: decodeURIComponent(m[1]).toUpperCase() };
+          return { code: decodeURIComponent(m[1]).toUpperCase(), pin };
         }
       } catch {
         return null;
@@ -129,9 +133,40 @@
       return null;
     }
 
-    const code = text.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (code.length >= 5) return { code };
+    let body = text;
+    const hash = body.indexOf("#");
+    if (hash >= 0) {
+      pin = pinFromFragment(body.slice(hash));
+      body = body.slice(0, hash).trim();
+    }
+    const code = body.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (code.length >= 5) return { code, pin };
     return null;
+  }
+
+  function pinFromFragment(fragment) {
+    if (!fragment) return null;
+    const raw = String(fragment).replace(/^#/, "");
+    if (/^p=/i.test(raw)) {
+      const val = raw.slice(2).trim();
+      return val || null;
+    }
+    for (const part of raw.split("&")) {
+      const eq = part.indexOf("=");
+      if (eq > 0 && part.slice(0, eq).toLowerCase() === "p") {
+        const val = part.slice(eq + 1).trim();
+        return val || null;
+      }
+    }
+    return null;
+  }
+
+  function updateDownloadButton() {
+    if (!downloadBtn) return;
+    const pin = (pinInput && pinInput.value ? pinInput.value : "").trim();
+    const ready = !!(lastCode && pin && lastSnapshot && lastSnapshot.zip_available);
+    downloadBtn.hidden = !ready;
+    downloadBtn.disabled = !ready;
   }
 
   function wsUrlForCode(code) {
@@ -191,6 +226,7 @@
       return;
     }
     lastCode = parsed.code;
+    if (parsed.pin && pinInput) pinInput.value = parsed.pin;
     setInput.value = lastCode;
     connCode.textContent = lastCode;
     connHost.textContent = location.host;
@@ -217,12 +253,23 @@
       setPill("Connected", "ok");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       ws = null;
       disconnectBtn.disabled = true;
       reconnectBtn.disabled = !!(lastCode && lastCode.length >= 5);
-      setStatus("Relay disconnected.");
-      setPill("Disconnected", "warn");
+      const reason = ev && ev.reason ? String(ev.reason) : "";
+      if (/session ended/i.test(reason)) {
+        setStatus("Session ended by the bandleader.");
+        setPill("Session ended", "warn");
+        setContentTabsEnabled(false);
+        if (downloadBtn) {
+          downloadBtn.disabled = true;
+          downloadBtn.hidden = true;
+        }
+      } else {
+        setStatus("Relay disconnected.");
+        setPill("Disconnected", "warn");
+      }
     };
 
     ws.onerror = () => {
@@ -326,6 +373,8 @@
     connRev.textContent = String(data.revision ?? "—");
     setStatus(`Synced (rev ${data.revision ?? "—"}).`);
     setPill(`Synced · rev ${data.revision ?? "—"}`, "ok");
+    renderParts(data);
+    updateDownloadButton();
 
     if (!hasSynced) {
       hasSynced = true;
@@ -347,6 +396,81 @@
     else if (next) label = "NEXT";
     else if (played) label = "✓";
     return `<td class="status-badge">${label}</td>`;
+  }
+
+  function renderParts(data) {
+    const head = document.getElementById("parts-head");
+    const body = document.getElementById("parts-tbody");
+    if (!head || !body) return;
+    const sheet = data.parts_sheet || {};
+    const columns = Array.isArray(sheet.columns) ? sheet.columns : [];
+    const sheetRows = Array.isArray(sheet.rows) ? sheet.rows : [];
+    const byItem = new Map(sheetRows.map((r) => [Number(r.item_id), r]));
+    const played = new Set((data.played_item_ids || []).map(Number));
+    const skipped = new Set((data.skipped_item_ids || []).map(Number));
+    const currentId = data.current_item_id != null ? Number(data.current_item_id) : null;
+    const nextId = data.next_item_id != null ? Number(data.next_item_id) : null;
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const order = Array.isArray(data.order_item_ids) ? data.order_item_ids.map(Number) : [];
+    const byId = new Map(rows.map((r) => [Number(r.item_id), r]));
+    const ordered = order.length
+      ? order.map((id) => byId.get(id)).filter(Boolean)
+      : rows;
+
+    const hr = document.createElement("tr");
+    hr.innerHTML = ["<th>Status</th>", "<th>Title</th>"]
+      .concat(columns.map((c) => `<th>${escapeHtml(c.title || c.key || "")}</th>`))
+      .join("");
+    head.replaceChildren(hr);
+    body.replaceChildren();
+    for (const r of ordered) {
+      const id = Number(r.item_id);
+      const tr = document.createElement("tr");
+      const isSkipped = skipped.has(id);
+      const isCurrent = currentId === id;
+      const isNext = nextId === id;
+      const isPlayed = played.has(id);
+      if (isSkipped) tr.className = "row-skipped";
+      else if (isCurrent) tr.className = "row-current";
+      else if (isNext) tr.className = "row-next";
+      else if (isPlayed) tr.className = "row-played";
+      const cells = byItem.get(id);
+      const cellHtml = columns.map((_, i) => {
+        const val = cells && Array.isArray(cells.cells) ? cells.cells[i] : "";
+        return `<td>${escapeHtml(val || "")}</td>`;
+      });
+      tr.innerHTML = [
+        statusBadgeCell(isSkipped, isCurrent, isNext, isPlayed),
+        `<td>${escapeHtml(r.title || "")}</td>`,
+        ...cellHtml,
+      ].join("");
+      body.appendChild(tr);
+    }
+  }
+
+  async function downloadZip() {
+    const pin = (pinInput && pinInput.value ? pinInput.value : "").trim();
+    if (!lastCode || !pin) return;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(lastCode)}/zip`, {
+        headers: { "X-Zip-Passphrase": pin, Accept: "application/zip" },
+      });
+      if (!res.ok) {
+        setStatus("Zip download failed.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = lastCode + ".zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setStatus("Zip download failed.");
+    }
   }
 
   function escapeHtml(s) {
@@ -637,13 +761,17 @@
     if (lastCode) connect(lastCode);
     else connect(setInput.value);
   });
+  if (downloadBtn) downloadBtn.addEventListener("click", () => downloadZip());
+  if (pinInput) pinInput.addEventListener("input", () => updateDownloadButton());
   setInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") connect(setInput.value);
   });
 
   connHost.textContent = location.host;
 
-  // Auto-connect from ?set=
+  const hashPin = pinFromFragment(location.hash);
+  if (hashPin && pinInput) pinInput.value = hashPin;
+
   const params = new URLSearchParams(location.search);
   const initial = params.get("set") || params.get("code");
   if (initial && initial.trim().length >= 5) {

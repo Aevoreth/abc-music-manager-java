@@ -56,7 +56,7 @@ and playback implementation. Rules:
 |--------|----------------|
 | `abcmm-app` | Standalone Swing application entry point and UI shell |
 | `abcmm-domain` | Domain models and interfaces owned by ABC Music Manager |
-| `abcmm-storage` | SQLite persistence (v12 create/migrate) and Python DB compatibility |
+| `abcmm-storage` | SQLite persistence (v13 create/migrate) |
 | `abcmm-maestro-adapter` | Sole module allowed to interact with Maestro / `com.digero.*` |
 
 ### Adapter boundary
@@ -92,26 +92,20 @@ Goal: open existing user data under `~/.abc_music_manager/` (or
 - `abc_music_manager.sqlite`
 - `preferences.json`
 
-Authoritative schema is the Python migration chain in
-`abc_music_manager/db/schema.py` (`CURRENT_SCHEMA_VERSION = 12` at time of writing).
-Note: `SCHEMA.md` in the Python repo may lag the code — prefer the migration list.
-
-`abcmm-storage` opens or creates a v12 database read-write (`SchemaMigrator`)
-and reads/writes `preferences.json` with Python-compatible keys. Do not invent
-an incompatible schema without documenting the incompatibility and migration
-path. Known v12 quirks retained for interchange are in
-[SCHEMA_ISSUES.md](SCHEMA_ISSUES.md).
+`abcmm-storage` opens or creates a v13 database read-write (`SchemaMigrator`)
+and reads/writes `preferences.json` with Python-compatible keys. Opening a
+Python v12 DB in Java migrates to v13 and will not round-trip to Python.
+Set Play relays live in SQLite (`SetPlayRelay`); `set_play_relays` in
+`preferences.json` is copied once then no longer written. Known older quirks
+are in [SCHEMA_ISSUES.md](SCHEMA_ISSUES.md).
 
 ## Set Play relay worker
 
 The Cloudflare Worker under [`workers/set-play-relay/`](../workers/set-play-relay/)
-is a **maintained copy** of the Python edition’s relay (Durable Object +
-`/playback` Band Assistant page). It is bundled for the Settings deploy wizard
-and is **not** a Git submodule of the Python repo.
+hosts named sessions (D1 registry, R2 zips, Durable Object snapshot) and the
+`/playback` Band Assistant page. It is bundled for the Settings deploy wizard.
 
-- Keep wire protocol `set_play_state_v1` compatible with Python clients and the
-  browser page
-- When the Python worker changes, re-copy deliberately (exclude `node_modules`)
+- Wire protocol is `set_play_state_v2` (Java-only; old workers are out of scope)
 - Windows packaging (`distribute/package-windows.ps1`) copies the template into
   the jpackage `--input` tree so the app-image / MSI ship
   `app/workers/set-play-relay/` (no `node_modules` / `.wrangler`) for the deploy

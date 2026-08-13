@@ -1,14 +1,31 @@
 # Set Play
 
-**Set Play** is the bandleader view for running a live set: track current/next songs, skip items, advance the show, and optionally broadcast state to band assistants.
+**Set Play** is the bandleader view for running a live set: track current/next songs, skip items, advance the show, and optionally host a **named session** so band assistants can follow along.
 
-Open from the **Set Play** tab.
+Open from the **Set Play** tab. Inner tabs: **Sessions | Playback | Parts**.
+
+---
+
+## Sessions {#sessions}
+
+1. Choose a **Setlist** and click **Load set** (local only). Required before you can create a relay session. Solo rehearsal: load a set and stay on Playback — no session needed.
+2. Select a **Relay** (configured under [Set Playback settings](settings/set-playback-relays.md)) that has a **relay token**.
+3. Click **Create session**. You will be asked for a session name and date/time (session metadata only — this does **not** change the setlist’s date/time). Prefill uses the setlist values, or **now + 7 days** if empty. Duplicate names are allowed after a warning.
+4. Copy **Play Only** (watch playback) and/or **Download and Play** (includes the 6-digit zip PIN in the URL fragment). The PIN is shown once and cannot be recovered from Cloudflare.
+
+If you are already connected, **Load set** updates the local Playback/Parts views only. Use **Republish** to replace the hosted song list, reset NOW/NEXT/played/skip, and delete the zip.
+
+Other session actions (relay token required): **Reconnect**, **Rename** (code and URLs stay the same), **Republish**, **Upload zip** (existing `*.zip`, max 2 MB; chooser starts in the set-export folder), **Clear session**, **Delete session**.
+
+Zip download expires after the session date/time (America/New_York) plus that relay’s **retention days** (default 14). Playback continues after the zip expires. Changing retention does not rewrite existing zips. There is no minimum remaining life if you upload late.
+
+**Reconnect** when the local setlist is missing or different: the app warns and hosts from the relay **snapshot**. Advance still works. Play history is skipped for songs that are not in this library.
 
 ---
 
 ## Loading a set {#load-set}
 
-1. Choose a **Setlist** from the tree combo
+1. On **Sessions**, choose a **Setlist** from the tree combo
 2. Click **Load set**
 
 Sets can load **without** a band layout; part-assignment UI is not used in that case.
@@ -43,13 +60,13 @@ Skipping a song that is Current or Next clears that pointer and rescans Next whe
 
 ## Advance song {#advance-song}
 
-**Advance song** (large button) is the primary live control:
+**Advance song** (large button on Playback, also on Parts) is the primary live control:
 
 1. Current → Played
 2. Next → Current
 3. Next unskipped song in list → Next
 
-Enable **Mark songs as played automatically** to write play history to the Library when advancing. Useful for live performances. Uncheck this when you are simply testing a set during private rehearsal.
+Enable **Mark songs as played automatically** to write play history to the Library when advancing. Useful for live performances. Uncheck this when you are simply testing a set during private rehearsal. Songs that are not in this library are not logged.
 
 ---
 
@@ -65,26 +82,31 @@ When the loaded set has a band layout, the grid shows player positions.
 
 **Part change highlighting** compares the **next** selected song to the **current** song (instrument/part changes between them).
 
-The player name list below highlights selected members on the grid (local only — not broadcast). Useful to remind you which player(s) you are controlling.
+The player name list highlights selected members on the grid and Parts table (local only — not sent to the relay). Useful to remind you which player(s) you are controlling.
 
 ---
 
-## Broadcast (Cloudflare relay) {#broadcast}
+## Parts {#parts}
 
-Optional live sync for [Band Assistant](band-assistant.md) (app or browser):
+The **Parts** tab is a CSV-style table using Player Column Order and CSV part-renaming rules (same as set export). Without a layout, columns are **Part 1…N**. Any column can be hidden. Tints follow canonical player index (12 colors, then they repeat). **Instruments needed…** lists unique catalog instruments per player.
 
-1. Configure (or create) a relay in [Set Playback settings](settings/set-playback-relays.md) — **only the bandleader** needs this
-2. Select that **Relay** on Set Play
-3. Enable **Broadcast (Cloudflare relay)**
-4. Share the **playback link** with assistants (**Copy link**). Example shape: `https://your-worker.workers.dev/playback?set=12AB3CD`
+Assistants see the same table read-only.
 
-Assistants can open the link in a browser or paste it into Band Assistant — they do not need to configure the relay themselves.
+---
 
-Use **Reconnect** if the connection drops.
+## Named sessions (Cloudflare relay) {#broadcast}
 
-Set Play works locally without broadcast; relay is only needed for assistants.
+Live sync for [Band Assistant](band-assistant.md) (app or browser):
 
-**Note:** Existing relays must be **redeployed** once (Settings → Set Playback) so the worker serves the `/playback` page. WebSocket sync still works on older deploys; only the browser page requires the new assets.
+1. Configure (or create) a relay in [Set Playback settings](settings/set-playback-relays.md) — **only the bandleader** needs this, including the **relay token**
+2. Load a set, then **Create session**
+3. Share **Play Only** or **Download and Play**
+
+Assistants can open the link in a browser or paste it into Band Assistant — they do not need to configure the relay themselves. A session code is enough to **watch**; the PIN is only for zip download.
+
+Set Play works locally without a session; the relay is only needed for assistants.
+
+**Note:** Existing relays must be **redeployed** once (Settings → Set Playback). Redeploy wipes the worker, D1 session list, R2 zips, and issues a new token. Prefer `*.workers.dev`; on a custom domain, skip Bot Fight / WAF for the worker hostname or `/api/*` (the Bearer token does not bypass Bot Fight).
 
 ---
 

@@ -12,9 +12,13 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -46,13 +50,21 @@ import com.aevoreth.abcmm.domain.setplay.relay.SetPlayWorkerPaths;
  */
 public final class SetPlayRelayDeployWizard extends JDialog {
 
+    public record DeployResult(String url, String token) {
+    }
+
     private static final Pattern WORKERS_DEV_RE =
             Pattern.compile("https://[a-zA-Z0-9][-a-zA-Z0-9.]*\\.workers\\.dev");
+    private static final Pattern DATABASE_ID_RE =
+            Pattern.compile("database_id\\s*=\\s*\"([^\"]+)\"");
+
+    private static final String D1_NAME = "abc-set-play-registry";
+    private static final String R2_NAME = "abc-set-play-zips";
 
     private static final boolean IS_WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
 
-    private final Consumer<String> onDeployUrl;
+    private final Consumer<DeployResult> onDeployResult;
     private final boolean deleteWorkerFirst;
     private final Path deployDir;
     private final Path bundle;
@@ -69,8 +81,10 @@ public final class SetPlayRelayDeployWizard extends JDialog {
     private final JTextArea logNpm = createLogArea();
     private final JTextArea logLogin = createLogArea();
     private JTextArea logDelete;
+    private final JTextArea logProvision = createLogArea();
     private final JTextArea logDeploy = createLogArea();
     private final JTextArea urlOut = createLogArea();
+    private final JTextArea tokenOut = createLogArea();
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "set-play-deploy-wizard");
@@ -83,18 +97,20 @@ public final class SetPlayRelayDeployWizard extends JDialog {
     private boolean syncDone;
     private String deployedWssUrl;
     private String resultUrl;
+    private String resultToken;
     private int idxDelete = -1;
+    private int idxProvision;
     private int idxDeploy;
 
     /**
      * @param owner             parent window (may be null)
-     * @param onDeployUrl       optional callback when a wss URL is obtained / OK pressed
+     * @param onDeployResult    optional callback when a URL (and token) is obtained / OK pressed
      * @param deleteWorkerFirst if true, redeploy mode (extra wrangler delete step)
      */
-    public SetPlayRelayDeployWizard(Window owner, Consumer<String> onDeployUrl, boolean deleteWorkerFirst) {
+    public SetPlayRelayDeployWizard(Window owner, Consumer<DeployResult> onDeployResult, boolean deleteWorkerFirst) {
         super(owner, deleteWorkerFirst ? "Redeploy Set Play relay worker" : "Create your own Set Play relay",
                 ModalityType.APPLICATION_MODAL);
-        this.onDeployUrl = onDeployUrl;
+        this.onDeployResult = onDeployResult;
         this.deleteWorkerFirst = deleteWorkerFirst;
 
         Path resolvedDeploy = null;
@@ -131,10 +147,18 @@ public final class SetPlayRelayDeployWizard extends JDialog {
         updateNav();
     }
 
+    public DeployResult showAndGetResult() {
+        setVisible(true);
+        if (resultUrl == null || resultUrl.isBlank()) {
+            return null;
+        }
+        return new DeployResult(resultUrl, resultToken);
+    }
+
     /** Modal show; returns the deployed wss URL, or {@code null} if cancelled / no URL. */
     public String showAndGetUrl() {
-        setVisible(true);
-        return resultUrl;
+        DeployResult result = showAndGetResult();
+        return result == null ? null : result.url();
     }
 
     /** Last wss URL after close (may be null). */
@@ -186,24 +210,35 @@ public final class SetPlayRelayDeployWizard extends JDialog {
             logDelete = createLogArea();
             idxDelete = pageKeys.size();
             addPage("delete", stepPage(
-                    "Step 4 — Remove previous worker",
-                    "Runs wrangler delete --force in the deploy folder. Complete login first, review the log, "
-                            + "then go on to Deploy.",
+                    "Step 4 — Remove previous worker, D1, and R2",
+                    "Deletes the worker, D1 registry, and R2 zip bucket. All sessions and zips are wiped. "
+                            + "Complete login first.",
                     logDelete,
+                    false));
+            idxProvision = pageKeys.size();
+            addPage("provision", stepPage(
+                    "Step 5 — Database, storage, and token",
+                    "Creates D1 + R2, applies the schema, and seeds a new relay token (shown once at the end).",
+                    logProvision,
                     false));
             idxDeploy = pageKeys.size();
             addPage("deploy", stepPage(
-                    "Step 5 — Deploy",
-                    "Runs wrangler deploy. When redeploying, run the Remove previous worker step before this one. "
-                            + "When deploy succeeds, click Next to finish.",
+                    "Step 6 — Deploy",
+                    "Runs wrangler deploy. When it succeeds, click Next to finish.",
                     logDeploy,
                     false));
         } else {
             logDelete = null;
+            idxProvision = pageKeys.size();
+            addPage("provision", stepPage(
+                    "Step 4 — Database, storage, and token",
+                    "Creates D1 + R2, applies the schema, and seeds a relay token (shown once at the end).",
+                    logProvision,
+                    false));
             idxDeploy = pageKeys.size();
             addPage("deploy", stepPage(
-                    "Step 4 — Deploy",
-                    "Runs wrangler deploy. When it succeeds, click Next to finish and copy your URL.",
+                    "Step 5 — Deploy",
+                    "Runs wrangler deploy. When it succeeds, click Next to finish and copy your URL and token.",
                     logDeploy,
                     false));
         }
@@ -214,21 +249,37 @@ public final class SetPlayRelayDeployWizard extends JDialog {
 
     private JPanel buildDonePage() {
         JPanel done = new JPanel(new BorderLayout(8, 8));
-        String hint = onDeployUrl != null
-                ? "<html>Click <b>OK</b> to return to the relay editor. The new URL is already available "
-                + "(use Copy if you need it elsewhere).</html>"
-                : "<html>Copy the relay URL (wss) into Set Playback. Click OK to close.</html>";
+        String hint = onDeployResult != null
+                ? "<html>Click <b>OK</b> to return to the relay editor. Copy the relay token now — "
+                + "Cloudflare only stores a hash and it cannot be recovered.</html>"
+                : "<html>Copy the relay URL and token into Set Playback. The token is shown once.</html>";
         done.add(new JLabel(hint), BorderLayout.NORTH);
 
-        urlOut.setRows(3);
-        urlOut.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
-        done.add(new JScrollPane(urlOut), BorderLayout.CENTER);
+        JPanel center = new JPanel();
+        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+        urlOut.setRows(2);
+        tokenOut.setRows(3);
+        tokenOut.setLineWrap(true);
+        center.add(new JLabel("Relay URL (wss)"));
+        center.add(new JScrollPane(urlOut));
+        center.add(Box.createVerticalStrut(8));
+        center.add(new JLabel("Relay token (shown once)"));
+        center.add(new JScrollPane(tokenOut));
+        done.add(center, BorderLayout.CENTER);
 
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         JButton copyBtn = new JButton("Copy relay URL");
         copyBtn.addActionListener(e -> copyUrl());
         row.add(copyBtn);
-        if (onDeployUrl != null) {
+        JButton copyTok = new JButton("Copy token");
+        copyTok.addActionListener(e -> {
+            String t = tokenOut.getText().strip();
+            if (!t.isEmpty()) {
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(t), null);
+            }
+        });
+        row.add(copyTok);
+        if (onDeployResult != null) {
             JButton addBtn = new JButton("Add to Set Playback…");
             addBtn.addActionListener(e -> {
                 String u = urlOut.getText().strip();
@@ -237,7 +288,7 @@ public final class SetPlayRelayDeployWizard extends JDialog {
                             this, "Deploy first to get a URL.", "Set Playback", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
-                onDeployUrl.accept(u);
+                emitDeploy(u);
                 finishWithUrl(u);
             });
             row.add(addBtn);
@@ -332,15 +383,16 @@ public final class SetPlayRelayDeployWizard extends JDialog {
                     + "when you are genuinely hitting Cloudflare limits—not for routine troubleshooting.<br>"
                     + "• If several Set Playback relay entries share the same *.workers.dev host (same Wrangler "
                     + "worker name), deleting the worker affects <b>all</b> of them until each URL is fixed.<br>"
+                    + "• Worker, D1 session list, R2 zips, and the relay token are all wiped. Orphan rooms from the old worker are ignored.<br>"
                     + "• After redeploy, the URL string may match the old one if the worker name is unchanged, "
-                    + "but cloud-side state is reset—update and save the relay URL here if it changed.<br><br>"
+                    + "but cloud-side state is reset—update and save the relay URL and new token here if they changed.<br><br>"
                     + "This assistant will:<br><br>"
                     + "• Copy the relay worker template to a folder on your computer<br>"
                     + "• Check for Node.js (and on Windows you can try installing Node LTS with winget)<br>"
                     + "• Run npm install (includes Wrangler)<br>"
                     + "• Open a browser so you can sign in to Cloudflare (wrangler login)<br>"
-                    + "• On a dedicated step, run <code>wrangler delete --force</code> for that worker (after login), "
-                    + "then deploy a fresh copy<br>"
+                    + "• On a dedicated step, run <code>wrangler delete --force</code> plus D1/R2 delete (after login), "
+                    + "then create a new database, zip bucket, and token<br>"
                     + "• Deploy the worker to your Cloudflare account (wrangler deploy)<br><br>"
                     + "You will need a Cloudflare account. The browser step cannot be skipped.</html>";
         }
@@ -349,6 +401,7 @@ public final class SetPlayRelayDeployWizard extends JDialog {
                 + "• Check for Node.js (and on Windows you can try installing Node LTS with winget)<br>"
                 + "• Run npm install (includes Wrangler)<br>"
                 + "• Open a browser so you can sign in to Cloudflare (wrangler login)<br>"
+                + "• Create a D1 registry and R2 zip bucket, then seed a relay token<br>"
                 + "• Deploy the worker to your Cloudflare account (wrangler deploy)<br><br>"
                 + "You will need a Cloudflare account. The browser step cannot be skipped.</html>";
     }
@@ -454,6 +507,10 @@ public final class SetPlayRelayDeployWizard extends JDialog {
             runWranglerDelete(log);
             return;
         }
+        if (pageIdx == idxProvision) {
+            runProvision(log);
+            return;
+        }
         if (pageIdx == idxDeploy) {
             runWranglerDeploy(log);
         }
@@ -521,8 +578,11 @@ public final class SetPlayRelayDeployWizard extends JDialog {
             String wss = SetPlayShareUrls.httpsToWssWorkerUrl(https);
             deployedWssUrl = wss;
             urlOut.setText(wss);
-            if (onDeployUrl != null) {
-                onDeployUrl.accept(wss);
+            if (resultToken != null && !resultToken.isBlank()) {
+                tokenOut.setText(resultToken);
+            }
+            if (onDeployResult != null) {
+                emitDeploy(wss);
             }
         }
     }
@@ -565,11 +625,148 @@ public final class SetPlayRelayDeployWizard extends JDialog {
     }
 
     private void runWranglerDelete(JTextArea log) {
-        if (IS_WINDOWS) {
-            runCmd(log, List.of("cmd.exe", "/c", "npx", "wrangler", "delete", "--force"), deployDir, false);
-        } else {
-            runCmd(log, List.of("npx", "wrangler", "delete", "--force"), deployDir, false);
+        if (!processRunning.compareAndSet(false, true)) {
+            appendLog(log, "(A command is already running in this dialog.)");
+            return;
         }
+        executor.execute(() -> {
+            try {
+                runProcess(log, wrangler("delete", "--force"));
+                runProcess(log, wrangler("d1", "delete", D1_NAME, "-y"));
+                runProcess(log, wrangler("r2", "bucket", "delete", R2_NAME));
+            } finally {
+                SwingUtilities.invokeLater(() -> processRunning.set(false));
+            }
+        });
+    }
+
+    private void runProvision(JTextArea log) {
+        if (deployDir == null) {
+            appendLog(log, "Deploy folder is not available.");
+            return;
+        }
+        if (!processRunning.compareAndSet(false, true)) {
+            appendLog(log, "(A command is already running in this dialog.)");
+            return;
+        }
+        executor.execute(() -> {
+            try {
+                String createOut = runProcess(log, wrangler("d1", "create", D1_NAME));
+                String dbId = extractDatabaseId(createOut);
+                if (dbId == null) {
+                    String listOut = runProcess(log, wrangler("d1", "list"));
+                    dbId = extractDatabaseId(listOut);
+                }
+                if (dbId == null) {
+                    appendLog(log, "Could not determine D1 database_id. Check the log and wrangler.toml.");
+                    return;
+                }
+                patchWranglerDatabaseId(dbId);
+                appendLog(log, "Wrote database_id " + dbId + " to wrangler.toml");
+                runProcess(log, wrangler("r2", "bucket", "create", R2_NAME));
+                Path schema = deployDir.resolve("schema.sql");
+                runProcess(log, wrangler("d1", "execute", D1_NAME, "--remote", "--file=" + schema));
+                byte[] raw = new byte[32];
+                new SecureRandom().nextBytes(raw);
+                String token = HexFormat.of().formatHex(raw);
+                String hash = sha256Hex(token);
+                Path seed = deployDir.resolve("seed-token.sql");
+                Files.writeString(
+                        seed,
+                        "INSERT OR REPLACE INTO relay_config (id, token_hash, created_at) VALUES (1, '"
+                                + hash + "', datetime('now'));\n",
+                        StandardCharsets.UTF_8);
+                runProcess(log, wrangler("d1", "execute", D1_NAME, "--remote", "--file=" + seed.toAbsolutePath()));
+                resultToken = token;
+                SwingUtilities.invokeLater(() -> tokenOut.setText(token));
+                appendLog(log, "Relay token seeded (hash only on Cloudflare). Copy it on the last page.");
+            } catch (Exception ex) {
+                appendLog(log, "Provision error: " + ex.getMessage());
+            } finally {
+                SwingUtilities.invokeLater(() -> processRunning.set(false));
+            }
+        });
+    }
+
+    private List<String> wrangler(String... args) {
+        List<String> cmd = new ArrayList<>();
+        if (IS_WINDOWS) {
+            cmd.add("cmd.exe");
+            cmd.add("/c");
+            cmd.add("npx");
+            cmd.add("wrangler");
+        } else {
+            cmd.add("npx");
+            cmd.add("wrangler");
+        }
+        cmd.addAll(List.of(args));
+        return cmd;
+    }
+
+    private String runProcess(JTextArea log, List<String> command) {
+        appendLog(log, "$ " + String.join(" ", command));
+        StringBuilder captured = new StringBuilder();
+        int code = -1;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            if (deployDir != null) {
+                pb.directory(deployDir.toFile());
+            }
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            Charset cs = Charset.defaultCharset();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream(), cs))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    captured.append(line).append('\n');
+                    appendLog(log, line);
+                }
+            }
+            code = proc.waitFor();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            appendLog(log, "(interrupted)");
+        } catch (IOException ioe) {
+            appendLog(log, "Error: " + ioe.getMessage());
+        }
+        appendLog(log, "-- exit code " + code + " --");
+        return captured.toString();
+    }
+
+    private void patchWranglerDatabaseId(String databaseId) throws IOException {
+        Path toml = deployDir.resolve("wrangler.toml");
+        String text = Files.readString(toml, StandardCharsets.UTF_8);
+        Matcher m = DATABASE_ID_RE.matcher(text);
+        if (m.find()) {
+            text = m.replaceFirst("database_id = \"" + databaseId + "\"");
+        } else {
+            text = text + "\ndatabase_id = \"" + databaseId + "\"\n";
+        }
+        Files.writeString(toml, text, StandardCharsets.UTF_8);
+    }
+
+    private static String extractDatabaseId(String text) {
+        if (text == null) {
+            return null;
+        }
+        Matcher m = DATABASE_ID_RE.matcher(text);
+        String last = null;
+        while (m.find()) {
+            last = m.group(1);
+        }
+        if (last != null && !"REPLACE_WITH_D1_ID".equals(last)) {
+            return last;
+        }
+        Matcher uuid = Pattern.compile(
+                "([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
+                .matcher(text);
+        return uuid.find() ? uuid.group(1) : null;
+    }
+
+    private static String sha256Hex(String value) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(digest);
     }
 
     private void runWranglerDeploy(JTextArea log) {
@@ -589,10 +786,17 @@ public final class SetPlayRelayDeployWizard extends JDialog {
 
     private void doneOk() {
         String t = urlOut.getText().strip();
-        if (!t.isEmpty() && onDeployUrl != null) {
-            onDeployUrl.accept(t);
+        if (!t.isEmpty() && onDeployResult != null) {
+            emitDeploy(t);
         }
         finishWithUrl(t.isEmpty() ? deployedWssUrl : t);
+    }
+
+    private void emitDeploy(String url) {
+        if (onDeployResult == null) {
+            return;
+        }
+        onDeployResult.accept(new DeployResult(url, resultToken));
     }
 
     private void finishWithUrl(String url) {

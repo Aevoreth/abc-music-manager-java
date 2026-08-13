@@ -17,14 +17,14 @@ class SchemaMigratorTest {
     Path tempDir;
 
     @Test
-    void openOrCreateBuildsSchemaVersionTwelveWithSeeds() throws Exception {
+    void openOrCreateBuildsSchemaVersionThirteenWithSeeds() throws Exception {
         Path db = tempDir.resolve("new.sqlite");
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement()) {
             try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
                 assertTrue(version.next());
-                assertEquals(12, version.getInt(1));
+                assertEquals(13, version.getInt(1));
             }
             try (ResultSet statuses = statement.executeQuery("SELECT COUNT(*) FROM Status")) {
                 assertTrue(statuses.next());
@@ -37,27 +37,28 @@ class SchemaMigratorTest {
             try (ResultSet tables = statement.executeQuery(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ("
                             + "'Song','SongFile','Band','Player','Setlist','SetlistFolder',"
-                            + "'BandLayout','AccountTarget','FolderRule')")) {
+                            + "'BandLayout','AccountTarget','FolderRule','SetPlayRelay',"
+                            + "'SetPlayPublishedSession')")) {
                 assertTrue(tables.next());
-                assertEquals(9, tables.getInt(1));
+                assertEquals(11, tables.getInt(1));
             }
         }
     }
 
     @Test
-    void openOrCreateMigratesOlderVersionToTwelve() throws Exception {
+    void openOrCreateMigratesOlderVersionToThirteen() throws Exception {
         Path db = FixtureDatabases.createWrongVersionFixture(tempDir.resolve("v11.sqlite"));
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement();
              ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
             assertTrue(version.next());
-            assertEquals(12, version.getInt(1));
+            assertEquals(13, version.getInt(1));
         }
     }
 
     @Test
-    void openOrCreateIsIdempotentOnExistingV12() throws Exception {
+    void openOrCreateIsIdempotentOnExistingV13() throws Exception {
         Path db = tempDir.resolve("idempotent.sqlite");
         try (SqliteDatabase first = SqliteDatabase.openOrCreate(db)) {
             // create once

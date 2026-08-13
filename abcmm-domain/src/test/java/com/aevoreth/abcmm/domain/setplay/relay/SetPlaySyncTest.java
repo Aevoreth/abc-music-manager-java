@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
 import com.aevoreth.abcmm.domain.setplay.SetPlayLayoutCard;
+import com.aevoreth.abcmm.domain.setplay.SetPlayPartsSheet;
 import com.aevoreth.abcmm.domain.setplay.SetPlaySessionState;
 
 class SetPlaySyncTest {
@@ -63,6 +64,33 @@ class SetPlaySyncTest {
         assertEquals(SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, applied.layoutCards().get(0).widthUnits());
         assertEquals(SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS, applied.layoutCards().get(0).heightUnits());
         assertTrue(applied.layoutCards().get(0).instrumentChangedFromPriorInSet());
+        assertEquals(false, applied.zipAvailable());
+        assertEquals("", applied.sessionName());
+        assertTrue(applied.partsSheet().columns().isEmpty());
+    }
+
+    @Test
+    void partsSheetAndZipRoundTrip() {
+        SetlistInfo setlist = new SetlistInfo(
+                1L, "Set", null, null, 0, false, 0, null, null, null, null);
+        SetlistItemInfo row = new SetlistItemInfo(
+                10L, 1L, 2L, "Tune", "", 60, 1, "[]", 0, null, null);
+        SetPlaySessionState state = new SetPlaySessionState(List.of(10L));
+        SetPlayPartsSheet sheet = SetPlayPartsSheet.of(
+                List.of(new SetPlayPartsSheet.Column("p1", "Alice", 5L)),
+                List.of(new SetPlayPartsSheet.Row(10L, List.of("1: Lute"))),
+                List.of(new SetPlayPartsSheet.InstrumentsNeeded(5L, "Alice", List.of("Lute"))));
+        Map<String, Object> payload = SetPlaySync.snapshotFromLeader(
+                state, setlist, List.of(row), 60, List.of(), sheet, true, "RAVE");
+        assertEquals(SetPlaySync.STATE_TYPE, payload.get("type"));
+        assertEquals(true, payload.get("zip_available"));
+        assertEquals("RAVE", payload.get("session_name"));
+        SetPlaySync.AppliedSnapshot applied = SetPlaySync.applySnapshot(payload);
+        assertEquals(true, applied.zipAvailable());
+        assertEquals("RAVE", applied.sessionName());
+        assertEquals(1, applied.partsSheet().columns().size());
+        assertEquals("Alice", applied.partsSheet().columns().get(0).title());
+        assertEquals("1: Lute", applied.partsSheet().rows().get(0).cells().get(0));
     }
 
     @Test

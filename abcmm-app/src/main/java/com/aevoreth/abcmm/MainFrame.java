@@ -47,6 +47,7 @@ import com.aevoreth.abcmm.domain.scan.LibraryScanService;
 import com.aevoreth.abcmm.domain.scan.ScanRequest;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
+import com.aevoreth.abcmm.domain.setplay.SetPlayRelayRepository;
 import com.aevoreth.abcmm.maestro.MaestroPlaybackEngines;
 import com.aevoreth.abcmm.storage.DataPaths;
 import com.aevoreth.abcmm.storage.JsonPreferencesStore;
@@ -56,6 +57,7 @@ import com.aevoreth.abcmm.storage.SqliteLibraryScanService;
 import com.aevoreth.abcmm.storage.SqlitePlayLogRepository;
 import com.aevoreth.abcmm.storage.SqlitePlayerRepository;
 import com.aevoreth.abcmm.storage.SqliteSetlistRepository;
+import com.aevoreth.abcmm.storage.SqliteSetPlayRelayRepository;
 import com.aevoreth.abcmm.storage.SqliteSettingsRepository;
 import com.aevoreth.abcmm.storage.SqliteSongLayoutRepository;
 import com.aevoreth.abcmm.storage.SqliteSongRepository;
@@ -96,6 +98,7 @@ public final class MainFrame extends JFrame {
     private SongRepository songRepository;
     private PlayLogRepository playLogRepository;
     private SettingsRepository settingsRepository;
+    private SetPlayRelayRepository setPlayRelayRepository;
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
     private SetlistRepository setlistRepository;
@@ -429,6 +432,10 @@ public final class MainFrame extends JFrame {
             songRepository = new SqliteSongRepository(database, false);
             playLogRepository = new SqlitePlayLogRepository(database);
             settingsRepository = new SqliteSettingsRepository(database);
+            setPlayRelayRepository = new SqliteSetPlayRelayRepository(database);
+            if (setPlayRelayRepository.copyRelaysFromPreferencesIfEmpty(preferences)) {
+                persistPreferencesQuietly();
+            }
             playerRepository = new SqlitePlayerRepository(database);
             bandRepository = new SqliteBandRepository(database);
             setlistRepository = new SqliteSetlistRepository(database);
@@ -447,13 +454,17 @@ public final class MainFrame extends JFrame {
                     bandRepository,
                     playerRepository,
                     songLayoutRepository,
-                    playLogRepository);
+                    playLogRepository,
+                    setPlayRelayRepository,
+                    songRepository);
             bandAssistantPanel.bind(
                     setlistRepository,
                     bandRepository,
                     playerRepository,
                     songLayoutRepository,
-                    playLogRepository);
+                    playLogRepository,
+                    setPlayRelayRepository,
+                    songRepository);
             libraryPanel.setSetlistRepository(setlistRepository);
             libraryPanel.setSongRepository(songRepository);
             libraryPanel.setPlayLogRepository(playLogRepository);
@@ -479,6 +490,7 @@ public final class MainFrame extends JFrame {
             songRepository = null;
             playLogRepository = null;
             settingsRepository = null;
+            setPlayRelayRepository = null;
             playerRepository = null;
             bandRepository = null;
             setlistRepository = null;
@@ -494,8 +506,8 @@ public final class MainFrame extends JFrame {
             libraryPanel.setInstrumentNames(Map.of());
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
-            setPlayPanel.bind(null, null, null, null, null);
-            bandAssistantPanel.bind(null, null, null, null, null);
+            setPlayPanel.bind(null, null, null, null, null, null, null);
+            bandAssistantPanel.bind(null, null, null, null, null, null, null);
             statusBar.setMessage(ex.getMessage());
         }
     }
@@ -640,6 +652,7 @@ public final class MainFrame extends JFrame {
                 this,
                 preferences,
                 settingsRepository,
+                setPlayRelayRepository,
                 statuses,
                 folderRules,
                 accountTargets,

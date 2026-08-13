@@ -13,7 +13,7 @@ import java.util.Objects;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 
 /**
- * Connection to a Python-compatible SQLite database (schema v12).
+ * Connection to the ABC Music Manager SQLite database (schema v13).
  * Supports read-only open of an existing DB and read-write open-or-create with migrations.
  */
 public final class SqliteDatabase implements AutoCloseable {

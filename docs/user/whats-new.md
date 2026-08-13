@@ -14,8 +14,8 @@ Notable areas in this edition:
 - **Setlists** — folders, timing, part assignment, set export, ABCP import/export
 - **Bands** — players, layouts, Change Player cascade
 - **Playback** — Maestro ABC audition (bottom bar, mute/solo, queue reorder, save queue as setlist, tempo/stereo/volume)
-- **Set Play** — live set control, relay broadcast, band grid
-- **Band Assistant** — in-app, `--assistant`, or browser `/playback` page
+- **Set Play** — live set control, named relay sessions, Parts tab
+- **Band Assistant** — in-app, `--assistant`, or browser `/playback` (Connect / Playback / Parts)
 - **Duplicates** — batch review of peer groups and folder clusters during scan
 - **Packaging** — Windows zip and MSI with bundled runtime
 

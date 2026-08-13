@@ -13,3 +13,15 @@ class_name = "SetPlayRoom"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SetPlayRoom"]
+
+[[d1_databases]]
+binding = "REGISTRY"
+database_name = "abc-set-play-registry"
+database_id = "REPLACE_WITH_D1_ID"
+
+[[r2_buckets]]
+binding = "ZIPS"
+bucket_name = "abc-set-play-zips"
+
+[triggers]
+crons = ["0 */6 * * *"]

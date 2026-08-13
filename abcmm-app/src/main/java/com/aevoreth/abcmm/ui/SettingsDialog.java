@@ -8,6 +8,8 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionListener;
 import java.io.File;
 import java.nio.file.Files;
@@ -21,7 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
@@ -35,6 +37,7 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
@@ -53,6 +56,8 @@ import com.aevoreth.abcmm.domain.prefs.AppearanceOptions;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
 import com.aevoreth.abcmm.domain.prefs.LotroPaths;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
+import com.aevoreth.abcmm.domain.setplay.SetPlayRelayInfo;
+import com.aevoreth.abcmm.domain.setplay.SetPlayRelayRepository;
 
 /**
  * Settings dialog with all Python edition tabs. Preferences persist on Save;
@@ -62,6 +67,7 @@ public final class SettingsDialog extends JDialog {
 
     private final Preferences working;
     private final SettingsRepository settingsRepository;
+    private final SetPlayRelayRepository setPlayRelayRepository;
     private final Runnable onResetWindowGeometry;
     private final Consumer<Preferences> onSaved;
     private final Runnable onEntitiesChanged;
@@ -84,6 +90,7 @@ public final class SettingsDialog extends JDialog {
     private List<StatusInfo> statuses;
     private List<FolderRuleInfo> folderRules;
     private List<AccountTargetInfo> accountTargets;
+    private List<SetPlayRelayInfo> setPlayRelays;
 
     private DefaultTableModel folderRulesModel;
     private DefaultTableModel statusesModel;
@@ -102,7 +109,7 @@ public final class SettingsDialog extends JDialog {
             List<AccountTargetInfo> accountTargets,
             Runnable onResetWindowGeometry,
             Consumer<Preferences> onSaved) {
-        this(owner, preferences, null, statuses, folderRules, accountTargets,
+        this(owner, preferences, null, null, statuses, folderRules, accountTargets,
                 onResetWindowGeometry, onSaved, null);
     }
 
@@ -116,12 +123,29 @@ public final class SettingsDialog extends JDialog {
             Runnable onResetWindowGeometry,
             Consumer<Preferences> onSaved,
             Runnable onEntitiesChanged) {
+        this(owner, preferences, settingsRepository, null, statuses, folderRules, accountTargets,
+                onResetWindowGeometry, onSaved, onEntitiesChanged);
+    }
+
+    public SettingsDialog(
+            JFrame owner,
+            Preferences preferences,
+            SettingsRepository settingsRepository,
+            SetPlayRelayRepository setPlayRelayRepository,
+            List<StatusInfo> statuses,
+            List<FolderRuleInfo> folderRules,
+            List<AccountTargetInfo> accountTargets,
+            Runnable onResetWindowGeometry,
+            Consumer<Preferences> onSaved,
+            Runnable onEntitiesChanged) {
         super(owner, "Settings", true);
         this.working = Objects.requireNonNull(preferences, "preferences").copy();
         this.settingsRepository = settingsRepository;
+        this.setPlayRelayRepository = setPlayRelayRepository;
         this.statuses = statuses == null ? List.of() : new ArrayList<>(statuses);
         this.folderRules = folderRules == null ? List.of() : new ArrayList<>(folderRules);
         this.accountTargets = accountTargets == null ? List.of() : new ArrayList<>(accountTargets);
+        this.setPlayRelays = loadRelaysFromRepo();
         this.onResetWindowGeometry = Objects.requireNonNullElse(onResetWindowGeometry, () -> {
         });
         this.onSaved = Objects.requireNonNullElse(onSaved, prefs -> {
@@ -350,7 +374,6 @@ public final class SettingsDialog extends JDialog {
                 working.setPlaybackTempo(1.0);
                 working.setPlaybackStereoMode("maestro");
                 working.setPlaybackStereoSlider(50);
-                working.setSetPlayRelays(List.of());
                 working.setSetPlaySelectedRelayId(null);
                 working.extras().clear();
                 loadWorkingIntoControls();
@@ -704,11 +727,12 @@ public final class SettingsDialog extends JDialog {
     private JPanel buildSetPlaybackTab() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        JLabel intro = new JLabel("<html>Named relay URLs so each bandleader can use their own Cloudflare worker. "
-                + "Choose the active relay on the Set Play and Band Assistant pages.</html>");
+        JLabel intro = new JLabel("<html>Named Cloudflare relays. The relay token (hidden) lets this PC "
+                + "list and host sessions. Copy/paste the token to another PC — last write to a live "
+                + "session wins. Lost tokens cannot be recovered; redeploy the worker.</html>");
         panel.add(intro, BorderLayout.NORTH);
 
-        setPlayRelaysModel = new DefaultTableModel(new Object[] {"Name", "URL", "Id"}, 0) {
+        setPlayRelaysModel = new DefaultTableModel(new Object[] {"Name", "URL", "Retention", "Id"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -718,10 +742,11 @@ public final class SettingsDialog extends JDialog {
         setPlayRelaysTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         setPlayRelaysTable.getColumnModel().getColumn(0).setPreferredWidth(140);
         setPlayRelaysTable.getColumnModel().getColumn(1).setPreferredWidth(360);
+        setPlayRelaysTable.getColumnModel().getColumn(2).setPreferredWidth(80);
         // Keep id column for edit/delete lookup but hide it.
-        setPlayRelaysTable.getColumnModel().getColumn(2).setMinWidth(0);
-        setPlayRelaysTable.getColumnModel().getColumn(2).setMaxWidth(0);
-        setPlayRelaysTable.getColumnModel().getColumn(2).setPreferredWidth(0);
+        setPlayRelaysTable.getColumnModel().getColumn(3).setMinWidth(0);
+        setPlayRelaysTable.getColumnModel().getColumn(3).setMaxWidth(0);
+        setPlayRelaysTable.getColumnModel().getColumn(3).setPreferredWidth(0);
         refillSetPlayRelaysTable();
         panel.add(new JScrollPane(setPlayRelaysTable), BorderLayout.CENTER);
 
@@ -747,27 +772,54 @@ public final class SettingsDialog extends JDialog {
             return;
         }
         setPlayRelaysModel.setRowCount(0);
-        for (Map<String, Object> relay : working.setPlayRelays()) {
+        for (SetPlayRelayInfo relay : setPlayRelays) {
             setPlayRelaysModel.addRow(new Object[] {
-                    String.valueOf(relay.getOrDefault("name", "")),
-                    String.valueOf(relay.getOrDefault("url", "")),
-                    String.valueOf(relay.getOrDefault("id", ""))
+                    relay.name(),
+                    relay.url(),
+                    relay.retentionDays() + " days",
+                    String.valueOf(relay.id())
             });
         }
     }
 
+    private List<SetPlayRelayInfo> loadRelaysFromRepo() {
+        if (setPlayRelayRepository == null) {
+            return List.of();
+        }
+        try {
+            return new ArrayList<>(setPlayRelayRepository.listRelays());
+        } catch (LibraryException ex) {
+            return List.of();
+        }
+    }
+
+    private void reloadSetPlayRelays() {
+        setPlayRelays = loadRelaysFromRepo();
+        refillSetPlayRelaysTable();
+        entitiesChanged = true;
+    }
+
     private void addSetPlayRelay() {
-        Optional<Map<String, Object>> edited = editRelayDialog(null);
+        if (setPlayRelayRepository == null) {
+            JOptionPane.showMessageDialog(
+                    this, "Database is not available.", "Relay", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        Optional<SetPlayRelayInfo> edited = editRelayDialog(null);
         if (edited.isEmpty()) {
             return;
         }
-        List<Map<String, Object>> relays = new ArrayList<>(working.setPlayRelays());
-        relays.add(edited.get());
-        working.setSetPlayRelays(relays);
-        if (working.setPlaySelectedRelayId() == null || working.setPlaySelectedRelayId().isBlank()) {
-            working.setSetPlaySelectedRelayId(String.valueOf(edited.get().get("id")));
+        SetPlayRelayInfo draft = edited.get();
+        try {
+            long id = setPlayRelayRepository.addRelay(
+                    draft.name(), draft.url(), draft.token(), draft.retentionDays());
+            if (working.setPlaySelectedRelayId() == null || working.setPlaySelectedRelayId().isBlank()) {
+                working.setSetPlaySelectedRelayId(String.valueOf(id));
+            }
+            reloadSetPlayRelays();
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Relay", JOptionPane.WARNING_MESSAGE);
         }
-        refillSetPlayRelaysTable();
     }
 
     private void editSelectedSetPlayRelay() {
@@ -776,31 +828,26 @@ public final class SettingsDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "Select a relay to edit.", "Relay", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        String id = String.valueOf(setPlayRelaysModel.getValueAt(row, 2));
-        Map<String, Object> existing = null;
-        for (Map<String, Object> relay : working.setPlayRelays()) {
-            if (id.equals(String.valueOf(relay.get("id")))) {
-                existing = relay;
-                break;
-            }
-        }
+        long id = Long.parseLong(String.valueOf(setPlayRelaysModel.getValueAt(row, 3)));
+        SetPlayRelayInfo existing = setPlayRelays.stream()
+                .filter(r -> r.id() == id)
+                .findFirst()
+                .orElse(null);
         if (existing == null) {
             return;
         }
-        Optional<Map<String, Object>> edited = editRelayDialog(existing);
+        Optional<SetPlayRelayInfo> edited = editRelayDialog(existing);
         if (edited.isEmpty()) {
             return;
         }
-        List<Map<String, Object>> relays = new ArrayList<>();
-        for (Map<String, Object> relay : working.setPlayRelays()) {
-            if (id.equals(String.valueOf(relay.get("id")))) {
-                relays.add(edited.get());
-            } else {
-                relays.add(relay);
-            }
+        SetPlayRelayInfo draft = edited.get();
+        try {
+            setPlayRelayRepository.updateRelay(
+                    id, draft.name(), draft.url(), draft.token(), draft.retentionDays());
+            reloadSetPlayRelays();
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Relay", JOptionPane.WARNING_MESSAGE);
         }
-        working.setSetPlayRelays(relays);
-        refillSetPlayRelaysTable();
     }
 
     private void deleteSelectedSetPlayRelay() {
@@ -809,7 +856,7 @@ public final class SettingsDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "Select a relay to delete.", "Relay", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        String id = String.valueOf(setPlayRelaysModel.getValueAt(row, 2));
+        String id = String.valueOf(setPlayRelaysModel.getValueAt(row, 3));
         String name = String.valueOf(setPlayRelaysModel.getValueAt(row, 0));
         int confirm = JOptionPane.showConfirmDialog(
                 this,
@@ -820,26 +867,38 @@ public final class SettingsDialog extends JDialog {
         if (confirm != JOptionPane.YES_OPTION) {
             return;
         }
-        List<Map<String, Object>> relays = new ArrayList<>();
-        for (Map<String, Object> relay : working.setPlayRelays()) {
-            if (!id.equals(String.valueOf(relay.get("id")))) {
-                relays.add(relay);
+        try {
+            setPlayRelayRepository.deleteRelay(Long.parseLong(id));
+            if (id.equals(working.setPlaySelectedRelayId())) {
+                List<SetPlayRelayInfo> remaining = setPlayRelayRepository.listRelays();
+                working.setSetPlaySelectedRelayId(remaining.isEmpty()
+                        ? null
+                        : String.valueOf(remaining.get(0).id()));
             }
+            reloadSetPlayRelays();
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Relay", JOptionPane.WARNING_MESSAGE);
         }
-        working.setSetPlayRelays(relays);
-        if (id.equals(working.setPlaySelectedRelayId())) {
-            working.setSetPlaySelectedRelayId(relays.isEmpty()
-                    ? null
-                    : String.valueOf(relays.get(0).get("id")));
-        }
-        refillSetPlayRelaysTable();
     }
 
-    private Optional<Map<String, Object>> editRelayDialog(Map<String, Object> existing) {
+    private static final String LAST_WRITE_WINS_WARNING =
+            "If two PCs host the same session with this token, the last write wins.\n"
+                    + "A lost token cannot be recovered — you must redeploy the worker.";
+
+    private Optional<SetPlayRelayInfo> editRelayDialog(SetPlayRelayInfo existing) {
         JTextField nameField = new JTextField(24);
         JTextField urlField = new JTextField(36);
-        nameField.setText(existing == null ? "" : String.valueOf(existing.getOrDefault("name", "")));
-        urlField.setText(existing == null ? "" : String.valueOf(existing.getOrDefault("url", "")));
+        JPasswordField tokenField = new JPasswordField(36);
+        tokenField.setEchoChar('\u2022');
+        JCheckBox revealToken = new JCheckBox("Show relay token");
+        JSpinner retentionSpinner = new JSpinner(new SpinnerNumberModel(
+                existing == null ? SetPlayRelayInfo.DEFAULT_RETENTION_DAYS : existing.retentionDays(),
+                1, 365, 1));
+        nameField.setText(existing == null ? "" : existing.name());
+        urlField.setText(existing == null ? "" : existing.url());
+        tokenField.setText(existing == null ? "" : existing.tokenOrEmpty());
+        revealToken.addActionListener(e -> tokenField.setEchoChar(revealToken.isSelected() ? (char) 0 : '\u2022'));
+
         JPanel form = new JPanel(new GridBagLayout());
         GridBagConstraints c = formConstraints();
         c.gridx = 0;
@@ -852,17 +911,66 @@ public final class SettingsDialog extends JDialog {
         form.add(new JLabel("URL:"), c);
         c.gridx = 1;
         form.add(urlField, c);
+        c.gridx = 0;
+        c.gridy = 2;
+        form.add(new JLabel("Relay token:"), c);
+        c.gridx = 1;
+        form.add(tokenField, c);
+        c.gridx = 1;
+        c.gridy = 3;
+        JPanel tokenBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        tokenBtns.add(revealToken);
+        JButton copyToken = new JButton("Copy");
+        JButton pasteToken = new JButton("Paste");
+        copyToken.addActionListener(e -> {
+            int ok = JOptionPane.showConfirmDialog(
+                    this, LAST_WRITE_WINS_WARNING, "Copy relay token",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (ok != JOptionPane.OK_OPTION) {
+                return;
+            }
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                    new StringSelection(new String(tokenField.getPassword())), null);
+        });
+        pasteToken.addActionListener(e -> {
+            int ok = JOptionPane.showConfirmDialog(
+                    this, LAST_WRITE_WINS_WARNING, "Paste relay token",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (ok != JOptionPane.OK_OPTION) {
+                return;
+            }
+            try {
+                var contents = Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
+                if (contents != null && contents.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+                    String text = (String) contents.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor);
+                    if (text != null) {
+                        tokenField.setText(text.strip());
+                    }
+                }
+            } catch (Exception ignored) {
+                // ignore
+            }
+        });
+        tokenBtns.add(copyToken);
+        tokenBtns.add(pasteToken);
+        form.add(tokenBtns, c);
+        c.gridx = 0;
+        c.gridy = 4;
+        form.add(new JLabel("Zip retention (days after set):"), c);
+        c.gridx = 1;
+        form.add(retentionSpinner, c);
         if (existing != null) {
             c.gridx = 0;
-            c.gridy = 2;
+            c.gridy = 5;
             c.gridwidth = 2;
             JButton redeploy = new JButton("Redeploy worker on Cloudflare…");
             redeploy.setToolTipText(
-                    "Remove the Worker and deploy again from the bundled template. Rarely needed.");
+                    "Deletes the worker, D1 registry, and R2 zips, then deploys a fresh copy. "
+                            + "All sessions are wiped.");
             redeploy.addActionListener(e -> {
                 int ok = JOptionPane.showConfirmDialog(
                         this,
-                        "This will run the deploy assistant after attempting to delete the existing Worker.\n\n"
+                        "Redeploy wipes the worker, D1 session list, R2 zips, and issues a new token.\n\n"
                                 + "You must sign in to Cloudflare with the same account that already hosts this relay.\n\n"
                                 + "Continue?",
                         "Redeploy relay worker?",
@@ -871,10 +979,19 @@ public final class SettingsDialog extends JDialog {
                 if (ok != JOptionPane.YES_OPTION) {
                     return;
                 }
-                SetPlayRelayDeployWizard wiz = new SetPlayRelayDeployWizard(this, urlField::setText, true);
-                String url = wiz.showAndGetUrl();
-                if (url != null && !url.isBlank()) {
-                    urlField.setText(url);
+                SetPlayRelayDeployWizard wiz = new SetPlayRelayDeployWizard(
+                        this, result -> {
+                            urlField.setText(result.url());
+                            if (result.token() != null && !result.token().isBlank()) {
+                                tokenField.setText(result.token());
+                            }
+                        }, true);
+                SetPlayRelayDeployWizard.DeployResult deployed = wiz.showAndGetResult();
+                if (deployed != null && deployed.url() != null && !deployed.url().isBlank()) {
+                    urlField.setText(deployed.url());
+                    if (deployed.token() != null && !deployed.token().isBlank()) {
+                        tokenField.setText(deployed.token());
+                    }
                 }
             });
             form.add(redeploy, c);
@@ -890,40 +1007,45 @@ public final class SettingsDialog extends JDialog {
         }
         String name = nameField.getText() == null ? "" : nameField.getText().strip();
         String url = urlField.getText() == null ? "" : urlField.getText().strip().replaceAll("/+$", "");
+        String token = new String(tokenField.getPassword()).strip();
+        int retention = ((Number) retentionSpinner.getValue()).intValue();
         if (name.isEmpty() || url.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Name and URL are required.", "Relay", JOptionPane.WARNING_MESSAGE);
             return Optional.empty();
         }
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("id", existing == null
-                ? UUID.randomUUID().toString()
-                : String.valueOf(existing.getOrDefault("id", UUID.randomUUID().toString())));
-        out.put("name", name);
-        out.put("url", url);
-        return Optional.of(out);
+        long id = existing == null ? 0L : existing.id();
+        return Optional.of(new SetPlayRelayInfo(id, name, url, token.isEmpty() ? null : token, retention, 0));
     }
 
     private void openSetPlayDeployWizard(boolean deleteWorkerFirst) {
-        SetPlayRelayDeployWizard wiz = new SetPlayRelayDeployWizard(this, null, deleteWorkerFirst);
-        String url = wiz.showAndGetUrl();
-        if (url == null || url.isBlank()) {
+        if (setPlayRelayRepository == null) {
+            JOptionPane.showMessageDialog(
+                    this, "Database is not available.", "Relay", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        Map<String, Object> seed = new LinkedHashMap<>();
-        seed.put("id", UUID.randomUUID().toString());
-        seed.put("name", "My relay");
-        seed.put("url", url);
-        Optional<Map<String, Object>> edited = editRelayDialog(seed);
+        SetPlayRelayDeployWizard wiz = new SetPlayRelayDeployWizard(this, null, deleteWorkerFirst);
+        SetPlayRelayDeployWizard.DeployResult deployed = wiz.showAndGetResult();
+        if (deployed == null || deployed.url() == null || deployed.url().isBlank()) {
+            return;
+        }
+        SetPlayRelayInfo seed = new SetPlayRelayInfo(
+                0L, "My relay", deployed.url(), deployed.token(),
+                SetPlayRelayInfo.DEFAULT_RETENTION_DAYS, 0);
+        Optional<SetPlayRelayInfo> edited = editRelayDialog(seed);
         if (edited.isEmpty()) {
             return;
         }
-        List<Map<String, Object>> relays = new ArrayList<>(working.setPlayRelays());
-        relays.add(edited.get());
-        working.setSetPlayRelays(relays);
-        if (working.setPlaySelectedRelayId() == null || working.setPlaySelectedRelayId().isBlank()) {
-            working.setSetPlaySelectedRelayId(String.valueOf(edited.get().get("id")));
+        SetPlayRelayInfo draft = edited.get();
+        try {
+            long id = setPlayRelayRepository.addRelay(
+                    draft.name(), draft.url(), draft.token(), draft.retentionDays());
+            if (working.setPlaySelectedRelayId() == null || working.setPlaySelectedRelayId().isBlank()) {
+                working.setSetPlaySelectedRelayId(String.valueOf(id));
+            }
+            reloadSetPlayRelays();
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Relay", JOptionPane.WARNING_MESSAGE);
         }
-        refillSetPlayRelaysTable();
     }
 
     private static JPanel formPanel() {

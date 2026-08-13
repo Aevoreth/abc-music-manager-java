@@ -4,6 +4,12 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+- Replaced Set Play **Broadcast** rooms with **named sessions** (D1 registry, per-session Durable Objects, R2 zips up to 2 MB)
+- Moved relay URLs, tokens, and zip retention into SQLite schema **v13** (opening a Python v12 DB in Java migrates and will not round-trip)
+- Set Play / Band Assistant / browser `/playback` now use **Sessions (or Connect) | Playback | Parts** inner tabs
+- Share **Play Only** (`/playback?set=CODE`) vs **Download and Play** (`#p=PIN`); member PIN is zip-only and shown once
+- Relay HTTP uses `Authorization: Bearer` (relay token); WebSocket protocol is `set_play_state_v2`
+
 ## Version 0.3.2b
 
 - Added MIDI panic (double-click Stop) to silence hanging notes

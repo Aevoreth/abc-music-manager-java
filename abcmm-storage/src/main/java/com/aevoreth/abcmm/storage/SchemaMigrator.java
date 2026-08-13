@@ -15,11 +15,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Creates and migrates the Python-compatible SQLite schema through version 12.
+ * Creates and migrates the SQLite schema through version 13 (Java-only from v13).
  */
 final class SchemaMigrator {
 
-    static final int CURRENT_SCHEMA_VERSION = 12;
+    static final int CURRENT_SCHEMA_VERSION = 13;
 
     /** 24 LOTRO instruments for Players tab (same order as Python). */
     static final List<String> PLAYER_INSTRUMENTS = List.of(
@@ -276,6 +276,30 @@ final class SchemaMigrator {
                     )
                     """);
             statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetPlayRelay (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        token TEXT,
+                        retention_days INTEGER NOT NULL DEFAULT 14,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetPlayPublishedSession (
+                        id INTEGER PRIMARY KEY,
+                        relay_id INTEGER NOT NULL REFERENCES SetPlayRelay(id) ON DELETE CASCADE,
+                        code TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        passphrase TEXT,
+                        setlist_id INTEGER,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """);
+            statement.execute("""
                     CREATE TABLE IF NOT EXISTS schema_version (
                         version INTEGER PRIMARY KEY
                     )
@@ -287,6 +311,9 @@ final class SchemaMigrator {
             statement.execute("CREATE INDEX IF NOT EXISTS idx_playlog_played_at ON PlayLog(played_at)");
             statement.execute("CREATE INDEX IF NOT EXISTS idx_setlistitem_setlist_id ON SetlistItem(setlist_id)");
             statement.execute("CREATE INDEX IF NOT EXISTS idx_folderrule_rule_type ON FolderRule(rule_type)");
+            statement.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_setplaypublishedsession_relay_id "
+                            + "ON SetPlayPublishedSession(relay_id)");
         }
     }
 
@@ -355,6 +382,43 @@ final class SchemaMigrator {
         if (current < 12) {
             mergeInstrumentInto(connection, "Student Fiddle", "Student's Fiddle");
             setSchemaVersion(connection, 12);
+            current = 12;
+        }
+        if (current < 13) {
+            migrateSetPlayRelayTables(connection);
+            setSchemaVersion(connection, 13);
+        }
+    }
+
+    private static void migrateSetPlayRelayTables(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetPlayRelay (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        token TEXT,
+                        retention_days INTEGER NOT NULL DEFAULT 14,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetPlayPublishedSession (
+                        id INTEGER PRIMARY KEY,
+                        relay_id INTEGER NOT NULL REFERENCES SetPlayRelay(id) ON DELETE CASCADE,
+                        code TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        passphrase TEXT,
+                        setlist_id INTEGER,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """);
+            statement.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_setplaypublishedsession_relay_id "
+                            + "ON SetPlayPublishedSession(relay_id)");
         }
     }
 
