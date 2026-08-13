@@ -345,6 +345,19 @@ body {
   color: var(--text-secondary);
 }
 
+.parts-table td.part-tint-0 { background: #322a2a; }
+.parts-table td.part-tint-1 { background: #322a30; }
+.parts-table td.part-tint-2 { background: #2e2a32; }
+.parts-table td.part-tint-3 { background: #2a2a32; }
+.parts-table td.part-tint-4 { background: #2a2e32; }
+.parts-table td.part-tint-5 { background: #2a3232; }
+.parts-table td.part-tint-6 { background: #2a322e; }
+.parts-table td.part-tint-7 { background: #2a322a; }
+.parts-table td.part-tint-8 { background: #2e322a; }
+.parts-table td.part-tint-9 { background: #32322a; }
+.parts-table td.part-tint-10 { background: #322e2a; }
+.parts-table td.part-tint-11 { background: #322c28; }
+
 .players-list {
   display: flex;
   flex-direction: column;

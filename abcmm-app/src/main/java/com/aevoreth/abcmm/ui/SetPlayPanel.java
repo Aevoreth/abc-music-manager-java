@@ -108,20 +108,6 @@ public final class SetPlayPanel extends JPanel {
     private static final Color STATUS_NOW = new Color(0x4C_AF_50);
     private static final Color STATUS_NEXT = new Color(0x5C_9F_D6);
     private static final Color STATUS_SKIP = new Color(0xE0_5A_5A);
-    private static final Color[] PLAYER_TINTS = {
-            new Color(0x5C_3A_3A),
-            new Color(0x5C_3A_4A),
-            new Color(0x4A_3A_5C),
-            new Color(0x3A_3A_5C),
-            new Color(0x3A_4A_5C),
-            new Color(0x3A_5C_5C),
-            new Color(0x3A_5C_4A),
-            new Color(0x3A_5C_3A),
-            new Color(0x4A_5C_3A),
-            new Color(0x5C_5C_3A),
-            new Color(0x5C_4A_3A),
-            new Color(0x5C_42_32)
-    };
 
     private static final int MAIN_SPLIT_DEFAULT = 320;
     private static final int MAIN_SPLIT_MIN = 160;
@@ -165,7 +151,7 @@ public final class SetPlayPanel extends JPanel {
     private SetPlayPartsSheet partsSheet = SetPlayPartsSheet.empty();
     private final JTabbedPane innerTabs = new JTabbedPane();
     private final DefaultTableModel sessionListModel =
-            new DefaultTableModel(new Object[] {"Name", "Code", "Zip", "Expires"}, 0) {
+            new DefaultTableModel(new Object[] {"Name", "Code", "Zip", "PIN", "Expires"}, 0) {
                 @Override
                 public boolean isCellEditable(int row, int column) {
                     return false;
@@ -350,6 +336,7 @@ public final class SetPlayPanel extends JPanel {
                 assistantMode ? buildAssistantConnectPanel() : buildSessionsPanel());
         innerTabs.addTab("Playback", mainSplit);
         innerTabs.addTab("Parts", buildPartsPanel());
+        innerTabs.addChangeListener(e -> onInnerTabChanged());
 
         if (!assistantMode) {
             loadBtn.addActionListener(e -> loadSet());
@@ -436,33 +423,48 @@ public final class SetPlayPanel extends JPanel {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        JPanel pickRow = new JPanel(new BorderLayout(6, 0));
+        sizeToChars(setlistCombo, 30);
+        sizeToChars(relayCombo, 30);
+
+        JPanel pickRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         pickRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        pickRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, setlistCombo.getPreferredSize().height));
-        pickRow.add(new JLabel("Setlist:"), BorderLayout.WEST);
-        pickRow.add(setlistCombo, BorderLayout.CENTER);
-        pickRow.add(loadBtn, BorderLayout.EAST);
+        pickRow.add(new JLabel("Setlist:"));
+        pickRow.add(setlistCombo);
+        pickRow.add(loadBtn);
+        capRowHeight(pickRow);
         panel.add(pickRow);
         panel.add(Box.createVerticalStrut(8));
 
-        JPanel relayPick = new JPanel(new BorderLayout(6, 0));
+        JPanel relayPick = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         relayPick.setAlignmentX(Component.LEFT_ALIGNMENT);
-        relayPick.setMaximumSize(new Dimension(Integer.MAX_VALUE, relayCombo.getPreferredSize().height));
-        relayPick.add(new JLabel("Relay:"), BorderLayout.WEST);
-        relayPick.add(relayCombo, BorderLayout.CENTER);
+        relayPick.add(new JLabel("Relay:"));
+        relayPick.add(relayCombo);
+        relayPick.add(createSessionBtn);
+        capRowHeight(relayPick);
         panel.add(relayPick);
         panel.add(Box.createVerticalStrut(8));
 
-        createSessionBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(createSessionBtn);
-        panel.add(Box.createVerticalStrut(8));
-
         sessionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        sessionList.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        sessionList.getTableHeader().setReorderingAllowed(false);
+        sizeSessionColumns();
         JScrollPane listScroll = new JScrollPane(sessionList);
         listScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-        listScroll.setPreferredSize(new Dimension(480, 180));
+        int tableW = sessionTableWidth();
+        listScroll.setPreferredSize(new Dimension(tableW + 24, 180));
+        listScroll.setMaximumSize(new Dimension(tableW + 24, Integer.MAX_VALUE));
         panel.add(listScroll);
         panel.add(Box.createVerticalStrut(6));
+
+        reconnectSessionBtn.setToolTipText("Connect to the selected session as bandleader.");
+        renameSessionBtn.setToolTipText("Change the name. The code and links stay the same.");
+        republishBtn.setToolTipText(
+                "Replace the hosted set with the one you have loaded. Resets NOW/NEXT and removes the zip.");
+        uploadZipBtn.setToolTipText("Attach a zip of the set files so players can download it (2 MB max).");
+        clearSessionBtn.setToolTipText("Clear NOW, NEXT, played, and skip. Keeps the session.");
+        deleteSessionBtn.setToolTipText("Delete this session for everyone. Cannot be undone.");
+        copyPlayOnlyBtn.setToolTipText("Copy a watch-only link. No download PIN.");
+        copyDownloadBtn.setToolTipText("Copy a link that includes the zip PIN so players can download files.");
 
         JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         btns.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -484,6 +486,48 @@ public final class SetPlayPanel extends JPanel {
         panel.add(roomLabel);
         panel.add(Box.createVerticalGlue());
         return panel;
+    }
+
+    private void sizeToChars(Component component, int chars) {
+        int rowH = Math.max(22, component.getPreferredSize().height);
+        int width = charsToPx(component, chars);
+        Dimension d = new Dimension(width, rowH);
+        component.setPreferredSize(d);
+        component.setMinimumSize(new Dimension(Math.min(80, width), rowH));
+        component.setMaximumSize(d);
+    }
+
+    private void capRowHeight(JPanel row) {
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height + 4));
+    }
+
+    private int charsToPx(Component component, int chars) {
+        int em = component.getFontMetrics(component.getFont()).charWidth('M');
+        return Math.max(24, em * chars + 12);
+    }
+
+    private void sizeSessionColumns() {
+        int[] widths = {
+                charsToPx(sessionList, 30),
+                charsToPx(sessionList, 9),
+                charsToPx(sessionList, 5),
+                charsToPx(sessionList, 8),
+                charsToPx(sessionList, 25)
+        };
+        for (int i = 0; i < widths.length && i < sessionList.getColumnCount(); i++) {
+            TableColumn col = sessionList.getColumnModel().getColumn(i);
+            col.setMinWidth(widths[i]);
+            col.setPreferredWidth(widths[i]);
+            col.setMaxWidth(widths[i]);
+        }
+    }
+
+    private int sessionTableWidth() {
+        int w = 0;
+        for (int i = 0; i < sessionList.getColumnCount(); i++) {
+            w += sessionList.getColumnModel().getColumn(i).getPreferredWidth();
+        }
+        return Math.max(w, 200);
     }
 
     private JPanel buildAssistantConnectPanel() {
@@ -839,15 +883,23 @@ public final class SetPlayPanel extends JPanel {
                         relayHttp.listSessions(info.normalizedUrl(), info.token());
                 SwingUtilities.invokeLater(() -> {
                     remoteSessions = list;
+                    Map<String, String> pins = localPinsByCode(info.id());
                     sessionListModel.setRowCount(0);
                     for (SetPlayRelayHttp.SessionSummary s : list) {
+                        String pin = pins.getOrDefault(s.code() == null ? "" : s.code().toUpperCase(Locale.ROOT), "—");
+                        String expires = s.expiresAt() == null || s.expiresAt().isBlank() ? "—" : s.expiresAt();
+                        if (expires.length() > 25) {
+                            expires = expires.substring(0, 25);
+                        }
                         sessionListModel.addRow(new Object[] {
                                 s.name() == null ? "" : s.name(),
                                 s.code(),
                                 s.zipAvailable() ? "Yes" : "No",
-                                s.expiresAt() == null ? "—" : s.expiresAt()
+                                pin,
+                                expires
                         });
                     }
+                    sizeSessionColumns();
                     if (relayCode != null) {
                         for (int i = 0; i < list.size(); i++) {
                             if (relayCode.equalsIgnoreCase(list.get(i).code())) {
@@ -867,6 +919,23 @@ public final class SetPlayPanel extends JPanel {
         }, "set-play-list-sessions");
         t.setDaemon(true);
         t.start();
+    }
+
+    private Map<String, String> localPinsByCode(long relayId) {
+        Map<String, String> pins = new LinkedHashMap<>();
+        if (setPlayRelayRepository == null) {
+            return pins;
+        }
+        try {
+            for (SetPlayPublishedSessionInfo local : setPlayRelayRepository.listPublishedSessions(relayId)) {
+                if (local.code() != null && local.passphrase() != null && !local.passphrase().isBlank()) {
+                    pins.put(local.code().toUpperCase(Locale.ROOT), local.passphrase());
+                }
+            }
+        } catch (LibraryException ignored) {
+            // PIN column stays blank when the local copy is missing
+        }
+        return pins;
     }
 
     private Optional<SessionMetaPrompt> promptSessionMeta(String defaultName, String defaultDate, String defaultTime) {
@@ -1593,20 +1662,11 @@ public final class SetPlayPanel extends JPanel {
     private void applyRemoteSnapshot(Map<String, Object> data) {
         SetPlaySync.AppliedSnapshot applied = SetPlaySync.applySnapshot(data);
         long setlistId = toLong(data.get("setlist_id"), 0L);
-        boolean localDiffers = loadedSetlist == null || loadedSetlist.id() != setlistId;
-        if (!localDiffers && !assistantMode) {
-            if (songRows.size() != applied.rows().size()) {
-                localDiffers = true;
-            } else {
-                for (int i = 0; i < songRows.size(); i++) {
-                    if (songRows.get(i).id() != toLong(applied.rows().get(i).get("item_id"), 0L)) {
-                        localDiffers = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if (!assistantMode && localDiffers && !hostingFromSnapshot) {
+        boolean localMatches = !assistantMode
+                && loadedSetlist != null
+                && loadedSetlist.id() == setlistId
+                && songRowsMatchSnapshot(applied.rows());
+        if (!assistantMode && !localMatches && !hostingFromSnapshot) {
             hostingFromSnapshot = true;
             JOptionPane.showMessageDialog(
                     this,
@@ -1617,12 +1677,27 @@ public final class SetPlayPanel extends JPanel {
                     JOptionPane.WARNING_MESSAGE);
         }
         session = applied.session();
-        Map<String, Object> meta = applied.setMeta();
-        partsSheet = applied.partsSheet() == null ? SetPlayPartsSheet.empty() : applied.partsSheet();
         zipAvailable = applied.zipAvailable();
         if (applied.sessionName() != null && !applied.sessionName().isBlank()) {
             sessionName = applied.sessionName();
         }
+
+        if (localMatches) {
+            hostingFromSnapshot = false;
+            rebuildPartsSheetFromLocal();
+            if (loadedSetlist != null) {
+                setlistNameLabel.setText(loadedSetlist.name());
+            }
+            statusLabel.setText("Synced (rev " + session.revision() + ").");
+            refreshAll();
+            refreshSongBanners();
+            updateDownloadButton();
+            SwingUtilities.invokeLater(gridPanel::fitCardsToView);
+            return;
+        }
+
+        Map<String, Object> meta = applied.setMeta();
+        partsSheet = applied.partsSheet() == null ? SetPlayPartsSheet.empty() : applied.partsSheet();
 
         songRows.clear();
         for (Map<String, Object> rd : applied.rows()) {
@@ -1694,6 +1769,25 @@ public final class SetPlayPanel extends JPanel {
         refreshAll();
         refreshSongBanners();
         updateDownloadButton();
+        SwingUtilities.invokeLater(gridPanel::fitCardsToView);
+    }
+
+    private boolean songRowsMatchSnapshot(List<Map<String, Object>> rows) {
+        if (rows == null || songRows.size() != rows.size()) {
+            return false;
+        }
+        for (int i = 0; i < songRows.size(); i++) {
+            if (songRows.get(i).id() != toLong(rows.get(i).get("item_id"), 0L)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void onInnerTabChanged() {
+        maybeRestoreSplits();
+        refreshPartsTable();
+        refreshGrid();
         SwingUtilities.invokeLater(gridPanel::fitCardsToView);
     }
 
@@ -1992,7 +2086,7 @@ public final class SetPlayPanel extends JPanel {
     }
 
     private void refreshGrid() {
-        if (assistantMode) {
+        if (assistantMode || hostingFromSnapshot) {
             gridPanel.setCards(layoutCards);
             gridPanel.setHighlightPlayerIds(highlightPlayers);
             return;
@@ -2673,13 +2767,13 @@ public final class SetPlayPanel extends JPanel {
                         int canonical = 0;
                         for (SetPlayPartsSheet.Column all : partsSheet.columns()) {
                             if (Objects.equals(all.playerId(), col.playerId()) && all.key().equals(col.key())) {
-                                bg = PLAYER_TINTS[Math.floorMod(canonical, PLAYER_TINTS.length)];
+                                bg = playerTint(canonical);
                                 break;
                             }
                             if (all.playerId() != null) {
                                 canonical++;
                             } else if (all.key().equals(col.key())) {
-                                bg = PLAYER_TINTS[Math.floorMod(idx, PLAYER_TINTS.length)];
+                                bg = playerTint(idx);
                                 break;
                             }
                         }
@@ -2691,6 +2785,15 @@ public final class SetPlayPanel extends JPanel {
             setHorizontalAlignment(column == 0 ? CENTER : LEFT);
             return c;
         }
+    }
+
+    /** Soft column wash: light pastels on light theme, muted dark hues on dark theme. */
+    private static Color playerTint(int index) {
+        float hue = Math.floorMod(index, 12) / 12f;
+        if (AbcmmThemer.isDarkMode()) {
+            return Color.getHSBColor(hue, 0.22f, 0.28f);
+        }
+        return Color.getHSBColor(hue, 0.16f, 0.94f);
     }
 
     private final class SongTableModel extends AbstractTableModel {

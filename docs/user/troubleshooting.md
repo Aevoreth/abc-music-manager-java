@@ -64,6 +64,8 @@ The database path may be stale if files moved. Re-scan the library. If duplicate
 - Browser **404** on `/playback`: redeploy the worker so it includes the playback page assets
 - Prefer `*.workers.dev`; custom domains need Bot Fight / WAF skipped for the worker or `/api/*`
 
+If **Redeploy worker on Cloudflare…** reports that the zip bucket is not empty, you can still click Next — provision reuses the existing bucket. To delete the bucket yourself, empty it first in the Cloudflare dashboard (R2 → bucket → Settings → Empty).
+
 ---
 
 ## Band Assistant can't join

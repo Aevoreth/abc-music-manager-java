@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.domain.setplay.relay;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -99,7 +100,9 @@ public final class SetPlayWorkerPaths {
 
     /**
      * Copy worker sources into deploy, skipping {@code node_modules} and {@code .wrangler};
-     * preserves existing {@code node_modules} in the deploy dir.
+     * preserves existing {@code node_modules} in the deploy dir. A real D1
+     * {@code database_id} already in the deploy {@code wrangler.toml} is kept
+     * (the template placeholder is not written over it).
      */
     public static void syncTemplateToDeploy(Path bundle, Path deploy, Consumer<String> logLine)
             throws IOException {
@@ -107,6 +110,7 @@ public final class SetPlayWorkerPaths {
             throw new IOException("Worker bundle not found: " + bundle);
         }
         Files.createDirectories(deploy);
+        String existingDbId = readExistingDatabaseId(deploy.resolve("wrangler.toml"));
         try (var stream = Files.list(bundle)) {
             for (Path item : stream.toList()) {
                 String name = item.getFileName().toString();
@@ -127,6 +131,25 @@ public final class SetPlayWorkerPaths {
                     throw e;
                 }
             }
+        }
+        if (existingDbId != null) {
+            Path destToml = deploy.resolve("wrangler.toml");
+            if (Files.isRegularFile(destToml)) {
+                String patched = SetPlayWranglerParse.replaceTomlDatabaseId(
+                        Files.readString(destToml, StandardCharsets.UTF_8), existingDbId);
+                Files.writeString(destToml, patched, StandardCharsets.UTF_8);
+            }
+        }
+    }
+
+    private static String readExistingDatabaseId(Path toml) {
+        try {
+            if (!Files.isRegularFile(toml)) {
+                return null;
+            }
+            return SetPlayWranglerParse.extractTomlDatabaseId(Files.readString(toml, StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            return null;
         }
     }
 

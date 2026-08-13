@@ -9,6 +9,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 - Set Play / Band Assistant / browser `/playback` now use **Sessions (or Connect) | Playback | Parts** inner tabs
 - Share **Play Only** (`/playback?set=CODE`) vs **Download and Play** (`#p=PIN`); member PIN is zip-only and shown once
 - Relay HTTP uses `Authorization: Bearer` (relay token); WebSocket protocol is `set_play_state_v2`
+- Redeploy wizard empties R2 zips from the D1 session list before deleting the worker, Durable Objects, D1, and R2 bucket
 
 ## Version 0.3.2b
 

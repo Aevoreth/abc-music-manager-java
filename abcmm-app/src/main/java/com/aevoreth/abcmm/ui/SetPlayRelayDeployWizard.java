@@ -43,6 +43,7 @@ import javax.swing.WindowConstants;
 
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayShareUrls;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayWorkerPaths;
+import com.aevoreth.abcmm.domain.setplay.relay.SetPlayWranglerParse;
 
 /**
  * Semi-automatic wizard to deploy the Cloudflare Set Play relay worker
@@ -55,8 +56,6 @@ public final class SetPlayRelayDeployWizard extends JDialog {
 
     private static final Pattern WORKERS_DEV_RE =
             Pattern.compile("https://[a-zA-Z0-9][-a-zA-Z0-9.]*\\.workers\\.dev");
-    private static final Pattern DATABASE_ID_RE =
-            Pattern.compile("database_id\\s*=\\s*\"([^\"]+)\"");
 
     private static final String D1_NAME = "abc-set-play-registry";
     private static final String R2_NAME = "abc-set-play-zips";
@@ -210,9 +209,9 @@ public final class SetPlayRelayDeployWizard extends JDialog {
             logDelete = createLogArea();
             idxDelete = pageKeys.size();
             addPage("delete", stepPage(
-                    "Step 4 — Remove previous worker, D1, and R2",
-                    "Deletes the worker, D1 registry, and R2 zip bucket. All sessions and zips are wiped. "
-                            + "Complete login first.",
+                    "Step 4 — Empty zips, then remove worker, D1, and R2",
+                    "Lists sessions that have zip files and deletes those R2 objects first, then deletes "
+                            + "the worker (including Durable Objects), D1, and the R2 bucket. Complete login first.",
                     logDelete,
                     false));
             idxProvision = pageKeys.size();
@@ -391,8 +390,9 @@ public final class SetPlayRelayDeployWizard extends JDialog {
                     + "• Check for Node.js (and on Windows you can try installing Node LTS with winget)<br>"
                     + "• Run npm install (includes Wrangler)<br>"
                     + "• Open a browser so you can sign in to Cloudflare (wrangler login)<br>"
-                    + "• On a dedicated step, run <code>wrangler delete --force</code> plus D1/R2 delete (after login), "
-                    + "then create a new database, zip bucket, and token<br>"
+                    + "• On a dedicated step, empty R2 zips from the session list, then delete the worker "
+                    + "(and Durable Objects), D1, and R2 (after login), then create a new database, zip bucket, "
+                    + "and token<br>"
                     + "• Deploy the worker to your Cloudflare account (wrangler deploy)<br><br>"
                     + "You will need a Cloudflare account. The browser step cannot be skipped.</html>";
         }
@@ -631,13 +631,94 @@ public final class SetPlayRelayDeployWizard extends JDialog {
         }
         executor.execute(() -> {
             try {
-                runProcess(log, wrangler("delete", "--force"));
-                runProcess(log, wrangler("d1", "delete", D1_NAME, "-y"));
-                runProcess(log, wrangler("r2", "bucket", "delete", R2_NAME));
+                appendLog(log, "Emptying R2 from sessions that have zip files (before deleting worker/DOs/D1/R2).");
+                String dbId = lookupD1DatabaseId(log);
+                if (dbId == null) {
+                    appendLog(log, "No D1 database named " + D1_NAME
+                            + " — skipping zip list. R2 objects cannot be discovered from sessions.");
+                } else {
+                    patchWranglerDatabaseId(dbId);
+                    appendLog(log, "Using D1 database_id " + dbId);
+                    emptyR2FromSessions(log);
+                }
+
+                appendLog(log, "Deleting worker and Durable Objects.");
+                CmdResult worker = runProcess(log, wrangler("delete", "--force"));
+                if (worker.code() != 0 && !SetPlayWranglerParse.looksLikeMissingResource(worker.output())) {
+                    appendLog(log, "Worker delete reported an error; continuing with D1/R2 cleanup.");
+                }
+
+                if (dbId != null) {
+                    appendLog(log, "Deleting D1 registry.");
+                    CmdResult d1 = runProcess(log, wrangler("d1", "delete", D1_NAME, "-y"));
+                    if (d1.code() != 0 && !SetPlayWranglerParse.looksLikeMissingResource(d1.output())) {
+                        appendLog(log, "D1 delete failed. Provision may reuse the existing registry.");
+                    }
+                } else {
+                    appendLog(log, "Skipping D1 delete (database not found).");
+                }
+
+                appendLog(log, "Deleting R2 bucket.");
+                CmdResult r2 = runProcess(log, wrangler("r2", "bucket", "delete", R2_NAME));
+                if (r2.code() != 0) {
+                    if (SetPlayWranglerParse.looksLikeBucketNotEmpty(r2.output())) {
+                        appendLog(log, "R2 bucket is not empty after deleting session zips. "
+                                + "The bucket will be reused on the next step. To remove it yourself: "
+                                + "Cloudflare dashboard → R2 → " + R2_NAME
+                                + " → Settings → Empty bucket, then Delete.");
+                    } else if (!SetPlayWranglerParse.looksLikeMissingResource(r2.output())) {
+                        appendLog(log, "R2 bucket delete failed; provision will try to reuse " + R2_NAME + ".");
+                    }
+                }
+                appendLog(log, "Cleanup finished. Click Next to create a fresh D1 registry and token.");
+            } catch (Exception ex) {
+                appendLog(log, "Delete error: " + ex.getMessage());
             } finally {
                 SwingUtilities.invokeLater(() -> processRunning.set(false));
             }
         });
+    }
+
+    private String lookupD1DatabaseId(JTextArea log) {
+        CmdResult jsonList = runProcess(log, wrangler("d1", "list", "--json"));
+        String dbId = SetPlayWranglerParse.findD1IdByName(jsonList.output(), D1_NAME);
+        if (dbId != null) {
+            return dbId;
+        }
+        CmdResult tableList = runProcess(log, wrangler("d1", "list"));
+        return SetPlayWranglerParse.findD1IdByName(tableList.output(), D1_NAME);
+    }
+
+    private void emptyR2FromSessions(JTextArea log) {
+        if (deployDir == null) {
+            return;
+        }
+        try {
+            Path query = deployDir.resolve("list-zips.sql");
+            Files.writeString(query,
+                    "SELECT code, r2_key FROM session WHERE r2_key IS NOT NULL;\n",
+                    StandardCharsets.UTF_8);
+            CmdResult keysOut = runProcess(log, wrangler(
+                    "d1", "execute", D1_NAME, "--remote", "--json",
+                    "--file=" + query.toAbsolutePath()));
+            List<SetPlayWranglerParse.SessionZip> zips =
+                    SetPlayWranglerParse.extractSessionZips(keysOut.output());
+            if (zips.isEmpty()) {
+                appendLog(log, "No sessions with zip files in D1.");
+                return;
+            }
+            appendLog(log, "Deleting " + zips.size() + " zip object(s) from R2.");
+            for (SetPlayWranglerParse.SessionZip zip : zips) {
+                String label = zip.code() == null || zip.code().isBlank()
+                        ? zip.r2Key()
+                        : "session " + zip.code() + " (" + zip.r2Key() + ")";
+                appendLog(log, "Removing " + label);
+                runProcess(log, wrangler("r2", "object", "delete", R2_NAME + "/" + zip.r2Key(),
+                        "--remote", "-y"));
+            }
+        } catch (Exception ex) {
+            appendLog(log, "Could not list/delete R2 objects from sessions: " + ex.getMessage());
+        }
     }
 
     private void runProvision(JTextArea log) {
@@ -651,11 +732,10 @@ public final class SetPlayRelayDeployWizard extends JDialog {
         }
         executor.execute(() -> {
             try {
-                String createOut = runProcess(log, wrangler("d1", "create", D1_NAME));
-                String dbId = extractDatabaseId(createOut);
+                CmdResult create = runProcess(log, wrangler("d1", "create", D1_NAME));
+                String dbId = SetPlayWranglerParse.extractTomlDatabaseId(create.output());
                 if (dbId == null) {
-                    String listOut = runProcess(log, wrangler("d1", "list"));
-                    dbId = extractDatabaseId(listOut);
+                    dbId = lookupD1DatabaseId(log);
                 }
                 if (dbId == null) {
                     appendLog(log, "Could not determine D1 database_id. Check the log and wrangler.toml.");
@@ -663,7 +743,10 @@ public final class SetPlayRelayDeployWizard extends JDialog {
                 }
                 patchWranglerDatabaseId(dbId);
                 appendLog(log, "Wrote database_id " + dbId + " to wrangler.toml");
-                runProcess(log, wrangler("r2", "bucket", "create", R2_NAME));
+                CmdResult r2 = runProcess(log, wrangler("r2", "bucket", "create", R2_NAME));
+                if (r2.code() != 0) {
+                    appendLog(log, "R2 bucket create reported an error (existing bucket is reused).");
+                }
                 Path schema = deployDir.resolve("schema.sql");
                 runProcess(log, wrangler("d1", "execute", D1_NAME, "--remote", "--file=" + schema));
                 byte[] raw = new byte[32];
@@ -703,7 +786,10 @@ public final class SetPlayRelayDeployWizard extends JDialog {
         return cmd;
     }
 
-    private String runProcess(JTextArea log, List<String> command) {
+    private record CmdResult(int code, String output) {
+    }
+
+    private CmdResult runProcess(JTextArea log, List<String> command) {
         appendLog(log, "$ " + String.join(" ", command));
         StringBuilder captured = new StringBuilder();
         int code = -1;
@@ -730,37 +816,14 @@ public final class SetPlayRelayDeployWizard extends JDialog {
             appendLog(log, "Error: " + ioe.getMessage());
         }
         appendLog(log, "-- exit code " + code + " --");
-        return captured.toString();
+        return new CmdResult(code, captured.toString());
     }
 
     private void patchWranglerDatabaseId(String databaseId) throws IOException {
         Path toml = deployDir.resolve("wrangler.toml");
         String text = Files.readString(toml, StandardCharsets.UTF_8);
-        Matcher m = DATABASE_ID_RE.matcher(text);
-        if (m.find()) {
-            text = m.replaceFirst("database_id = \"" + databaseId + "\"");
-        } else {
-            text = text + "\ndatabase_id = \"" + databaseId + "\"\n";
-        }
-        Files.writeString(toml, text, StandardCharsets.UTF_8);
-    }
-
-    private static String extractDatabaseId(String text) {
-        if (text == null) {
-            return null;
-        }
-        Matcher m = DATABASE_ID_RE.matcher(text);
-        String last = null;
-        while (m.find()) {
-            last = m.group(1);
-        }
-        if (last != null && !"REPLACE_WITH_D1_ID".equals(last)) {
-            return last;
-        }
-        Matcher uuid = Pattern.compile(
-                "([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
-                .matcher(text);
-        return uuid.find() ? uuid.group(1) : null;
+        Files.writeString(toml, SetPlayWranglerParse.replaceTomlDatabaseId(text, databaseId),
+                StandardCharsets.UTF_8);
     }
 
     private static String sha256Hex(String value) throws Exception {

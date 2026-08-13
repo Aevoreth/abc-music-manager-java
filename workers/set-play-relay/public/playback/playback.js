@@ -435,9 +435,10 @@
       else if (isNext) tr.className = "row-next";
       else if (isPlayed) tr.className = "row-played";
       const cells = byItem.get(id);
-      const cellHtml = columns.map((_, i) => {
+      const cellHtml = columns.map((c, i) => {
         const val = cells && Array.isArray(cells.cells) ? cells.cells[i] : "";
-        return `<td>${escapeHtml(val || "")}</td>`;
+        const tintIdx = i % 12;
+        return `<td class="part-tint-${tintIdx}">${escapeHtml(val || "")}</td>`;
       });
       tr.innerHTML = [
         statusBadgeCell(isSkipped, isCurrent, isNext, isPlayed),
