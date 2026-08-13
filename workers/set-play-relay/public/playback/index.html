@@ -92,37 +92,47 @@
               <span class="song-meta" id="next-meta"></span>
             </div>
           </div>
-          <div class="playback-scroll">
-            <div class="setlist-split">
-              <aside class="left-col">
-                <div class="panel-card">
-                  <h2>Set info</h2>
-                  <div id="set-info" class="set-info">—</div>
-                </div>
-                <div class="panel-card">
-                  <h2>Your players</h2>
-                  <p class="hint">Same list as Parts → Players. Highlights the band layout and Parts column accents (local only).</p>
-                  <div id="players-list" class="players-list"></div>
-                </div>
-              </aside>
-              <div class="panel-card table-card">
-                <h2>Setlist</h2>
-                <div class="table-wrap">
-                  <table id="song-table" class="song-table">
-                    <thead>
-                      <tr>
-                        <th>Status</th>
-                        <th>Title</th>
-                        <th>Parts</th>
-                        <th>Duration</th>
-                        <th>Artist</th>
-                      </tr>
-                    </thead>
-                    <tbody id="song-tbody"></tbody>
-                  </table>
+          <div class="playback-split">
+            <div class="setlist-pane">
+              <div class="setlist-split">
+                <aside class="left-col">
+                  <div class="panel-card set-info-card">
+                    <h2>Set info</h2>
+                    <div id="set-info" class="set-info">—</div>
+                  </div>
+                  <div class="panel-card players-card">
+                    <h2>Your players</h2>
+                    <p class="hint">Same as Parts → Players. Highlights the layout (local only).</p>
+                    <div id="players-list" class="players-list"></div>
+                  </div>
+                </aside>
+                <div class="panel-card table-card">
+                  <h2>Setlist</h2>
+                  <div class="table-wrap">
+                    <table id="song-table" class="song-table">
+                      <thead>
+                        <tr>
+                          <th>Status</th>
+                          <th>Title</th>
+                          <th>Parts</th>
+                          <th>Duration</th>
+                          <th>Artist</th>
+                        </tr>
+                      </thead>
+                      <tbody id="song-tbody"></tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
+            <div
+              class="split-handle"
+              id="playback-split-handle"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize band layout"
+              tabindex="0"
+            ></div>
             <div class="panel-card grid-card">
               <h2>Band layout <span class="hint-inline">(up next)</span></h2>
               <div id="layout-viewport" class="layout-viewport">

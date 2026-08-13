@@ -78,7 +78,7 @@ Enable **Mark songs as played automatically** to write play history to the Libra
 
 ## Band layout panel {#band-grid}
 
-When the loaded set has a band layout, the grid shows player positions.
+When the loaded set has a band layout, the grid shows player positions. In the browser Playback tab the grid stays pinned to the bottom of the page; drag the splitter above it to resize. Player cards scale down so the full formation fits in the pane. Only **Your players** and the setlist scroll.
 
 **Part change highlighting** compares the **next** selected song to the **current** song (instrument/part changes between them).
 

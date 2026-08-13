@@ -8,9 +8,13 @@
   const STATE_TYPE = "set_play_state_v2";
   const CARD_W = 9;
   const CARD_H = 7;
-  const PPU = 15;
+  const BASE_PPU = 15;
+  const MIN_PPU = 6;
   const X_MIN = -145;
   const Y_MIN = -105;
+  const GRID_PANE_MIN = 120;
+  const SETLIST_PANE_MIN = 120;
+  const GRID_H_STORAGE = "abcmm-playback-grid-h";
   const EMPTY_PART = "---";
 
   const COLORS = {
@@ -46,6 +50,9 @@
   const canvas = document.getElementById("layout-canvas");
   const layoutEmpty = document.getElementById("layout-empty");
   const recenterBtn = document.getElementById("recenter-btn");
+  const playbackSplit = document.querySelector(".playback-split");
+  const splitHandle = document.getElementById("playback-split-handle");
+  const gridCard = document.querySelector(".grid-card");
   const ctx = canvas.getContext("2d");
 
   const tabButtons = [...document.querySelectorAll(".tab")];
@@ -78,6 +85,10 @@
   /** @type {string} */
   let lastLayoutKey = "";
   let needsFit = false;
+  /** @type {number} */
+  let ppu = BASE_PPU;
+  let lastCanvasW = 0;
+  let lastCanvasH = 0;
 
   // Canvas pan state (pixel offsets applied after logical→view transform)
   let viewOffsetX = 0;
@@ -220,11 +231,8 @@
     }
     if (name === "playback") {
       requestAnimationFrame(() => {
-        resizeCanvas();
-        if (needsFit || lastCards.length) {
-          fitCardsToView();
-        }
-        drawGrid();
+        restoreGridPaneHeight();
+        refreshLayoutCanvas();
       });
     }
   }
@@ -407,11 +415,7 @@
       setContentTabsEnabled(true);
       showTab("playback");
     } else if (panels.playback.classList.contains("active")) {
-      requestAnimationFrame(() => {
-        resizeCanvas();
-        if (needsFit) fitCardsToView();
-        drawGrid();
-      });
+      requestAnimationFrame(() => refreshLayoutCanvas());
     }
   }
 
@@ -681,16 +685,32 @@
 
   function logicalToView(lx, ly) {
     return [
-      (lx - X_MIN) * PPU + viewOffsetX,
-      (ly - Y_MIN) * PPU + viewOffsetY,
+      (lx - X_MIN) * ppu + viewOffsetX,
+      (ly - Y_MIN) * ppu + viewOffsetY,
     ];
   }
 
   function viewToLogical(vx, vy) {
     return [
-      (vx - viewOffsetX) / PPU + X_MIN,
-      (vy - viewOffsetY) / PPU + Y_MIN,
+      (vx - viewOffsetX) / ppu + X_MIN,
+      (vy - viewOffsetY) / ppu + Y_MIN,
     ];
+  }
+
+  function cardBounds() {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const c of lastCards) {
+      const x = Number(c.x);
+      const y = Number(c.y);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + CARD_W);
+      maxY = Math.max(maxY, y + CARD_H);
+    }
+    return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
   }
 
   function fitCardsToView() {
@@ -702,26 +722,28 @@
       return;
     }
 
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    for (const c of lastCards) {
-      const x = Number(c.x);
-      const y = Number(c.y);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x + CARD_W);
-    }
+    const b = cardBounds();
+    const pad = 12;
+    const ppuX = b.w > 0 ? (vw - pad * 2) / b.w : BASE_PPU;
+    const ppuY = b.h > 0 ? (vh - pad * 2) / b.h : BASE_PPU;
+    ppu = Math.max(MIN_PPU, Math.min(BASE_PPU, ppuX, ppuY));
 
-    // Horizontal: center the band bounding box in the pane.
-    const centerX = (minX + maxX) / 2;
-    viewOffsetX = vw / 2 - (centerX - X_MIN) * PPU;
-
-    // Vertical: place the topmost card flush with the top of the pane
-    // (small pad) so the full card is visible.
-    const topPad = 8;
-    viewOffsetY = topPad - (minY - Y_MIN) * PPU;
+    const centerX = (b.minX + b.maxX) / 2;
+    const centerY = (b.minY + b.maxY) / 2;
+    viewOffsetX = vw / 2 - (centerX - X_MIN) * ppu;
+    viewOffsetY = vh / 2 - (centerY - Y_MIN) * ppu;
     needsFit = false;
+  }
+
+  function refreshLayoutCanvas() {
+    const vw = layoutViewport.clientWidth;
+    const vh = layoutViewport.clientHeight;
+    const sizeChanged = vw !== lastCanvasW || vh !== lastCanvasH;
+    lastCanvasW = vw;
+    lastCanvasH = vh;
+    resizeCanvas();
+    if (needsFit || sizeChanged) fitCardsToView();
+    drawGrid();
   }
 
   function resizeCanvas() {
@@ -787,8 +809,9 @@
 
     for (const card of lastCards) {
       const [vx, vy] = logicalToView(Number(card.x), Number(card.y));
-      const cw = CARD_W * PPU;
-      const ch = CARD_H * PPU;
+      const cw = CARD_W * ppu;
+      const ch = CARD_H * ppu;
+      const scale = ppu / BASE_PPU;
       const overlap = lastCards.some((other) => other !== card && cardsOverlap(card, other));
 
       ctx.fillStyle = COLORS.surface;
@@ -805,7 +828,7 @@
         ctx.stroke();
       }
 
-      const margin = 2;
+      const margin = Math.max(1, Math.round(2 * scale));
       const innerL = vx + margin;
       const innerT = vy + margin;
       const innerW = cw - margin * 2;
@@ -820,9 +843,9 @@
 
       // Row 1: player name (+ gutters when setlist header)
       ctx.textBaseline = "middle";
-      const nameSize = 12;
+      const nameSize = Math.max(7, Math.round(12 * scale));
       ctx.font = `${nameSize}px ${fontFamily}`;
-      const lineH = nameSize + 4;
+      const lineH = nameSize + Math.max(2, Math.round(4 * scale));
       if (useHeader) {
         const gutter = ctx.measureText("999").width + 6;
         ctx.fillStyle = COLORS.textSecondary;
@@ -833,16 +856,16 @@
         ctx.fillStyle = COLORS.onSurface;
         ctx.textAlign = "center";
         const name = String(card.player_name || "");
-        fitText(ctx, name, Math.max(1, innerW - 2 * gutter), fontFamily, nameSize, 8);
+        fitText(ctx, name, Math.max(1, innerW - 2 * gutter), fontFamily, nameSize, 6);
         ctx.fillText(name, innerL + innerW / 2, y + lineH / 2, Math.max(1, innerW - 2 * gutter));
       } else {
         ctx.fillStyle = COLORS.onSurface;
         ctx.textAlign = "center";
         const name = String(card.player_name || "");
-        fitText(ctx, name, innerW, fontFamily, nameSize, 8);
+        fitText(ctx, name, innerW, fontFamily, nameSize, 6);
         ctx.fillText(name, innerL + innerW / 2, y + lineH / 2, innerW);
       }
-      y += lineH + 2;
+      y += lineH + Math.max(1, Math.round(2 * scale));
 
       // Row 2: large bold part number
       let partColor = COLORS.onSurface;
@@ -850,27 +873,28 @@
       else if (instChanged) partColor = COLORS.warning;
       ctx.fillStyle = partColor;
       ctx.textAlign = "center";
-      const big = fitText(ctx, partText, innerW, fontFamily, 26, 12);
+      const big = fitText(ctx, partText, innerW, fontFamily, Math.max(12, Math.round(26 * scale)), 8);
       ctx.font = `bold ${big}px ${fontFamily}`;
-      const bigH = big + 4;
+      const bigH = big + Math.max(2, Math.round(4 * scale));
       ctx.fillText(partText, innerL + innerW / 2, y + bigH / 2, innerW);
-      y += bigH + 2;
+      y += bigH + Math.max(1, Math.round(2 * scale));
 
       // Row 3: instrument
       if (partDup) ctx.fillStyle = COLORS.dup;
       else if (instWarn) ctx.fillStyle = COLORS.warning;
       else ctx.fillStyle = COLORS.onSurface;
       const inst = String(card.instrument_name || "");
-      fitText(ctx, inst, innerW, fontFamily, 11, 8);
-      const instH = 14;
+      fitText(ctx, inst, innerW, fontFamily, Math.max(7, Math.round(11 * scale)), 6);
+      const instH = Math.max(10, Math.round(14 * scale));
       ctx.fillText(inst, innerL + innerW / 2, y + instH / 2, innerW);
-      y += instH + 2;
+      y += instH + Math.max(1, Math.round(2 * scale));
 
       // Row 4: part name
       ctx.fillStyle = partDup ? COLORS.dup : COLORS.onSurface;
       const pname = String(card.part_name || "");
-      fitText(ctx, pname, innerW, fontFamily, 10, 7);
-      ctx.fillText(pname, innerL + innerW / 2, y + 12 / 2, innerW);
+      const partNameH = Math.max(8, Math.round(12 * scale));
+      fitText(ctx, pname, innerW, fontFamily, Math.max(6, Math.round(10 * scale)), 6);
+      ctx.fillText(pname, innerL + innerW / 2, y + partNameH / 2, innerW);
     }
   }
 
@@ -906,10 +930,96 @@
 
   window.addEventListener("resize", () => {
     if (!panels.playback.classList.contains("active")) return;
-    resizeCanvas();
-    if (needsFit) fitCardsToView();
-    drawGrid();
+    refreshLayoutCanvas();
   });
+
+  if (typeof ResizeObserver === "function" && layoutViewport) {
+    const ro = new ResizeObserver(() => {
+      if (!panels.playback.classList.contains("active")) return;
+      refreshLayoutCanvas();
+    });
+    ro.observe(layoutViewport);
+  }
+
+  function clampGridPaneHeight(px) {
+    const total = playbackSplit ? playbackSplit.clientHeight : 0;
+    const handle = splitHandle ? splitHandle.offsetHeight : 8;
+    if (total < GRID_PANE_MIN + SETLIST_PANE_MIN + handle) {
+      return Math.max(GRID_PANE_MIN, px);
+    }
+    const max = Math.max(GRID_PANE_MIN, total - SETLIST_PANE_MIN - handle);
+    return Math.max(GRID_PANE_MIN, Math.min(max, px));
+  }
+
+  function applyGridPaneHeight(px) {
+    if (!gridCard) return;
+    const h = clampGridPaneHeight(px);
+    gridCard.style.flexBasis = `${h}px`;
+    try {
+      localStorage.setItem(GRID_H_STORAGE, String(Math.round(h)));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function restoreGridPaneHeight() {
+    if (!gridCard) return;
+    let saved = NaN;
+    try {
+      saved = Number(localStorage.getItem(GRID_H_STORAGE));
+    } catch {
+      saved = NaN;
+    }
+    if (Number.isFinite(saved) && saved > 0) {
+      applyGridPaneHeight(saved);
+    }
+  }
+
+  function bindSplitHandle() {
+    if (!splitHandle || !playbackSplit || !gridCard) return;
+    let drag = null;
+
+    splitHandle.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+      splitHandle.setPointerCapture(e.pointerId);
+      splitHandle.classList.add("dragging");
+      drag = {
+        startY: e.clientY,
+        startH: gridCard.getBoundingClientRect().height,
+      };
+      e.preventDefault();
+    });
+    splitHandle.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      applyGridPaneHeight(drag.startH - (e.clientY - drag.startY));
+    });
+    function endSplitDrag() {
+      drag = null;
+      splitHandle.classList.remove("dragging");
+    }
+    splitHandle.addEventListener("pointerup", endSplitDrag);
+    splitHandle.addEventListener("pointercancel", endSplitDrag);
+    splitHandle.addEventListener("keydown", (e) => {
+      const step = e.shiftKey ? 48 : 16;
+      const cur = gridCard.getBoundingClientRect().height;
+      if (e.key === "ArrowUp") {
+        applyGridPaneHeight(cur + step);
+        e.preventDefault();
+      } else if (e.key === "ArrowDown") {
+        applyGridPaneHeight(cur - step);
+        e.preventDefault();
+      } else if (e.key === "Home") {
+        applyGridPaneHeight(GRID_PANE_MIN);
+        e.preventDefault();
+      } else if (e.key === "End") {
+        applyGridPaneHeight(playbackSplit.clientHeight);
+        e.preventDefault();
+      }
+    });
+  }
+
+  bindSplitHandle();
+  restoreGridPaneHeight();
 
   recenterBtn.addEventListener("click", () => {
     fitCardsToView();

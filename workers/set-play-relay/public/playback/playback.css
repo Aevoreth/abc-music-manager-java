@@ -45,7 +45,7 @@ body {
   gap: 8px;
   max-width: none;
   margin: 0;
-  padding: 8px 10px 0;
+  padding: 8px 10px;
   height: 100%;
   overflow: hidden;
 }
@@ -279,20 +279,41 @@ body {
 
 .setlist-split {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) 1fr;
+  grid-template-columns: minmax(160px, 220px) 1fr;
   gap: 8px;
   align-items: stretch;
-  min-height: 280px;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .left-col {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.set-info-card {
+  flex-shrink: 0;
+}
+
+.players-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.players-card .hint {
+  margin-bottom: 6px;
 }
 
 .table-card {
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
@@ -305,6 +326,7 @@ body {
   margin: 0 -10px;
   padding: 0;
   border-top: 1px solid var(--outline-variant);
+  overscroll-behavior: contain;
 }
 
 .set-info {
@@ -430,8 +452,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 280px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .players-list label {
@@ -457,13 +481,39 @@ body {
   flex-shrink: 0;
 }
 
-.playback-scroll {
+.playback-split {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.setlist-pane {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.split-handle {
+  flex: 0 0 8px;
+  margin: 2px 0;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  border-radius: 4px;
+  background:
+    linear-gradient(var(--outline-variant), var(--outline-variant)) center / 48px 2px no-repeat;
+}
+
+.split-handle:hover,
+.split-handle:focus-visible,
+.split-handle.dragging {
+  background:
+    linear-gradient(var(--primary), var(--primary)) center / 64px 2px no-repeat;
+  outline: none;
 }
 
 .song-banner {
@@ -515,16 +565,22 @@ body {
 }
 
 .grid-card {
-  flex: 1;
+  flex: 0 0 var(--playback-grid-h, 36%);
   display: flex;
   flex-direction: column;
-  min-height: 240px;
+  min-height: 120px;
+  overflow: hidden;
+}
+
+.grid-card h2 {
+  margin-bottom: 6px;
+  flex-shrink: 0;
 }
 
 .layout-viewport {
   position: relative;
   flex: 1;
-  min-height: 320px;
+  min-height: 0;
   border-radius: 6px;
   border: 1px solid var(--outline-variant);
   overflow: hidden;
@@ -545,6 +601,8 @@ body {
 }
 
 #layout-canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -574,6 +632,11 @@ body {
 @media (max-width: 900px) {
   .setlist-split {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 38%) 1fr;
+  }
+
+  .left-col {
+    max-height: none;
   }
 
   .song-banner {

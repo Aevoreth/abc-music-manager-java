@@ -47,7 +47,7 @@ Assistants receive the leader's Set Play state (read-only):
 - Current / Next summary banners
 - Song list with a **status badge** (`NOW` / `NEXT` / `✓` / `SKIP`) and row coloring
 - Loaded setlist identity
-- Band layout grid and part-change highlighting
+- Band layout grid and part-change highlighting (pinned to the bottom of Playback; drag the splitter to resize; player cards scale to fit)
 - Parts table (Player Column Order / CSV renames)
 
 Assistants cannot edit status; only the bandleader changes Current, Next, Skip, and Played.

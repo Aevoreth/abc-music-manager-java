@@ -12,6 +12,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 - Redeploy wizard empties R2 zips from the D1 session list before deleting the worker, Durable Objects, D1, and R2 bucket
 - Set Play zip upload/download default to the configured Sets folder; downloaded files use the set name
 - Compact Band Assistant web header (inline tabs, sticky header and Current/Next), download ZIP in the header, 8-tint Parts columns with a dim/selected left accent, and an Instruments needed popup
+- Browser `/playback` Playback tab pins the band layout to the bottom (resizable splitter; cards scale to fit); only Your players and the setlist scroll
 - Set Play / Band Assistant Parts **Players** control matches **Your players** on Playback (same selection, linked); web Parts also has **Selected players only**
 
 ## Version 0.3.2b
