@@ -369,6 +369,36 @@ body {
   letter-spacing: 0.02em;
 }
 
+.song-table th.layout-col,
+.song-table td.layout-cell {
+  width: 2.2rem;
+  text-align: center;
+  padding: 2px 4px;
+}
+
+.layout-preview-btn {
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  background:
+    linear-gradient(var(--outline), var(--outline)) 50% 50% / 1px 55% no-repeat,
+    linear-gradient(var(--outline), var(--outline)) 50% 50% / 55% 1px no-repeat,
+    var(--surface);
+  color: var(--on-surface);
+  cursor: pointer;
+}
+
+.layout-preview-btn:hover:not(:disabled) {
+  border-color: var(--primary, #c9a227);
+}
+
+.layout-preview-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .parts-table th:nth-child(1),
 .parts-table td:nth-child(1),
 .parts-table th:nth-child(3),
@@ -774,4 +804,56 @@ body {
 
 .instruments-card li {
   margin: 0 0 2px;
+}
+
+.layout-preview-dialog {
+  width: min(860px, 96vw);
+  height: min(560px, 86vh);
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--on-surface);
+  padding: 12px;
+}
+
+.layout-preview-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.layout-preview-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.layout-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.layout-preview-head h2 {
+  margin: 0;
+  margin-right: auto;
+  font-size: 0.95rem;
+  color: var(--text-header);
+}
+
+.layout-preview-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 280px;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+#layout-preview-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
 }

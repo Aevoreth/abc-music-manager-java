@@ -40,7 +40,7 @@ public final class SetPlaySync {
             List<SetPlayLayoutCard> layoutCards) {
         return snapshotFromLeader(
                 state, setlist, songRows, computedDurationSeconds, layoutCards,
-                SetPlayPartsSheet.empty(), false, null);
+                SetPlayPartsSheet.empty(), false, null, Map.of());
     }
 
     public static Map<String, Object> snapshotFromLeader(
@@ -52,6 +52,21 @@ public final class SetPlaySync {
             SetPlayPartsSheet partsSheet,
             boolean zipAvailable,
             String sessionName) {
+        return snapshotFromLeader(
+                state, setlist, songRows, computedDurationSeconds, layoutCards,
+                partsSheet, zipAvailable, sessionName, Map.of());
+    }
+
+    public static Map<String, Object> snapshotFromLeader(
+            SetPlaySessionState state,
+            SetlistInfo setlist,
+            List<SetlistItemInfo> songRows,
+            Integer computedDurationSeconds,
+            List<SetPlayLayoutCard> layoutCards,
+            SetPlayPartsSheet partsSheet,
+            boolean zipAvailable,
+            String sessionName,
+            Map<Long, List<SetPlayLayoutCard>> layoutCardsByItemId) {
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(setlist, "setlist");
         Objects.requireNonNull(songRows, "songRows");
@@ -102,6 +117,8 @@ public final class SetPlaySync {
         payload.put("skipped_item_ids", new ArrayList<>(new TreeSet<>(state.skippedItemIds())));
         payload.put("next_layout_cards", layoutCardsToPayload(
                 layoutCards == null ? List.of() : layoutCards));
+        payload.put("layout_cards_by_item_id", layoutCardsByItemIdToPayload(
+                layoutCardsByItemId == null ? Map.of() : layoutCardsByItemId));
         payload.put("parts_sheet", (partsSheet == null ? SetPlayPartsSheet.empty() : partsSheet).toPayload());
         payload.put("zip_available", zipAvailable);
         payload.put("session_name", sessionName == null ? "" : sessionName);
@@ -138,7 +155,42 @@ public final class SetPlaySync {
         return new AppliedSnapshot(st, meta, rows, layoutCardsFromPayload(cards),
                 SetPlayPartsSheet.fromPayload(data.get("parts_sheet")),
                 bool(data.get("zip_available"), false),
-                str(data.get("session_name"), ""));
+                str(data.get("session_name"), ""),
+                layoutCardsByItemIdFromPayload(data.get("layout_cards_by_item_id")));
+    }
+
+    public static Map<String, Object> layoutCardsByItemIdToPayload(
+            Map<Long, List<SetPlayLayoutCard>> byItem) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (byItem == null) {
+            return out;
+        }
+        for (Map.Entry<Long, List<SetPlayLayoutCard>> entry : byItem.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            out.put(String.valueOf(entry.getKey()), layoutCardsToPayload(
+                    entry.getValue() == null ? List.of() : entry.getValue()));
+        }
+        return out;
+    }
+
+    public static Map<Long, List<SetPlayLayoutCard>> layoutCardsByItemIdFromPayload(Object raw) {
+        Map<Long, List<SetPlayLayoutCard>> out = new LinkedHashMap<>();
+        if (!(raw instanceof Map<?, ?> map)) {
+            return out;
+        }
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            Long itemId = toLongOrNull(entry.getKey());
+            if (itemId == null) {
+                continue;
+            }
+            List<Map<String, Object>> cards = entry.getValue() instanceof List<?> list
+                    ? castMapList(list)
+                    : List.of();
+            out.put(itemId, layoutCardsFromPayload(cards));
+        }
+        return out;
     }
 
     public static List<Map<String, Object>> layoutCardsToPayload(List<SetPlayLayoutCard> cards) {
@@ -199,7 +251,8 @@ public final class SetPlaySync {
             List<SetPlayLayoutCard> layoutCards,
             SetPlayPartsSheet partsSheet,
             boolean zipAvailable,
-            String sessionName) {
+            String sessionName,
+            Map<Long, List<SetPlayLayoutCard>> layoutCardsByItemId) {
     }
 
     @SuppressWarnings("unchecked")

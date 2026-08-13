@@ -55,8 +55,16 @@ public final class SetPlayBandGridPanel extends JPanel {
     private Point panStart;
 
     public SetPlayBandGridPanel() {
+        this("Up next — band layout");
+    }
+
+    public SetPlayBandGridPanel(String title) {
         super(new BorderLayout(4, 4));
-        setBorder(BorderFactory.createTitledBorder("Up next — band layout"));
+        if (title == null || title.isBlank()) {
+            setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        } else {
+            setBorder(BorderFactory.createTitledBorder(title));
+        }
 
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton recenter = new JButton("Re-center");
@@ -100,6 +108,10 @@ public final class SetPlayBandGridPanel extends JPanel {
         };
         canvas.addMouseListener(mouse);
         canvas.addMouseMotionListener(mouse);
+    }
+
+    public void setCanvasPreferredSize(int width, int height) {
+        canvas.setPreferredSize(new Dimension(width, height));
     }
 
     public void setCards(List<SetPlayLayoutCard> nextCards) {

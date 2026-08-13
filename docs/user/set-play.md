@@ -44,10 +44,11 @@ Each song has one primary **status** (shown as a badge) plus an optional **Skip*
 | **SKIP** | Excluded from automatic next-song selection |
 | *(blank)* | Pending — not yet current, next, played, or skipped |
 
-**Skip** is the only per-row checkbox. Change Current / Next / Played via the row **Actions** menu (button or right-click), or **double-click** a row to set it as Next:
+**Skip** is the only per-row checkbox. Change Current / Next / Played via the row **Actions** menu (button or right-click), or **double-click** a row to set it as Next. Each row also has a small **layout** button that opens a preview of that song’s band assignments:
 
 | Action | Effect |
 |--------|--------|
+| **Layout button** | Preview that song’s formation and part assignments |
 | **Double-click row** | Set as NEXT |
 | **Set current** | Make this song NOW (clears Next/Skip/Played on that row) |
 | **Set next** | Make this song NEXT (clears Current/Skip/Played on that row) |
@@ -78,7 +79,7 @@ Enable **Mark songs as played automatically** to write play history to the Libra
 
 ## Band layout panel {#band-grid}
 
-When the loaded set has a band layout, the grid shows player positions. Cards use the **NEXT** song’s part/instrument assignments when one is set; otherwise **NOW** (end of set) or the first unskipped song (after **Clear session**, or before the set has started). **Clear session** only resets NOW/NEXT/played/skip — the formation and assignments stay. In the browser Playback tab the grid stays pinned to the bottom of the page; drag the splitter above it to resize. Player cards scale down so the full formation fits in the pane. Only **Your players** and the setlist scroll.
+When the loaded set has a band layout, the grid shows player positions as soon as the set is opened. Cards use the **NEXT** song’s part/instrument assignments when one is set; otherwise they show the formation with placeholder parts (same as the setlist editor with no assignments yet). **Clear session** only resets NOW/NEXT/played/skip — the formation stays. Each song row has a layout button that previews that song’s assignments without changing NEXT. In the browser Playback tab the grid stays pinned to the bottom of the page; drag the splitter above it to resize. Player cards scale down so the full formation fits in the pane. Only **Your players** and the setlist scroll.
 
 **Part change highlighting** compares the **next** selected song to the **current** song (instrument/part changes between them).
 

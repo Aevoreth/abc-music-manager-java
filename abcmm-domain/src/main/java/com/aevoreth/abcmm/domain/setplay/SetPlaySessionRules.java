@@ -14,19 +14,13 @@ public final class SetPlaySessionRules {
     }
 
     /**
-     * Item whose parts/instruments the band grid should show.
-     * Prefers NEXT; if unset, CURRENT (end of set); otherwise the first unskipped row
-     * (after Clear session or before the set has started).
+     * Item whose parts/instruments the band grid should show: NEXT only.
+     * When unset (session open, Clear session, or end of set), the grid paints the
+     * band formation with placeholder part/instrument labels.
      */
     public static Long layoutFocusItemId(SetPlaySessionState state) {
         Objects.requireNonNull(state, "state");
-        if (state.nextItemId() != null) {
-            return state.nextItemId();
-        }
-        if (state.currentItemId() != null) {
-            return state.currentItemId();
-        }
-        return scanNextItemId(state.orderItemIds(), state.skippedItemIds(), -1);
+        return state.nextItemId();
     }
 
     /**

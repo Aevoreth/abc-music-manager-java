@@ -45,9 +45,9 @@ Download is shown when a PIN is present **and** the session has a zip attached.
 Assistants receive the leader's Set Play state (read-only):
 
 - Current / Next summary banners
-- Song list with a **status badge** (`NOW` / `NEXT` / `✓` / `SKIP`) and row coloring
+- Song list with a **status badge** (`NOW` / `NEXT` / `✓` / `SKIP`), row coloring, and a **layout preview** button per song
 - Loaded setlist identity
-- Band layout grid and part-change highlighting (pinned to the bottom of Playback; drag the splitter to resize; player cards scale to fit)
+- Band layout grid (formation as soon as the set is loaded; parts fill in when the leader marks **NEXT**) and part-change highlighting (pinned to the bottom of Playback; drag the splitter to resize; player cards scale to fit)
 - Parts table (Player Column Order / CSV renames)
 
 Assistants cannot edit status; only the bandleader changes Current, Next, Skip, and Played.

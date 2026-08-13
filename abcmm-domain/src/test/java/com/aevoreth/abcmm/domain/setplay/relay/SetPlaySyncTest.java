@@ -67,6 +67,7 @@ class SetPlaySyncTest {
         assertEquals(false, applied.zipAvailable());
         assertEquals("", applied.sessionName());
         assertTrue(applied.partsSheet().columns().isEmpty());
+        assertTrue(applied.layoutCardsByItemId().isEmpty());
     }
 
     @Test
@@ -131,5 +132,36 @@ class SetPlaySyncTest {
         assertEquals(11, back.widthUnits());
         assertEquals(8, back.heightUnits());
         assertEquals("Cara", back.playerName());
+    }
+
+    @Test
+    void layoutCardsByItemIdRoundTrip() {
+        SetlistInfo setlist = new SetlistInfo(
+                1L, "Set", 7L, null, 0, false, 0, null, null, null, null);
+        SetlistItemInfo row1 = new SetlistItemInfo(
+                10L, 1L, 2L, "Tune A", "", 60, 1, "[]", 0, null, null);
+        SetlistItemInfo row2 = new SetlistItemInfo(
+                11L, 1L, 3L, "Tune B", "", 90, 2, "[]", 1, null, null);
+        SetPlaySessionState state = new SetPlaySessionState(List.of(10L, 11L));
+        SetPlayLayoutCard cardA = new SetPlayLayoutCard(
+                5L, "Alice", 0, 0,
+                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
+                "1", "Melody", "Lute",
+                false, false, true, "", "2", false);
+        SetPlayLayoutCard cardB = new SetPlayLayoutCard(
+                5L, "Alice", 0, 0,
+                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
+                "2", "Harmony", "Harp",
+                false, false, true, "1", "", false);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(cardA),
+                11L, List.of(cardB));
+        Map<String, Object> payload = SetPlaySync.snapshotFromLeader(
+                state, setlist, List.of(row1, row2), 150, List.of(cardA),
+                SetPlayPartsSheet.empty(), false, "RAVE", byItem);
+        SetPlaySync.AppliedSnapshot applied = SetPlaySync.applySnapshot(payload);
+        assertEquals(2, applied.layoutCardsByItemId().size());
+        assertEquals("Melody", applied.layoutCardsByItemId().get(10L).get(0).partName());
+        assertEquals("Harmony", applied.layoutCardsByItemId().get(11L).get(0).partName());
     }
 }

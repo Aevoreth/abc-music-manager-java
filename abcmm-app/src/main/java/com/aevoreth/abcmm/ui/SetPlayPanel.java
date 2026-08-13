@@ -3,12 +3,17 @@ package com.aevoreth.abcmm.ui;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Point;
+import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -37,10 +42,12 @@ import javax.swing.AbstractCellEditor;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -107,7 +114,8 @@ public final class SetPlayPanel extends JPanel {
     private static final int COL_PARTS = 3;
     private static final int COL_DUR = 4;
     private static final int COL_ARTIST = 5;
-    private static final int COL_ACTIONS = 6;
+    private static final int COL_LAYOUT = 6;
+    private static final int COL_ACTIONS = 7;
 
     private static final int PARTS_COL_STATUS = 0;
     private static final int PARTS_COL_TITLE = 1;
@@ -141,6 +149,7 @@ public final class SetPlayPanel extends JPanel {
     private final List<SetlistItemInfo> songRows = new ArrayList<>();
     private SetlistInfo loadedSetlist;
     private List<SetPlayLayoutCard> layoutCards = List.of();
+    private Map<Long, List<SetPlayLayoutCard>> layoutCardsByItemId = Map.of();
     private final Set<Long> highlightPlayers = new HashSet<>();
     private boolean checkboxGuard;
     private boolean splitsRestored;
@@ -275,31 +284,44 @@ public final class SetPlayPanel extends JPanel {
         table.getColumnModel().getColumn(COL_PARTS).setCellRenderer(statusRenderer);
         table.getColumnModel().getColumn(COL_DUR).setCellRenderer(statusRenderer);
         table.getColumnModel().getColumn(COL_ARTIST).setCellRenderer(statusRenderer);
+        table.getColumnModel().getColumn(COL_LAYOUT).setCellRenderer(new LayoutPreviewRenderer());
         if (!assistantMode) {
             table.getColumnModel().getColumn(COL_ACTIONS).setCellRenderer(new ActionsRenderer());
             table.getColumnModel().getColumn(COL_ACTIONS).setCellEditor(new ActionsEditor());
-            table.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) {
-                        int row = table.rowAtPoint(e.getPoint());
-                        if (row >= 0) {
-                            actionSetNext(songRows.get(row).id());
-                        }
-                    }
-                }
-
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    maybeShowContextMenu(e);
-                }
-
-                @Override
-                public void mouseReleased(MouseEvent e) {
-                    maybeShowContextMenu(e);
-                }
-            });
         }
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) {
+                    return;
+                }
+                int row = table.rowAtPoint(e.getPoint());
+                int col = table.columnAtPoint(e.getPoint());
+                if (row < 0 || row >= songRows.size()) {
+                    return;
+                }
+                if (col == COL_LAYOUT && e.getClickCount() == 1) {
+                    showLayoutPreview(songRows.get(row).id());
+                    return;
+                }
+                if (!assistantMode
+                        && e.getClickCount() == 2
+                        && col != COL_LAYOUT
+                        && col != COL_ACTIONS) {
+                    actionSetNext(songRows.get(row).id());
+                }
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowContextMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowContextMenu(e);
+            }
+        });
 
         JScrollPane tableScroll = new JScrollPane(table);
         JPanel tablePanel = new JPanel(new BorderLayout(0, 4));
@@ -1722,6 +1744,8 @@ public final class SetPlayPanel extends JPanel {
         }
 
         layoutCards = List.copyOf(applied.layoutCards());
+        Map<Long, List<SetPlayLayoutCard>> byItem = applied.layoutCardsByItemId();
+        layoutCardsByItemId = byItem == null ? Map.of() : Map.copyOf(byItem);
 
         String name = meta.get("name") == null ? "Set" : String.valueOf(meta.get("name"));
         Long bandLayoutId = toLongOrNull(meta.get("band_layout_id"));
@@ -1796,7 +1820,8 @@ public final class SetPlayPanel extends JPanel {
                 layoutCards,
                 partsSheet,
                 zipAvailable,
-                name);
+                name,
+                buildLayoutCardsByItemId());
     }
 
     private void rebuildPartsSheetFromLocal() {
@@ -1969,6 +1994,7 @@ public final class SetPlayPanel extends JPanel {
             markSetBtn.setEnabled(!songRows.isEmpty());
             highlightPlayers.clear();
             hostingFromSnapshot = false;
+            layoutCardsByItemId = Map.of();
             rebuildPartsSheetFromLocal();
             refreshAll();
             SwingUtilities.invokeLater(gridPanel::fitCardsToView);
@@ -2106,12 +2132,6 @@ public final class SetPlayPanel extends JPanel {
                     rightId = SetPlaySessionRules.scanNextItemId(
                             session.orderItemIds(), session.skippedItemIds(), ni);
                 }
-            } else if (session.currentItemId() == null && focusId != null) {
-                int ni = session.orderItemIds().indexOf(focusId);
-                if (ni >= 0) {
-                    rightId = SetPlaySessionRules.scanNextItemId(
-                            session.orderItemIds(), session.skippedItemIds(), ni);
-                }
             }
             SetlistItemInfo rightRow = rowForItem(rightId);
             layoutCards = layoutBuilder.build(
@@ -2149,7 +2169,16 @@ public final class SetPlayPanel extends JPanel {
     private List<Map.Entry<Long, String>> listedPlayers() {
         Map<Long, String> players = new LinkedHashMap<>();
         if (assistantMode) {
-            for (SetPlayLayoutCard card : layoutCards) {
+            List<SetPlayLayoutCard> source = layoutCards;
+            if (source.isEmpty()) {
+                for (List<SetPlayLayoutCard> cards : layoutCardsByItemId.values()) {
+                    if (!cards.isEmpty()) {
+                        source = cards;
+                        break;
+                    }
+                }
+            }
+            for (SetPlayLayoutCard card : source) {
                 players.put(card.playerId(), card.playerName());
             }
         } else if (loadedSetlist != null
@@ -2432,12 +2461,101 @@ public final class SetPlayPanel extends JPanel {
         menu.show(invoker, x, y);
     }
 
+    private void showLayoutPreview(long itemId) {
+        SetlistItemInfo row = rowForItem(itemId);
+        String songTitle = row == null || row.songTitle() == null || row.songTitle().isBlank()
+                ? "Song"
+                : row.songTitle();
+        List<SetPlayLayoutCard> cards = layoutCardsForItem(itemId);
+        if (cards.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "No band layout is available for this song.",
+                    "Layout preview",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = new JDialog(
+                owner,
+                "Layout — " + songTitle,
+                Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        SetPlayBandGridPanel preview = new SetPlayBandGridPanel("");
+        preview.setCanvasPreferredSize(720, 420);
+        preview.setCards(cards);
+        preview.setHighlightPlayerIds(highlightPlayers);
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dialog.dispose());
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        south.add(close);
+        dialog.getContentPane().add(preview, BorderLayout.CENTER);
+        dialog.getContentPane().add(south, BorderLayout.SOUTH);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        SwingUtilities.invokeLater(preview::fitCardsToView);
+        dialog.setVisible(true);
+    }
+
+    private List<SetPlayLayoutCard> layoutCardsForItem(long itemId) {
+        if (!assistantMode && !hostingFromSnapshot) {
+            SetlistItemInfo row = rowForItem(itemId);
+            if (row == null || layoutBuilder == null
+                    || loadedSetlist == null
+                    || loadedSetlist.bandLayoutId() == null) {
+                return List.of();
+            }
+            try {
+                return layoutCardsForSong(row);
+            } catch (LibraryException ex) {
+                return List.of();
+            }
+        }
+        List<SetPlayLayoutCard> cards = layoutCardsByItemId.get(itemId);
+        return cards == null ? List.of() : cards;
+    }
+
+    private List<SetPlayLayoutCard> layoutCardsForSong(SetlistItemInfo row) throws LibraryException {
+        int idx = session.orderItemIds().indexOf(row.id());
+        Long rightId = idx >= 0
+                ? SetPlaySessionRules.scanNextItemId(
+                        session.orderItemIds(), session.skippedItemIds(), idx)
+                : null;
+        return layoutBuilder.build(
+                loadedSetlist.bandLayoutId(),
+                row,
+                null,
+                rowForItem(rightId),
+                songRows);
+    }
+
+    private Map<Long, List<SetPlayLayoutCard>> buildLayoutCardsByItemId() {
+        if (assistantMode || hostingFromSnapshot) {
+            return layoutCardsByItemId;
+        }
+        if (layoutBuilder == null
+                || loadedSetlist == null
+                || loadedSetlist.bandLayoutId() == null) {
+            return Map.of();
+        }
+        Map<Long, List<SetPlayLayoutCard>> out = new LinkedHashMap<>();
+        for (SetlistItemInfo row : songRows) {
+            try {
+                out.put(row.id(), layoutCardsForSong(row));
+            } catch (LibraryException ex) {
+                out.put(row.id(), List.of());
+            }
+        }
+        return out;
+    }
+
     private void sizeColumns() {
         setColWidth(COL_STATUS, 56, 72);
         setColWidth(COL_SKIP, 48, 56);
         setColWidth(COL_PARTS, 48, 64);
         setColWidth(COL_DUR, 64, 80);
         setColWidth(COL_ARTIST, 120, 200);
+        setColWidth(COL_LAYOUT, 36, 40);
         setColWidth(COL_ACTIONS, 72, 90);
         table.getColumnModel().getColumn(COL_TITLE).setPreferredWidth(220);
     }
@@ -3079,7 +3197,7 @@ public final class SetPlayPanel extends JPanel {
 
     private final class SongTableModel extends AbstractTableModel {
         private final String[] columns = {
-                "Status", "Skip", "Title", "Parts", "Duration", "Artist", "Actions"
+                "Status", "Skip", "Title", "Parts", "Duration", "Artist", "", "Actions"
         };
 
         @Override
@@ -3125,6 +3243,7 @@ public final class SetPlayPanel extends JPanel {
                 case COL_ARTIST -> row.songComposers() == null || row.songComposers().isBlank()
                         ? "—"
                         : row.songComposers();
+                case COL_LAYOUT -> "";
                 case COL_ACTIONS -> "…";
                 default -> "";
             };
@@ -3145,6 +3264,65 @@ public final class SetPlayPanel extends JPanel {
             if (wantSkip != isSkip) {
                 toggleSkip(itemId);
             }
+        }
+    }
+
+    private static final class LayoutPreviewRenderer extends JButton implements TableCellRenderer {
+        private static final Icon ICON = new LayoutPreviewIcon(12);
+
+        LayoutPreviewRenderer() {
+            setIcon(ICON);
+            setText(null);
+            setOpaque(true);
+            setFocusable(false);
+            setToolTipText("Preview layout");
+            setMargin(new java.awt.Insets(1, 1, 1, 1));
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            if (isSelected) {
+                setBackground(table.getSelectionBackground());
+                setForeground(table.getSelectionForeground());
+            } else {
+                setBackground(table.getBackground());
+                setForeground(table.getForeground());
+            }
+            return this;
+        }
+    }
+
+    private static final class LayoutPreviewIcon implements Icon {
+        private final int size;
+
+        LayoutPreviewIcon(int size) {
+            this.size = size;
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Color color = c.getForeground() == null ? Color.DARK_GRAY : c.getForeground();
+            g2.setColor(color);
+            int gap = Math.max(1, size / 6);
+            int cell = (size - gap) / 2;
+            g2.drawRect(x, y, cell, cell);
+            g2.drawRect(x + cell + gap, y, cell, cell);
+            g2.drawRect(x, y + cell + gap, cell, cell);
+            g2.drawRect(x + cell + gap, y + cell + gap, cell, cell);
+            g2.dispose();
         }
     }
 

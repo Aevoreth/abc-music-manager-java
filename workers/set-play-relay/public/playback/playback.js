@@ -69,6 +69,13 @@
   const partsPlayerFilter = document.getElementById("parts-player-filter");
   const partsPlayerSummary = document.getElementById("parts-player-summary");
   const partsSelectedOnly = document.getElementById("parts-selected-only");
+  const layoutPreviewDialog = document.getElementById("layout-preview-dialog");
+  const layoutPreviewTitle = document.getElementById("layout-preview-title");
+  const layoutPreviewClose = document.getElementById("layout-preview-close");
+  const layoutPreviewViewport = document.getElementById("layout-preview-viewport");
+  const layoutPreviewCanvas = document.getElementById("layout-preview-canvas");
+  const layoutPreviewEmpty = document.getElementById("layout-preview-empty");
+  const layoutPreviewCtx = layoutPreviewCanvas ? layoutPreviewCanvas.getContext("2d") : null;
 
   /** @type {WebSocket | null} */
   let ws = null;
@@ -79,6 +86,8 @@
   let lastPlayerFilterKey = "";
   /** @type {Array<object>} */
   let lastCards = [];
+  /** @type {Record<string, Array<object>>} */
+  let lastLayoutByItem = {};
   /** @type {object | null} */
   let lastSnapshot = null;
   let hasSynced = false;
@@ -362,6 +371,12 @@
       ? order.map((id) => byId.get(id)).filter(Boolean)
       : rows;
 
+    lastCards = Array.isArray(data.next_layout_cards) ? data.next_layout_cards : [];
+    lastLayoutByItem =
+      data.layout_cards_by_item_id && typeof data.layout_cards_by_item_id === "object"
+        ? data.layout_cards_by_item_id
+        : {};
+
     songTbody.replaceChildren();
     for (const r of ordered) {
       const id = Number(r.item_id);
@@ -381,6 +396,7 @@
         `<td>${escapeHtml(String(r.part_count ?? ""))}</td>`,
         `<td>${fmtDuration(r.duration_seconds)}</td>`,
         `<td>${escapeHtml(r.artist || "—")}</td>`,
+        layoutPreviewCell(id, r.title),
       ].join("");
       songTbody.appendChild(tr);
     }
@@ -392,7 +408,6 @@
     nextTitle.textContent = nxt ? nxt.title || "—" : "—";
     nextMeta.textContent = songMetaLine(nxt);
 
-    lastCards = Array.isArray(data.next_layout_cards) ? data.next_layout_cards : [];
     const layoutKey = lastCards
       .map((c) => `${c.player_id}:${c.x},${c.y}`)
       .sort()
@@ -426,6 +441,54 @@
     else if (next) label = "NEXT";
     else if (played) label = "✓";
     return `<td class="status-badge">${label}</td>`;
+  }
+
+  function cardsForItem(itemId) {
+    const cards = lastLayoutByItem[itemId] || lastLayoutByItem[String(itemId)];
+    return Array.isArray(cards) ? cards : [];
+  }
+
+  function layoutPreviewCell(itemId, title) {
+    const has = cardsForItem(itemId).length > 0;
+    const disabled = has ? "" : " disabled";
+    const safeTitle = escapeHtml(title || "Song");
+    return `<td class="layout-cell"><button type="button" class="layout-preview-btn"${disabled} data-layout-item="${itemId}" data-layout-title="${safeTitle}" title="Preview layout" aria-label="Preview layout for ${safeTitle}"></button></td>`;
+  }
+
+  function openLayoutPreview(itemId, title) {
+    if (!layoutPreviewDialog) return;
+    const cards = cardsForItem(itemId);
+    if (layoutPreviewTitle) {
+      layoutPreviewTitle.textContent = title ? `Layout — ${title}` : "Band layout";
+    }
+    if (typeof layoutPreviewDialog.showModal === "function") {
+      layoutPreviewDialog.showModal();
+    } else {
+      layoutPreviewDialog.setAttribute("open", "");
+    }
+    requestAnimationFrame(() => drawLayoutPreview(cards));
+  }
+
+  function drawLayoutPreview(cards) {
+    if (!layoutPreviewCtx || !layoutPreviewCanvas || !layoutPreviewViewport) return;
+    const vw = layoutPreviewViewport.clientWidth || 1;
+    const vh = layoutPreviewViewport.clientHeight || 1;
+    const dpr = window.devicePixelRatio || 1;
+    layoutPreviewCanvas.width = Math.floor(vw * dpr);
+    layoutPreviewCanvas.height = Math.floor(vh * dpr);
+    layoutPreviewCanvas.style.width = `${vw}px`;
+    layoutPreviewCanvas.style.height = `${vh}px`;
+    layoutPreviewCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (!cards.length) {
+      if (layoutPreviewEmpty) layoutPreviewEmpty.classList.remove("hidden");
+      layoutPreviewCtx.clearRect(0, 0, vw, vh);
+      layoutPreviewCtx.fillStyle = COLORS.surface;
+      layoutPreviewCtx.fillRect(0, 0, vw, vh);
+      return;
+    }
+    if (layoutPreviewEmpty) layoutPreviewEmpty.classList.add("hidden");
+    const fit = computeFit(cards, vw, vh);
+    paintFormation(layoutPreviewCtx, vw, vh, cards, fit.ppu, fit.ox, fit.oy);
   }
 
   function renderParts(data) {
@@ -683,26 +746,20 @@
     }
   }
 
-  function logicalToView(lx, ly) {
-    return [
-      (lx - X_MIN) * ppu + viewOffsetX,
-      (ly - Y_MIN) * ppu + viewOffsetY,
-    ];
+  function logicalToViewAt(lx, ly, ppuVal, ox, oy) {
+    return [(lx - X_MIN) * ppuVal + ox, (ly - Y_MIN) * ppuVal + oy];
   }
 
-  function viewToLogical(vx, vy) {
-    return [
-      (vx - viewOffsetX) / ppu + X_MIN,
-      (vy - viewOffsetY) / ppu + Y_MIN,
-    ];
+  function viewToLogicalAt(vx, vy, ppuVal, ox, oy) {
+    return [(vx - ox) / ppuVal + X_MIN, (vy - oy) / ppuVal + Y_MIN];
   }
 
-  function cardBounds() {
+  function cardBoundsOf(cards) {
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    for (const c of lastCards) {
+    for (const c of cards) {
       const x = Number(c.x);
       const y = Number(c.y);
       minX = Math.min(minX, x);
@@ -713,6 +770,21 @@
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
   }
 
+  function computeFit(cards, vw, vh) {
+    const b = cardBoundsOf(cards);
+    const pad = 12;
+    const ppuX = b.w > 0 ? (vw - pad * 2) / b.w : BASE_PPU;
+    const ppuY = b.h > 0 ? (vh - pad * 2) / b.h : BASE_PPU;
+    const fitPpu = Math.max(MIN_PPU, Math.min(BASE_PPU, ppuX, ppuY));
+    const centerX = (b.minX + b.maxX) / 2;
+    const centerY = (b.minY + b.maxY) / 2;
+    return {
+      ppu: fitPpu,
+      ox: vw / 2 - (centerX - X_MIN) * fitPpu,
+      oy: vh / 2 - (centerY - Y_MIN) * fitPpu,
+    };
+  }
+
   function fitCardsToView() {
     const vw = layoutViewport.clientWidth;
     const vh = layoutViewport.clientHeight;
@@ -721,17 +793,10 @@
       needsFit = true;
       return;
     }
-
-    const b = cardBounds();
-    const pad = 12;
-    const ppuX = b.w > 0 ? (vw - pad * 2) / b.w : BASE_PPU;
-    const ppuY = b.h > 0 ? (vh - pad * 2) / b.h : BASE_PPU;
-    ppu = Math.max(MIN_PPU, Math.min(BASE_PPU, ppuX, ppuY));
-
-    const centerX = (b.minX + b.maxX) / 2;
-    const centerY = (b.minY + b.maxY) / 2;
-    viewOffsetX = vw / 2 - (centerX - X_MIN) * ppu;
-    viewOffsetY = vh / 2 - (centerY - Y_MIN) * ppu;
+    const fit = computeFit(lastCards, vw, vh);
+    ppu = fit.ppu;
+    viewOffsetX = fit.ox;
+    viewOffsetY = fit.oy;
     needsFit = false;
   }
 
@@ -782,50 +847,56 @@
     const h = layoutViewport.clientHeight || 1;
     if (canvas.width === 0) resizeCanvas();
 
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = COLORS.surface;
-    ctx.fillRect(0, 0, w, h);
-
     if (!lastCards.length) {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = COLORS.surface;
+      ctx.fillRect(0, 0, w, h);
       layoutEmpty.classList.remove("hidden");
       return;
     }
     layoutEmpty.classList.add("hidden");
+    paintFormation(ctx, w, h, lastCards, ppu, viewOffsetX, viewOffsetY);
+  }
 
-    // Dotted graph paper (matches Qt paintEvent)
-    const [lx0, ly0] = viewToLogical(0, 0);
-    const [lx1, ly1] = viewToLogical(w, h);
-    ctx.fillStyle = COLORS.outline;
+  function paintFormation(context, width, height, cards, ppuVal, ox, oy) {
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = COLORS.surface;
+    context.fillRect(0, 0, width, height);
+    if (!cards.length) return;
+
+    const [lx0, ly0] = viewToLogicalAt(0, 0, ppuVal, ox, oy);
+    const [lx1, ly1] = viewToLogicalAt(width, height, ppuVal, ox, oy);
+    context.fillStyle = COLORS.outline;
     for (let lx = Math.floor(lx0); lx <= lx1 + 1; lx++) {
       for (let ly = Math.floor(ly0); ly <= ly1 + 1; ly++) {
-        const [vx, vy] = logicalToView(lx, ly);
-        if (vx >= 0 && vx < w && vy >= 0 && vy < h) {
-          ctx.fillRect(Math.round(vx), Math.round(vy), 1, 1);
+        const [vx, vy] = logicalToViewAt(lx, ly, ppuVal, ox, oy);
+        if (vx >= 0 && vx < width && vy >= 0 && vy < height) {
+          context.fillRect(Math.round(vx), Math.round(vy), 1, 1);
         }
       }
     }
 
     const fontFamily = getComputedStyle(document.body).fontFamily || "sans-serif";
 
-    for (const card of lastCards) {
-      const [vx, vy] = logicalToView(Number(card.x), Number(card.y));
-      const cw = CARD_W * ppu;
-      const ch = CARD_H * ppu;
-      const scale = ppu / BASE_PPU;
-      const overlap = lastCards.some((other) => other !== card && cardsOverlap(card, other));
+    for (const card of cards) {
+      const [vx, vy] = logicalToViewAt(Number(card.x), Number(card.y), ppuVal, ox, oy);
+      const cw = CARD_W * ppuVal;
+      const ch = CARD_H * ppuVal;
+      const scale = ppuVal / BASE_PPU;
+      const overlap = cards.some((other) => other !== card && cardsOverlap(card, other));
 
-      ctx.fillStyle = COLORS.surface;
-      ctx.strokeStyle = overlap ? COLORS.error : COLORS.outline;
-      ctx.lineWidth = overlap ? 2 : 1;
-      roundRect(ctx, vx, vy, cw, ch, 4);
-      ctx.fill();
-      ctx.stroke();
+      context.fillStyle = COLORS.surface;
+      context.strokeStyle = overlap ? COLORS.error : COLORS.outline;
+      context.lineWidth = overlap ? 2 : 1;
+      roundRect(context, vx, vy, cw, ch, 4);
+      context.fill();
+      context.stroke();
 
       if (highlightPlayers.has(Number(card.player_id))) {
-        ctx.strokeStyle = COLORS.primary;
-        ctx.lineWidth = 2;
-        roundRect(ctx, vx + 1, vy + 1, cw - 2, ch - 2, 4);
-        ctx.stroke();
+        context.strokeStyle = COLORS.primary;
+        context.lineWidth = 2;
+        roundRect(context, vx + 1, vy + 1, cw - 2, ch - 2, 4);
+        context.stroke();
       }
 
       const margin = Math.max(1, Math.round(2 * scale));
@@ -841,60 +912,56 @@
       const useHeader = !!card.use_setlist_player_header;
       const partText = displayPartNumber(card.part_number);
 
-      // Row 1: player name (+ gutters when setlist header)
-      ctx.textBaseline = "middle";
+      context.textBaseline = "middle";
       const nameSize = Math.max(7, Math.round(12 * scale));
-      ctx.font = `${nameSize}px ${fontFamily}`;
+      context.font = `${nameSize}px ${fontFamily}`;
       const lineH = nameSize + Math.max(2, Math.round(4 * scale));
       if (useHeader) {
-        const gutter = ctx.measureText("999").width + 6;
-        ctx.fillStyle = COLORS.textSecondary;
-        ctx.textAlign = "left";
-        ctx.fillText(String(card.neighbor_prev_part_label || ""), innerL, y + lineH / 2);
-        ctx.textAlign = "right";
-        ctx.fillText(String(card.neighbor_next_part_label || ""), innerR, y + lineH / 2);
-        ctx.fillStyle = COLORS.onSurface;
-        ctx.textAlign = "center";
+        const gutter = context.measureText("999").width + 6;
+        context.fillStyle = COLORS.textSecondary;
+        context.textAlign = "left";
+        context.fillText(String(card.neighbor_prev_part_label || ""), innerL, y + lineH / 2);
+        context.textAlign = "right";
+        context.fillText(String(card.neighbor_next_part_label || ""), innerR, y + lineH / 2);
+        context.fillStyle = COLORS.onSurface;
+        context.textAlign = "center";
         const name = String(card.player_name || "");
-        fitText(ctx, name, Math.max(1, innerW - 2 * gutter), fontFamily, nameSize, 6);
-        ctx.fillText(name, innerL + innerW / 2, y + lineH / 2, Math.max(1, innerW - 2 * gutter));
+        fitText(context, name, Math.max(1, innerW - 2 * gutter), fontFamily, nameSize, 6);
+        context.fillText(name, innerL + innerW / 2, y + lineH / 2, Math.max(1, innerW - 2 * gutter));
       } else {
-        ctx.fillStyle = COLORS.onSurface;
-        ctx.textAlign = "center";
+        context.fillStyle = COLORS.onSurface;
+        context.textAlign = "center";
         const name = String(card.player_name || "");
-        fitText(ctx, name, innerW, fontFamily, nameSize, 6);
-        ctx.fillText(name, innerL + innerW / 2, y + lineH / 2, innerW);
+        fitText(context, name, innerW, fontFamily, nameSize, 6);
+        context.fillText(name, innerL + innerW / 2, y + lineH / 2, innerW);
       }
       y += lineH + Math.max(1, Math.round(2 * scale));
 
-      // Row 2: large bold part number
       let partColor = COLORS.onSurface;
       if (partDup) partColor = COLORS.dup;
       else if (instChanged) partColor = COLORS.warning;
-      ctx.fillStyle = partColor;
-      ctx.textAlign = "center";
-      const big = fitText(ctx, partText, innerW, fontFamily, Math.max(12, Math.round(26 * scale)), 8);
-      ctx.font = `bold ${big}px ${fontFamily}`;
+      context.fillStyle = partColor;
+      context.textAlign = "center";
+      const big = fitText(context, partText, innerW, fontFamily, Math.max(12, Math.round(26 * scale)), 8);
+      context.font = `bold ${big}px ${fontFamily}`;
       const bigH = big + Math.max(2, Math.round(4 * scale));
-      ctx.fillText(partText, innerL + innerW / 2, y + bigH / 2, innerW);
+      context.fillText(partText, innerL + innerW / 2, y + bigH / 2, innerW);
       y += bigH + Math.max(1, Math.round(2 * scale));
 
-      // Row 3: instrument
-      if (partDup) ctx.fillStyle = COLORS.dup;
-      else if (instWarn) ctx.fillStyle = COLORS.warning;
-      else ctx.fillStyle = COLORS.onSurface;
+      if (partDup) context.fillStyle = COLORS.dup;
+      else if (instWarn) context.fillStyle = COLORS.warning;
+      else context.fillStyle = COLORS.onSurface;
       const inst = String(card.instrument_name || "");
-      fitText(ctx, inst, innerW, fontFamily, Math.max(7, Math.round(11 * scale)), 6);
+      fitText(context, inst, innerW, fontFamily, Math.max(7, Math.round(11 * scale)), 6);
       const instH = Math.max(10, Math.round(14 * scale));
-      ctx.fillText(inst, innerL + innerW / 2, y + instH / 2, innerW);
+      context.fillText(inst, innerL + innerW / 2, y + instH / 2, innerW);
       y += instH + Math.max(1, Math.round(2 * scale));
 
-      // Row 4: part name
-      ctx.fillStyle = partDup ? COLORS.dup : COLORS.onSurface;
+      context.fillStyle = partDup ? COLORS.dup : COLORS.onSurface;
       const pname = String(card.part_name || "");
       const partNameH = Math.max(8, Math.round(12 * scale));
-      fitText(ctx, pname, innerW, fontFamily, Math.max(6, Math.round(10 * scale)), 6);
-      ctx.fillText(pname, innerL + innerW / 2, y + partNameH / 2, innerW);
+      fitText(context, pname, innerW, fontFamily, Math.max(6, Math.round(10 * scale)), 6);
+      context.fillText(pname, innerL + innerW / 2, y + partNameH / 2, innerW);
     }
   }
 
@@ -1058,6 +1125,19 @@
       const needed = visibleInstrumentsNeeded();
       const text = needed.map(instrumentsMarkdown).join("\n");
       navigator.clipboard.writeText(text).catch(() => {});
+    });
+  }
+  if (songTbody) {
+    songTbody.addEventListener("click", (e) => {
+      const btn = e.target.closest(".layout-preview-btn");
+      if (!btn || btn.disabled) return;
+      openLayoutPreview(Number(btn.dataset.layoutItem), btn.dataset.layoutTitle || "");
+    });
+  }
+  if (layoutPreviewClose && layoutPreviewDialog) {
+    layoutPreviewClose.addEventListener("click", () => {
+      if (typeof layoutPreviewDialog.close === "function") layoutPreviewDialog.close();
+      else layoutPreviewDialog.removeAttribute("open");
     });
   }
   setInput.addEventListener("keydown", (e) => {

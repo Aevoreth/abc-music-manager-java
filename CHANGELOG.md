@@ -15,7 +15,9 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 - Browser `/playback` Playback tab pins the band layout to the bottom (resizable splitter; cards scale to fit); only Your players and the setlist scroll
 - Set Play / Band Assistant Parts **Players** control matches **Your players** on Playback (same selection, linked); web Parts also has **Selected players only**
 - Band Assistant **Download ZIP** shows **Extracted folder name** (defaults to the session name; editable)
-- Set Play **Clear session** no longer hides the band layout or instrument assignments (it still resets NOW, NEXT, played, and skip)
+- Set Play **Clear session** no longer hides the band layout (it still resets NOW, NEXT, played, and skip)
+- Set Play shows the assigned band formation as soon as a session/set is loaded, with placeholder parts until a song is marked **NEXT**
+- Set Play / Band Assistant / browser Playback song rows have a layout preview button
 
 ## Version 0.3.2b
 

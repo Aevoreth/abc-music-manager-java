@@ -47,9 +47,9 @@ public final class SetPlayLayoutBuilder {
 
     /**
      * Cards show {@code nextRow} assignments; gutters: current (left), row after next (right).
-     * When {@code nextRow} is missing or has no song layout, still paints player positions
-     * with placeholder part/instrument labels so Clear session / no-NEXT does not hide
-     * the formation.
+     * When {@code nextRow} is missing or has no song layout, paints player positions
+     * with placeholder part/instrument labels (same as the setlist editor with no
+     * assignments) so the formation is visible before NEXT is chosen.
      */
     public List<SetPlayLayoutCard> build(
             long bandLayoutId,

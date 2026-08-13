@@ -211,15 +211,15 @@ class SetPlaySessionStateTest {
     }
 
     @Test
-    void layoutFocusUsesCurrentWhenNextCleared() {
+    void layoutFocusIsNullWhenNextUnset() {
         SetPlaySessionState st = state(ids(1, 2, 3));
         st.setCurrentItemId(3L);
         st.setNextItemId(null);
-        assertEquals(3L, SetPlaySessionRules.layoutFocusItemId(st));
+        assertNull(SetPlaySessionRules.layoutFocusItemId(st));
     }
 
     @Test
-    void layoutFocusAfterClearUsesFirstUnskipped() {
+    void layoutFocusAfterClearIsNull() {
         SetPlaySessionState st = state(ids(1, 2, 3));
         st.setCurrentItemId(2L);
         st.setNextItemId(3L);
@@ -229,13 +229,13 @@ class SetPlaySessionStateTest {
         st.skippedItemIds().clear();
         st.setCurrentItemId(null);
         st.setNextItemId(null);
-        assertEquals(1L, SetPlaySessionRules.layoutFocusItemId(st));
+        assertNull(SetPlaySessionRules.layoutFocusItemId(st));
     }
 
     @Test
-    void layoutFocusSkipsSkippedAtStart() {
+    void layoutFocusStaysNullWhenFirstSongsSkipped() {
         SetPlaySessionState st = state(ids(1, 2, 3));
         st.skippedItemIds().add(1L);
-        assertEquals(2L, SetPlaySessionRules.layoutFocusItemId(st));
+        assertNull(SetPlaySessionRules.layoutFocusItemId(st));
     }
 }

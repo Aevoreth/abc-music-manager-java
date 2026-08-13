@@ -117,6 +117,7 @@
                           <th>Parts</th>
                           <th>Duration</th>
                           <th>Artist</th>
+                          <th class="layout-col" title="Preview layout"></th>
                         </tr>
                       </thead>
                       <tbody id="song-tbody"></tbody>
@@ -177,6 +178,16 @@
         <button type="button" id="instruments-close" class="btn">Close</button>
       </div>
       <div id="instruments-body" class="instruments-grid"></div>
+    </dialog>
+    <dialog id="layout-preview-dialog" class="layout-preview-dialog">
+      <div class="layout-preview-head">
+        <h2 id="layout-preview-title">Band layout</h2>
+        <button type="button" id="layout-preview-close" class="btn">Close</button>
+      </div>
+      <div id="layout-preview-viewport" class="layout-viewport layout-preview-viewport">
+        <canvas id="layout-preview-canvas" aria-label="Song band layout"></canvas>
+        <p id="layout-preview-empty" class="empty-hint">No band layout for this song.</p>
+      </div>
     </dialog>
     <script src="/playback/playback.js"></script>
   </body>
