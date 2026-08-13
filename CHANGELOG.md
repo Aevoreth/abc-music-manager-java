@@ -4,6 +4,8 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+## Version 0.4.0b
+
 - Replaced Set Play **Broadcast** rooms with **named sessions** (D1 registry, per-session Durable Objects, R2 zips up to 2 MB)
 - Moved relay URLs, tokens, and zip retention into SQLite schema **v13** (opening a Python v12 DB in Java migrates and will not round-trip)
 - Set Play / Band Assistant / browser `/playback` now use **Sessions (or Connect) | Playback | Parts** inner tabs

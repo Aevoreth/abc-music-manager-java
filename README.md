@@ -108,7 +108,7 @@ Local packaging (Windows, JDK 21 + [WiX 3.11](https://github.com/wixtoolset/wix3
 
 ```powershell
 mvn -pl abcmm-app -am package -DskipTests
-.\distribute\package-windows.ps1 -Version 0.3.2 -Jar abcmm-app\target\abc-music-manager.jar
+.\distribute\package-windows.ps1 -Version 0.4.0 -Jar abcmm-app\target\abc-music-manager.jar
 ```
 
 ## Attribution
