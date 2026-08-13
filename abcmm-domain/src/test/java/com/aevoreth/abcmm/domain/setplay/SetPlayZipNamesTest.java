@@ -24,4 +24,19 @@ class SetPlayZipNamesTest {
                 "Set Name.zip",
                 SetPlayZipNames.downloadFileName("Set:Name/<>", "CODE"));
     }
+
+    @Test
+    void extractFolderPrefersSessionName() {
+        assertEquals("Friday Gig", SetPlayZipNames.extractFolderName("Friday Gig", "ab12cd3"));
+    }
+
+    @Test
+    void extractFolderFallsBackToCodeWhenNameBlank() {
+        assertEquals("ab12cd3", SetPlayZipNames.extractFolderName("  ", "ab12cd3"));
+    }
+
+    @Test
+    void extractFolderStripsIllegalCharacters() {
+        assertEquals("My Session", SetPlayZipNames.extractFolderName("My:Session/<>", "CODE"));
+    }
 }

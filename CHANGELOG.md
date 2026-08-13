@@ -14,6 +14,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 - Compact Band Assistant web header (inline tabs, sticky header and Current/Next), download ZIP in the header, 8-tint Parts columns with a dim/selected left accent, and an Instruments needed popup
 - Browser `/playback` Playback tab pins the band layout to the bottom (resizable splitter; cards scale to fit); only Your players and the setlist scroll
 - Set Play / Band Assistant Parts **Players** control matches **Your players** on Playback (same selection, linked); web Parts also has **Selected players only**
+- Band Assistant **Download ZIP** shows **Extracted folder name** (defaults to the session name; editable)
 
 ## Version 0.3.2b
 

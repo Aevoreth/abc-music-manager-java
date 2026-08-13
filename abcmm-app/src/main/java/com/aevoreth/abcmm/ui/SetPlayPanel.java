@@ -2666,6 +2666,7 @@ public final class SetPlayPanel extends JPanel {
                 relayCode,
                 pin,
                 zipDownloadBaseName(),
+                sessionName,
                 preferences,
                 songRepository);
         dialog.setVisible(true);

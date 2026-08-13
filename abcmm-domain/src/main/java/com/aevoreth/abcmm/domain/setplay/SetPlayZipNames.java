@@ -10,14 +10,25 @@ public final class SetPlayZipNames {
     }
 
     public static String downloadFileName(String setName, String fallbackCode) {
-        String base = sanitizeBaseName(setName);
+        return suggestedBaseName(setName, fallbackCode) + ".zip";
+    }
+
+    /**
+     * Folder created under the extract path. Prefers the session name; falls back to the session code.
+     */
+    public static String extractFolderName(String preferred, String fallbackCode) {
+        return suggestedBaseName(preferred, fallbackCode);
+    }
+
+    private static String suggestedBaseName(String preferred, String fallbackCode) {
+        String base = sanitizeBaseName(preferred);
         if (base.isEmpty()) {
             base = sanitizeBaseName(fallbackCode);
         }
         if (base.isEmpty()) {
             base = "set";
         }
-        return base + ".zip";
+        return base;
     }
 
     public static String sanitizeBaseName(String raw) {

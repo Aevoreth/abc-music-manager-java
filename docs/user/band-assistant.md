@@ -35,7 +35,7 @@ If the browser shows **404** on `/playback`, the leader’s worker was deployed 
 Download is shown when a PIN is present **and** the session has a zip attached.
 
 - **Browser:** download the zip file only
-- **In-app Band Assistant (full app):** **Save ZIP as…**, or **Download & Extract** into a folder named after the zip (under the set-export directory). If that folder exists, you confirm deleting it first. Paths are checked before write (no `..` / absolute paths). After extract, **Write PluginData** is offered for enabled account targets.
+- **In-app Band Assistant (full app):** **Save ZIP as…**, or **Download & Extract** into a folder under the set-export directory. **Extracted folder name** defaults to the session name; change it to extract into a different folder. If that folder exists, you confirm deleting it first. Paths are checked before write (no `..` / absolute paths). After extract, **Write PluginData** is offered for enabled account targets.
 - **`--assistant` standalone:** Save and Extract still work; PluginData is hidden (no library database)
 
 ---

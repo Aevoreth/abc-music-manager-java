@@ -41,6 +41,7 @@ public final class SetPlayDownloadDialog extends JDialog {
     private final Preferences preferences;
     private final SongRepository songRepository;
     private final JTextField pathField = new JTextField();
+    private final JTextField folderNameField = new JTextField();
 
     public SetPlayDownloadDialog(
             Window owner,
@@ -49,6 +50,7 @@ public final class SetPlayDownloadDialog extends JDialog {
             String sessionCode,
             String passphrase,
             String setName,
+            String sessionName,
             Preferences preferences,
             SongRepository songRepository) {
         super(owner, "Download ZIP", ModalityType.APPLICATION_MODAL);
@@ -73,12 +75,23 @@ public final class SetPlayDownloadDialog extends JDialog {
         root.add(label("Extract path"));
         JPanel pathRow = new JPanel(new BorderLayout(6, 0));
         pathRow.setAlignmentX(LEFT_ALIGNMENT);
+        pathField.setColumns(36);
         pathField.setText(defaultExtractDir());
         pathRow.add(pathField, BorderLayout.CENTER);
         JButton locate = new JButton("Locate");
         locate.addActionListener(e -> locateDir());
         pathRow.add(locate, BorderLayout.EAST);
         root.add(pathRow);
+        root.add(Box.createVerticalStrut(8));
+
+        root.add(label("Extracted folder name"));
+        JPanel folderRow = new JPanel(new BorderLayout(6, 0));
+        folderRow.setAlignmentX(LEFT_ALIGNMENT);
+        folderNameField.setColumns(36);
+        folderNameField.setText(SetPlayZipNames.extractFolderName(sessionName, sessionCode));
+        folderNameField.setToolTipText("Folder created under the extract path. Defaults to the session name.");
+        folderRow.add(folderNameField, BorderLayout.CENTER);
+        root.add(folderRow);
         root.add(Box.createVerticalStrut(6));
         JButton extract = new JButton("Download & Extract");
         extract.setAlignmentX(LEFT_ALIGNMENT);
@@ -156,10 +169,16 @@ public final class SetPlayDownloadDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "Choose an extract path.", "Extract", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        String typed = folderNameField.getText() == null ? "" : folderNameField.getText().strip();
+        String folder = SetPlayZipNames.sanitizeBaseName(typed);
+        if (folder.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    this, "Enter an extracted folder name.", "Extract", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         try {
             byte[] bytes = http.downloadZip(relayUrl, sessionCode, passphrase);
             SetPlayZipExtract.validate(bytes);
-            String folder = SetPlayZipExtract.folderNameFromZipFile(sessionCode + ".zip");
             Path dest = Path.of(base).resolve(folder);
             if (Files.exists(dest)) {
                 int ok = JOptionPane.showConfirmDialog(
