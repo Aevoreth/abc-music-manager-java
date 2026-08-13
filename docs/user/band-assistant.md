@@ -56,7 +56,7 @@ Assistants cannot edit status; only the bandleader changes Current, Next, Skip, 
 
 ## What does not sync
 
-Selecting player names to highlight on the grid is **local to each client** (leader, assistant app, or browser) and is not broadcast. Useful to remind you which player(s) you are controlling.
+Selecting player names to highlight on the grid and Parts column accents is **local to each client** (leader, assistant app, or browser) and is not broadcast. **Your players** on Playback and **Players** on Parts stay in sync. Useful to remind you which player(s) you are controlling.
 
 ---
 

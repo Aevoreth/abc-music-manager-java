@@ -101,7 +101,7 @@
                 </div>
                 <div class="panel-card">
                   <h2>Your players</h2>
-                  <p class="hint">Highlight players on the band layout (local only).</p>
+                  <p class="hint">Same list as Parts → Players. Highlights the band layout and Parts column accents (local only).</p>
                   <div id="players-list" class="players-list"></div>
                 </div>
               </aside>
@@ -141,8 +141,12 @@
         <div class="panel-card table-card parts-card">
           <div class="parts-toolbar">
             <h2>Parts</h2>
+            <label class="toolbar-check">
+              <input type="checkbox" id="parts-selected-only">
+              Selected players only
+            </label>
             <details class="player-filter">
-              <summary id="parts-player-summary">Players: All</summary>
+              <summary id="parts-player-summary" title="Same as Your players on Playback — highlight the layout and Parts column accents">Players: All</summary>
               <div id="parts-player-filter" class="player-filter-list"></div>
             </details>
             <button type="button" id="instruments-btn" class="btn">Instruments needed…</button>

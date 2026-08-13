@@ -40,6 +40,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -47,6 +48,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.border.Border;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
@@ -98,7 +100,6 @@ public final class SetPlayPanel extends JPanel {
 
     /** Extras key in preferences.json for Set Play divider sizes. */
     static final String SPLIT_PREF_KEY = "set_play_splitter_state";
-    static final String PARTS_HIDDEN_PREF_KEY = "set_play_parts_hidden_columns";
 
     private static final int COL_STATUS = 0;
     private static final int COL_SKIP = 1;
@@ -155,7 +156,6 @@ public final class SetPlayPanel extends JPanel {
     private String relayShareUrl;
     private boolean zipAvailable;
     private boolean hostingFromSnapshot;
-    private final Set<String> hiddenPartColumns = new HashSet<>();
     private List<SetPlayRelayHttp.SessionSummary> remoteSessions = List.of();
     private SetPlayPartsSheet partsSheet = SetPlayPartsSheet.empty();
     private final JTabbedPane innerTabs = new JTabbedPane();
@@ -326,6 +326,7 @@ public final class SetPlayPanel extends JPanel {
         playersInner.setLayout(new BoxLayout(playersInner, BoxLayout.Y_AXIS));
         JScrollPane playersScroll = new JScrollPane(playersInner);
         playersScroll.setBorder(BorderFactory.createTitledBorder("Your players"));
+        playersScroll.setToolTipText("Same as Players on the Parts tab — highlight the layout and Parts column accents.");
         playersScroll.setPreferredSize(new Dimension(180, 200));
         playersScroll.setMinimumSize(new Dimension(140, 120));
 
@@ -608,6 +609,7 @@ public final class SetPlayPanel extends JPanel {
     private final PartsTableModel partsTableModel = new PartsTableModel();
     private final JTable partsTable = new JTable(partsTableModel);
     private JCheckBox partsShowSelectedOnly;
+    private JButton partsPlayersBtn;
 
     private JPanel buildPartsPanel() {
         JPanel panel = new JPanel(new BorderLayout(6, 6));
@@ -617,11 +619,12 @@ public final class SetPlayPanel extends JPanel {
         partsShowSelectedOnly.addActionListener(e -> refreshPartsTable());
         JButton instruments = new JButton("Instruments needed…");
         instruments.addActionListener(e -> showInstrumentsNeeded());
-        JButton hideCols = new JButton("Columns…");
-        hideCols.addActionListener(e -> chooseHiddenColumns());
+        partsPlayersBtn = new JButton("Players: All");
+        partsPlayersBtn.setToolTipText("Same as Your players on Playback — highlight on the grid and Parts columns.");
+        partsPlayersBtn.addActionListener(e -> showPartsPlayersMenu());
         north.add(partsShowSelectedOnly);
         north.add(instruments);
-        north.add(hideCols);
+        north.add(partsPlayersBtn);
         if (!assistantMode) {
             JButton adv = new JButton("Advance song");
             adv.addActionListener(e -> advance());
@@ -666,17 +669,6 @@ public final class SetPlayPanel extends JPanel {
     public void setPreferences(Preferences preferences) {
         this.preferences = preferences;
         splitsRestored = false;
-        hiddenPartColumns.clear();
-        if (preferences != null) {
-            Object raw = preferences.extras().get(PARTS_HIDDEN_PREF_KEY);
-            if (raw instanceof List<?> list) {
-                for (Object item : list) {
-                    if (item != null) {
-                        hiddenPartColumns.add(String.valueOf(item));
-                    }
-                }
-            }
-        }
         refreshRelayPicker();
         if (isShowing()) {
             maybeRestoreSplits();
@@ -698,7 +690,6 @@ public final class SetPlayPanel extends JPanel {
         if (!state.isEmpty()) {
             preferences.extras().put(SPLIT_PREF_KEY, state);
         }
-        preferences.extras().put(PARTS_HIDDEN_PREF_KEY, new ArrayList<>(hiddenPartColumns));
     }
 
     public void bind(
@@ -2131,6 +2122,22 @@ public final class SetPlayPanel extends JPanel {
 
     private void refreshPlayers() {
         playersInner.removeAll();
+        List<Map.Entry<Long, String>> sorted = listedPlayers();
+        for (Map.Entry<Long, String> entry : sorted) {
+            long pid = entry.getKey();
+            JCheckBox cb = new JCheckBox(entry.getValue());
+            cb.setSelected(highlightPlayers.contains(pid));
+            cb.putClientProperty("playerId", pid);
+            cb.setAlignmentX(Component.LEFT_ALIGNMENT);
+            cb.addActionListener(e -> applyPlayerHighlight(pid, cb.isSelected(), false));
+            playersInner.add(cb);
+        }
+        playersInner.revalidate();
+        playersInner.repaint();
+        updatePartsPlayersButton();
+    }
+
+    private List<Map.Entry<Long, String>> listedPlayers() {
         Map<Long, String> players = new LinkedHashMap<>();
         if (assistantMode) {
             for (SetPlayLayoutCard card : layoutCards) {
@@ -2150,26 +2157,89 @@ public final class SetPlayPanel extends JPanel {
                 statusLabel.setText(ex.getMessage() == null ? "Failed to load players." : ex.getMessage());
             }
         }
+        for (SetPlayPartsSheet.Column col : partsSheet.columns()) {
+            if (col.playerId() != null) {
+                String title = col.title() == null || col.title().isBlank()
+                        ? ("#" + col.playerId())
+                        : col.title();
+                players.putIfAbsent(col.playerId(), title);
+            }
+        }
         List<Map.Entry<Long, String>> sorted = new ArrayList<>(players.entrySet());
         sorted.sort(Comparator.comparing(e -> e.getValue().toLowerCase(Locale.ROOT)));
-        for (Map.Entry<Long, String> entry : sorted) {
-            long pid = entry.getKey();
-            JCheckBox cb = new JCheckBox(entry.getValue());
-            cb.setSelected(highlightPlayers.contains(pid));
-            cb.setAlignmentX(Component.LEFT_ALIGNMENT);
-            cb.addActionListener(e -> {
-                if (cb.isSelected()) {
-                    highlightPlayers.add(pid);
-                } else {
-                    highlightPlayers.remove(pid);
-                }
-                gridPanel.setHighlightPlayerIds(highlightPlayers);
-                refreshPartsTable();
-            });
-            playersInner.add(cb);
+        return sorted;
+    }
+
+    private void applyPlayerHighlight(long playerId, boolean selected, boolean syncPlaybackList) {
+        if (selected) {
+            highlightPlayers.add(playerId);
+        } else {
+            highlightPlayers.remove(playerId);
         }
-        playersInner.revalidate();
-        playersInner.repaint();
+        gridPanel.setHighlightPlayerIds(highlightPlayers);
+        updatePartsPlayersButton();
+        refreshPartsTable();
+        if (syncPlaybackList) {
+            for (Component c : playersInner.getComponents()) {
+                if (c instanceof JCheckBox cb) {
+                    Object raw = cb.getClientProperty("playerId");
+                    if (raw instanceof Number n) {
+                        boolean want = highlightPlayers.contains(n.longValue());
+                        if (cb.isSelected() != want) {
+                            cb.setSelected(want);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void updatePartsPlayersButton() {
+        if (partsPlayersBtn == null) {
+            return;
+        }
+        int total = 0;
+        for (Component c : playersInner.getComponents()) {
+            if (c instanceof JCheckBox) {
+                total++;
+            }
+        }
+        if (total == 0) {
+            Set<Long> ids = new HashSet<>();
+            for (SetPlayPartsSheet.Column col : partsSheet.columns()) {
+                if (col.playerId() != null) {
+                    ids.add(col.playerId());
+                }
+            }
+            total = ids.size();
+        }
+        int n = highlightPlayers.size();
+        partsPlayersBtn.setText(n == 0 || (total > 0 && n == total) ? "Players: All" : "Players: " + n);
+    }
+
+    private void showPartsPlayersMenu() {
+        List<Map.Entry<Long, String>> players = listedPlayers();
+        if (players.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No players yet. Load a set with a band layout.", "Players",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        for (Map.Entry<Long, String> entry : players) {
+            long pid = entry.getKey();
+            JCheckBox cb = new JCheckBox(entry.getValue(), highlightPlayers.contains(pid));
+            cb.setAlignmentX(Component.LEFT_ALIGNMENT);
+            cb.addActionListener(e -> applyPlayerHighlight(pid, cb.isSelected(), true));
+            panel.add(cb);
+        }
+        JScrollPane scroll = new JScrollPane(panel);
+        scroll.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        scroll.setPreferredSize(new Dimension(220, Math.min(240, 28 * players.size() + 16)));
+        JPopupMenu menu = new JPopupMenu();
+        menu.setLayout(new BorderLayout());
+        menu.add(scroll, BorderLayout.CENTER);
+        menu.show(partsPlayersBtn, 0, partsPlayersBtn.getHeight());
     }
 
     private void advance() {
@@ -2605,10 +2675,10 @@ public final class SetPlayPanel extends JPanel {
         List<SetPlayPartsSheet.Column> out = new ArrayList<>();
         boolean selectedOnly = partsShowSelectedOnly != null && partsShowSelectedOnly.isSelected();
         for (SetPlayPartsSheet.Column col : partsSheet.columns()) {
-            if (hiddenPartColumns.contains(col.key())) {
-                continue;
-            }
-            if (selectedOnly && col.playerId() != null && !highlightPlayers.contains(col.playerId())) {
+            if (selectedOnly
+                    && !highlightPlayers.isEmpty()
+                    && col.playerId() != null
+                    && !highlightPlayers.contains(col.playerId())) {
                 continue;
             }
             out.add(col);
@@ -2619,10 +2689,16 @@ public final class SetPlayPanel extends JPanel {
     private void refreshPartsTable() {
         partsTableModel.fireTableStructureChanged();
         PartsCellRenderer renderer = new PartsCellRenderer();
+        PartsHeaderRenderer headerRenderer = new PartsHeaderRenderer();
         for (int i = 0; i < partsTable.getColumnCount(); i++) {
-            partsTable.getColumnModel().getColumn(i).setCellRenderer(renderer);
+            TableColumn column = partsTable.getColumnModel().getColumn(i);
+            column.setCellRenderer(renderer);
+            if (i >= PARTS_COL_FIRST_PLAYER) {
+                column.setHeaderRenderer(headerRenderer);
+            }
         }
         packPartsColumns();
+        updatePartsPlayersButton();
     }
 
     private void packPartsColumns() {
@@ -2675,7 +2751,7 @@ public final class SetPlayPanel extends JPanel {
         List<SetPlayPartsSheet.InstrumentsNeeded> out = new ArrayList<>();
         boolean selectedOnly = partsShowSelectedOnly != null && partsShowSelectedOnly.isSelected();
         for (SetPlayPartsSheet.InstrumentsNeeded n : partsSheet.instrumentsNeeded()) {
-            if (selectedOnly && !highlightPlayers.contains(n.playerId())) {
+            if (selectedOnly && !highlightPlayers.isEmpty() && !highlightPlayers.contains(n.playerId())) {
                 continue;
             }
             out.add(n);
@@ -2766,40 +2842,6 @@ public final class SetPlayPanel extends JPanel {
         scroll.setPreferredSize(new Dimension(Math.min(720, 240 * cols + 48), 320));
         root.add(scroll, BorderLayout.CENTER);
         JOptionPane.showMessageDialog(this, root, "Instruments needed", JOptionPane.PLAIN_MESSAGE);
-    }
-
-    private void chooseHiddenColumns() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        List<JCheckBox> boxes = new ArrayList<>();
-        for (SetPlayPartsSheet.Column col : partsSheet.columns()) {
-            JCheckBox cb = new JCheckBox(col.title(), !hiddenPartColumns.contains(col.key()));
-            cb.putClientProperty("colKey", col.key());
-            boxes.add(cb);
-            panel.add(cb);
-        }
-        if (boxes.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "No part columns yet. Load a set first.", "Columns",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        int ok = JOptionPane.showConfirmDialog(
-                this, new JScrollPane(panel), "Visible columns", JOptionPane.OK_CANCEL_OPTION,
-                JOptionPane.PLAIN_MESSAGE);
-        if (ok != JOptionPane.OK_OPTION) {
-            return;
-        }
-        hiddenPartColumns.clear();
-        for (JCheckBox cb : boxes) {
-            if (!cb.isSelected()) {
-                hiddenPartColumns.add(String.valueOf(cb.getClientProperty("colKey")));
-            }
-        }
-        if (preferencesSaver != null) {
-            persistUiState(preferences);
-            preferencesSaver.run();
-        }
-        refreshPartsTable();
     }
 
     private final class PartsTableModel extends AbstractTableModel {
@@ -2898,20 +2940,7 @@ public final class SetPlayPanel extends JPanel {
                     List<SetPlayPartsSheet.Column> cols = visiblePartColumns();
                     int idx = column - PARTS_COL_FIRST_PLAYER;
                     if (idx >= 0 && idx < cols.size()) {
-                        SetPlayPartsSheet.Column col = cols.get(idx);
-                        int canonical = 0;
-                        for (SetPlayPartsSheet.Column all : partsSheet.columns()) {
-                            if (Objects.equals(all.playerId(), col.playerId()) && all.key().equals(col.key())) {
-                                bg = playerTint(canonical);
-                                break;
-                            }
-                            if (all.playerId() != null) {
-                                canonical++;
-                            } else if (all.key().equals(col.key())) {
-                                bg = playerTint(idx);
-                                break;
-                            }
-                        }
+                        bg = playerTint(tintIndexForColumn(cols.get(idx), idx));
                     }
                 }
                 setBackground(bg);
@@ -2922,7 +2951,20 @@ public final class SetPlayPanel extends JPanel {
             } else {
                 setHorizontalAlignment(LEFT);
             }
-            applyNowNextCellBorder(this, style);
+            applyPartsCellBorder(this, style, column);
+            return c;
+        }
+    }
+
+    private final class PartsHeaderRenderer implements TableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            TableCellRenderer delegate = table.getTableHeader().getDefaultRenderer();
+            Component c = delegate.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (c instanceof JComponent jc) {
+                applyPlayerAccentBorder(jc, column, jc.getBorder());
+            }
             return c;
         }
     }
@@ -2934,6 +2976,70 @@ public final class SetPlayPanel extends JPanel {
             return Color.getHSBColor(hue, 0.12f, 0.22f);
         }
         return Color.getHSBColor(hue, 0.12f, 0.96f);
+    }
+
+    /** Left accent: darker in dark mode, lighter in light mode; selected is thicker and more saturated. */
+    private static Color playerAccent(int index, boolean selected) {
+        float hue = Math.floorMod(index, 8) / 8f;
+        if (AbcmmThemer.isDarkMode()) {
+            return selected
+                    ? Color.getHSBColor(hue, 0.75f, 0.72f)
+                    : Color.getHSBColor(hue, 0.40f, 0.16f);
+        }
+        return selected
+                ? Color.getHSBColor(hue, 0.72f, 0.58f)
+                : Color.getHSBColor(hue, 0.18f, 0.90f);
+    }
+
+    private int tintIndexForColumn(SetPlayPartsSheet.Column col, int visibleIdx) {
+        int canonical = 0;
+        for (SetPlayPartsSheet.Column all : partsSheet.columns()) {
+            if (Objects.equals(all.playerId(), col.playerId()) && all.key().equals(col.key())) {
+                return all.playerId() != null ? canonical : visibleIdx;
+            }
+            if (all.playerId() != null) {
+                canonical++;
+            }
+        }
+        return visibleIdx;
+    }
+
+    private boolean isPlayerColumnSelected(SetPlayPartsSheet.Column col) {
+        return col.playerId() != null && highlightPlayers.contains(col.playerId());
+    }
+
+    private void applyPartsCellBorder(JComponent cell, RowStyle style, int column) {
+        int pad = 2;
+        Color line = switch (style) {
+            case NOW -> STATUS_NOW;
+            case NEXT -> STATUS_NEXT;
+            default -> null;
+        };
+        Border topBottom = line != null
+                ? BorderFactory.createMatteBorder(pad, 0, pad, 0, line)
+                : BorderFactory.createEmptyBorder(pad, 0, pad, 0);
+        applyPlayerAccentBorder(cell, column, topBottom);
+    }
+
+    private void applyPlayerAccentBorder(JComponent cell, int column, Border outer) {
+        if (column < PARTS_COL_FIRST_PLAYER) {
+            cell.setBorder(outer);
+            return;
+        }
+        List<SetPlayPartsSheet.Column> cols = visiblePartColumns();
+        int idx = column - PARTS_COL_FIRST_PLAYER;
+        if (idx < 0 || idx >= cols.size()) {
+            cell.setBorder(outer);
+            return;
+        }
+        SetPlayPartsSheet.Column col = cols.get(idx);
+        int tint = tintIndexForColumn(col, idx);
+        boolean selected = isPlayerColumnSelected(col);
+        int width = selected ? 5 : 3;
+        Border accent = BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, width, 0, 0, playerAccent(tint, selected)),
+                BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        cell.setBorder(outer == null ? accent : BorderFactory.createCompoundBorder(outer, accent));
     }
 
     private static void applyNowNextCellBorder(javax.swing.JComponent cell, RowStyle style) {

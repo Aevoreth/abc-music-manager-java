@@ -61,6 +61,7 @@
   const instrumentsClose = document.getElementById("instruments-close");
   const partsPlayerFilter = document.getElementById("parts-player-filter");
   const partsPlayerSummary = document.getElementById("parts-player-summary");
+  const partsSelectedOnly = document.getElementById("parts-selected-only");
 
   /** @type {WebSocket | null} */
   let ws = null;
@@ -68,8 +69,6 @@
   let lastCode = null;
   /** @type {Set<number>} */
   const highlightPlayers = new Set();
-  /** @type {Set<number>} */
-  const partsSelectedPlayers = new Set();
   let lastPlayerFilterKey = "";
   /** @type {Array<object>} */
   let lastCards = [];
@@ -431,10 +430,12 @@
     if (!head || !body) return;
     const sheet = data.parts_sheet || {};
     const allColumns = Array.isArray(sheet.columns) ? sheet.columns : [];
-    renderPartsPlayerFilter(allColumns);
+    renderPartsPlayerFilter();
+    const selectedOnly = !!(partsSelectedOnly && partsSelectedOnly.checked);
     const columns = allColumns.filter((c) => {
-      if (c.player_id == null || partsSelectedPlayers.size === 0) return true;
-      return partsSelectedPlayers.has(Number(c.player_id));
+      if (!selectedOnly || highlightPlayers.size === 0) return true;
+      if (c.player_id == null) return true;
+      return highlightPlayers.has(Number(c.player_id));
     });
     const sheetRows = Array.isArray(sheet.rows) ? sheet.rows : [];
     const byItem = new Map(sheetRows.map((r) => [Number(r.item_id), r]));
@@ -451,7 +452,11 @@
 
     const hr = document.createElement("tr");
     hr.innerHTML = ["<th>Status</th>", "<th>Title</th>", "<th>Duration</th>", "<th>Parts</th>"]
-      .concat(columns.map((c) => `<th>${escapeHtml(c.title || c.key || "")}</th>`))
+      .concat(columns.map((c) => {
+        const tintIdx = tintIndexForColumn(allColumns, c);
+        const selected = isColumnPlayerSelected(c);
+        return `<th class="part-tint-${tintIdx}${selected ? " part-selected" : ""}">${escapeHtml(c.title || c.key || "")}</th>`;
+      }))
       .join("");
     head.replaceChildren(hr);
     body.replaceChildren();
@@ -471,7 +476,8 @@
         const sourceIndex = allColumns.indexOf(c);
         const val = cells && Array.isArray(cells.cells) ? cells.cells[sourceIndex] : "";
         const tintIdx = tintIndexForColumn(allColumns, c);
-        return `<td class="part-tint-${tintIdx}">${escapeHtml(val || "")}</td>`;
+        const selected = isColumnPlayerSelected(c);
+        return `<td class="part-tint-${tintIdx}${selected ? " part-selected" : ""}">${escapeHtml(val || "")}</td>`;
       });
       tr.innerHTML = [
         statusBadgeCell(isSkipped, isCurrent, isNext, isPlayed),
@@ -485,28 +491,53 @@
   }
 
   function tintIndexForColumn(allColumns, col) {
-    const idx = allColumns.indexOf(col);
-    return (idx < 0 ? 0 : idx) % 8;
+    let canonical = 0;
+    for (let i = 0; i < allColumns.length; i++) {
+      const c = allColumns[i];
+      if (c === col) {
+        return (c.player_id != null ? canonical : i) % 8;
+      }
+      if (c.player_id != null) canonical++;
+    }
+    return 0;
   }
 
-  function uniquePlayersFromColumns(columns) {
-    const out = [];
-    const seen = new Set();
-    for (const c of columns) {
+  function isColumnPlayerSelected(col) {
+    return col && col.player_id != null && highlightPlayers.has(Number(col.player_id));
+  }
+
+  function listedPlayers() {
+    const names = new Map();
+    for (const c of lastCards) {
+      names.set(Number(c.player_id), String(c.player_name || `Player ${c.player_id}`));
+    }
+    const sheet = lastSnapshot && lastSnapshot.parts_sheet ? lastSnapshot.parts_sheet : {};
+    const cols = Array.isArray(sheet.columns) ? sheet.columns : [];
+    for (const c of cols) {
       if (c.player_id == null) continue;
       const id = Number(c.player_id);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push({ id, name: c.title || `Player ${id}` });
+      if (!names.has(id)) names.set(id, String(c.title || `Player ${id}`));
     }
-    return out;
+    return [...names.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([id, name]) => ({ id, name }));
   }
 
-  function renderPartsPlayerFilter(columns) {
+  function setPlayerHighlighted(pid, on) {
+    if (on) highlightPlayers.add(pid);
+    else highlightPlayers.delete(pid);
+    lastPlayerFilterKey = "";
+    renderPlayers(lastCards);
+    if (lastSnapshot) renderParts(lastSnapshot);
+    else renderPartsPlayerFilter();
+    drawGrid();
+  }
+
+  function renderPartsPlayerFilter() {
     if (!partsPlayerFilter || !partsPlayerSummary) return;
-    const players = uniquePlayersFromColumns(columns);
+    const players = listedPlayers();
     const key = players.map((p) => p.id + ":" + p.name).join("|")
-      + "#" + [...partsSelectedPlayers].sort().join(",");
+      + "#" + [...highlightPlayers].sort().join(",");
     if (key === lastPlayerFilterKey) return;
     lastPlayerFilterKey = key;
     partsPlayerFilter.replaceChildren();
@@ -514,7 +545,7 @@
       partsPlayerSummary.textContent = "Players: —";
       return;
     }
-    const selectedCount = players.filter((p) => partsSelectedPlayers.has(p.id)).length;
+    const selectedCount = players.filter((p) => highlightPlayers.has(p.id)).length;
     partsPlayerSummary.textContent = selectedCount === 0 || selectedCount === players.length
       ? "Players: All"
       : `Players: ${selectedCount}`;
@@ -522,19 +553,8 @@
       const label = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.checked = partsSelectedPlayers.size === 0 || partsSelectedPlayers.has(p.id);
-      cb.addEventListener("change", () => {
-        const ids = players.map((x) => x.id);
-        if (partsSelectedPlayers.size === 0) {
-          for (const id of ids) partsSelectedPlayers.add(id);
-        }
-        if (cb.checked) partsSelectedPlayers.add(p.id);
-        else partsSelectedPlayers.delete(p.id);
-        if (partsSelectedPlayers.size === 0 || partsSelectedPlayers.size === ids.length) {
-          partsSelectedPlayers.clear();
-        }
-        if (lastSnapshot) renderParts(lastSnapshot);
-      });
+      cb.checked = highlightPlayers.has(p.id);
+      cb.addEventListener("change", () => setPlayerHighlighted(p.id, cb.checked));
       label.appendChild(cb);
       label.appendChild(document.createTextNode(p.name));
       partsPlayerFilter.appendChild(label);
@@ -553,8 +573,9 @@
   function visibleInstrumentsNeeded() {
     const sheet = lastSnapshot && lastSnapshot.parts_sheet ? lastSnapshot.parts_sheet : {};
     const list = Array.isArray(sheet.instruments_needed) ? sheet.instruments_needed : [];
-    if (partsSelectedPlayers.size === 0) return list;
-    return list.filter((n) => partsSelectedPlayers.has(Number(n.player_id)));
+    const selectedOnly = !!(partsSelectedOnly && partsSelectedOnly.checked);
+    if (!selectedOnly || highlightPlayers.size === 0) return list;
+    return list.filter((n) => highlightPlayers.has(Number(n.player_id)));
   }
 
   function openInstrumentsDialog() {
@@ -636,31 +657,24 @@
   }
 
   function renderPlayers(cards) {
-    const names = new Map();
-    for (const c of cards) {
-      names.set(Number(c.player_id), String(c.player_name || `Player ${c.player_id}`));
-    }
+    lastCards = Array.isArray(cards) ? cards : lastCards;
+    const players = listedPlayers();
     playersList.replaceChildren();
-    if (!names.size) {
+    if (!players.length) {
       const empty = document.createElement("p");
       empty.className = "hint";
       empty.textContent = "No layout yet.";
       playersList.appendChild(empty);
       return;
     }
-    const sorted = [...names.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-    for (const [pid, name] of sorted) {
+    for (const p of players) {
       const label = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.checked = highlightPlayers.has(pid);
-      cb.addEventListener("change", () => {
-        if (cb.checked) highlightPlayers.add(pid);
-        else highlightPlayers.delete(pid);
-        drawGrid();
-      });
+      cb.checked = highlightPlayers.has(p.id);
+      cb.addEventListener("change", () => setPlayerHighlighted(p.id, cb.checked));
       label.appendChild(cb);
-      label.appendChild(document.createTextNode(name));
+      label.appendChild(document.createTextNode(p.name));
       playersList.appendChild(label);
     }
   }
@@ -918,6 +932,11 @@
   if (downloadBtn) downloadBtn.addEventListener("click", () => downloadZip());
   if (pinInput) pinInput.addEventListener("input", () => updateDownloadButton());
   if (instrumentsBtn) instrumentsBtn.addEventListener("click", () => openInstrumentsDialog());
+  if (partsSelectedOnly) {
+    partsSelectedOnly.addEventListener("change", () => {
+      if (lastSnapshot) renderParts(lastSnapshot);
+    });
+  }
   if (instrumentsClose && instrumentsDialog) {
     instrumentsClose.addEventListener("click", () => {
       if (typeof instrumentsDialog.close === "function") instrumentsDialog.close();

@@ -387,6 +387,45 @@ body {
 .parts-table td.part-tint-6 { background: hsl(270 12% 16%); }
 .parts-table td.part-tint-7 { background: hsl(315 14% 16%); }
 
+.parts-table th.part-tint-0,
+.parts-table td.part-tint-0 { box-shadow: inset 3px 0 0 hsl(0 28% 11%); }
+.parts-table th.part-tint-1,
+.parts-table td.part-tint-1 { box-shadow: inset 3px 0 0 hsl(45 28% 11%); }
+.parts-table th.part-tint-2,
+.parts-table td.part-tint-2 { box-shadow: inset 3px 0 0 hsl(90 28% 11%); }
+.parts-table th.part-tint-3,
+.parts-table td.part-tint-3 { box-shadow: inset 3px 0 0 hsl(135 28% 11%); }
+.parts-table th.part-tint-4,
+.parts-table td.part-tint-4 { box-shadow: inset 3px 0 0 hsl(180 24% 11%); }
+.parts-table th.part-tint-5,
+.parts-table td.part-tint-5 { box-shadow: inset 3px 0 0 hsl(225 28% 11%); }
+.parts-table th.part-tint-6,
+.parts-table td.part-tint-6 { box-shadow: inset 3px 0 0 hsl(270 24% 11%); }
+.parts-table th.part-tint-7,
+.parts-table td.part-tint-7 { box-shadow: inset 3px 0 0 hsl(315 28% 11%); }
+
+.parts-table th.part-tint-0.part-selected,
+.parts-table td.part-tint-0.part-selected { box-shadow: inset 5px 0 0 hsl(0 72% 50%); }
+.parts-table th.part-tint-1.part-selected,
+.parts-table td.part-tint-1.part-selected { box-shadow: inset 5px 0 0 hsl(45 72% 50%); }
+.parts-table th.part-tint-2.part-selected,
+.parts-table td.part-tint-2.part-selected { box-shadow: inset 5px 0 0 hsl(90 72% 50%); }
+.parts-table th.part-tint-3.part-selected,
+.parts-table td.part-tint-3.part-selected { box-shadow: inset 5px 0 0 hsl(135 72% 50%); }
+.parts-table th.part-tint-4.part-selected,
+.parts-table td.part-tint-4.part-selected { box-shadow: inset 5px 0 0 hsl(180 68% 50%); }
+.parts-table th.part-tint-5.part-selected,
+.parts-table td.part-tint-5.part-selected { box-shadow: inset 5px 0 0 hsl(225 72% 50%); }
+.parts-table th.part-tint-6.part-selected,
+.parts-table td.part-tint-6.part-selected { box-shadow: inset 5px 0 0 hsl(270 68% 50%); }
+.parts-table th.part-tint-7.part-selected,
+.parts-table td.part-tint-7.part-selected { box-shadow: inset 5px 0 0 hsl(315 72% 50%); }
+
+.parts-table th[class*="part-tint-"],
+.parts-table td[class*="part-tint-"] {
+  padding-left: 10px;
+}
+
 .players-list {
   display: flex;
   flex-direction: column;
@@ -569,6 +608,15 @@ body {
 .parts-toolbar h2 {
   margin: 0;
   margin-right: auto;
+}
+
+.toolbar-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
 }
 
 .player-filter {

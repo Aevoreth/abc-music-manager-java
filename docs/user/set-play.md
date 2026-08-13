@@ -82,13 +82,13 @@ When the loaded set has a band layout, the grid shows player positions.
 
 **Part change highlighting** compares the **next** selected song to the **current** song (instrument/part changes between them).
 
-The player name list highlights selected members on the grid and Parts table (local only — not sent to the relay). Useful to remind you which player(s) you are controlling.
+The player name list (**Your players** on Playback, or **Players** on Parts) highlights selected members on the grid and draws a stronger tint accent on their Parts columns (local only — not sent to the relay). Useful to remind you which player(s) you are controlling.
 
 ---
 
 ## Parts {#parts}
 
-The **Parts** tab is a CSV-style table using Player Column Order and CSV part-renaming rules (same as set export). Without a layout, columns are **Part 1…N**. Any column can be hidden. Tints follow canonical player index (12 colors, then they repeat). **Instruments needed…** lists unique catalog instruments per player.
+The **Parts** tab is a CSV-style table using Player Column Order and CSV part-renaming rules (same as set export). Without a layout, columns are **Part 1…N**. All player columns are shown by default. Each column has a tint wash and a left accent in that tint (dimmer until you select the player; bolder and more saturated when selected). **Selected players only** (app and browser) hides columns for players who are not selected. **Players** (app and browser) is the same list as **Your players** on Playback. **Instruments needed…** lists unique catalog instruments per player.
 
 Assistants see the same table read-only.
 
