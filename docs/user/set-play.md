@@ -19,7 +19,7 @@ Other session actions (relay token required): **Reconnect**, **Rename** (code an
 
 Zip download expires after the session date/time (America/New_York) plus that relay’s **retention days** (default 14). Playback continues after the zip expires. Changing retention does not rewrite existing zips. There is no minimum remaining life if you upload late.
 
-**Reconnect** when the local setlist is missing or different: the app warns and hosts from the relay **snapshot**. Advance still works. Play history is skipped for songs that are not in this library.
+**Reconnect** when the local setlist is missing or different: the app warns and hosts from the relay **snapshot**. Advance still works; the band grid follows NEXT from the snapshot’s per-song layouts. Play history is skipped for songs that are not in this library. If the same setlist is in this library, Set Play reloads it from the database instead of using incomplete snapshot rows.
 
 ---
 

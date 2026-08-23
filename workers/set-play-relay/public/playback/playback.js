@@ -371,7 +371,7 @@
       ? order.map((id) => byId.get(id)).filter(Boolean)
       : rows;
 
-    lastCards = Array.isArray(data.next_layout_cards) ? data.next_layout_cards : [];
+    lastCards = layoutCardsFromSnapshot(data);
     lastLayoutByItem =
       data.layout_cards_by_item_id && typeof data.layout_cards_by_item_id === "object"
         ? data.layout_cards_by_item_id
@@ -409,7 +409,7 @@
     nextMeta.textContent = songMetaLine(nxt);
 
     const layoutKey = lastCards
-      .map((c) => `${c.player_id}:${c.x},${c.y}`)
+      .map((c) => `${c.player_id}:${c.x},${c.y}:${c.part_number}:${c.part_name}:${c.instrument_name}`)
       .sort()
       .join("|");
     const layoutChanged = layoutKey !== lastLayoutKey;
@@ -446,6 +446,38 @@
   function cardsForItem(itemId) {
     const cards = lastLayoutByItem[itemId] || lastLayoutByItem[String(itemId)];
     return Array.isArray(cards) ? cards : [];
+  }
+
+  function placeholderCard(card) {
+    return {
+      ...card,
+      part_number: "---",
+      part_name: "(Part Name)",
+      instrument_name: "(Made for Instrument)",
+      instrument_warning: false,
+      part_duplicate: false,
+      neighbor_prev_part_label: "",
+      neighbor_next_part_label: "",
+      instrument_changed_from_prior_in_set: false,
+    };
+  }
+
+  /** Prefer per-song cards for NEXT so a stale next_layout_cards snapshot cannot freeze parts. */
+  function layoutCardsFromSnapshot(data) {
+    const nextId = data.next_item_id != null ? Number(data.next_item_id) : null;
+    const byItem =
+      data.layout_cards_by_item_id && typeof data.layout_cards_by_item_id === "object"
+        ? data.layout_cards_by_item_id
+        : {};
+    if (nextId != null) {
+      const cards = byItem[nextId] || byItem[String(nextId)];
+      if (Array.isArray(cards) && cards.length) return cards;
+    }
+    const fallback = Array.isArray(data.next_layout_cards) ? data.next_layout_cards : [];
+    if (nextId == null && fallback.length) {
+      return fallback.map(placeholderCard);
+    }
+    return fallback;
   }
 
   function layoutPreviewCell(itemId, title) {

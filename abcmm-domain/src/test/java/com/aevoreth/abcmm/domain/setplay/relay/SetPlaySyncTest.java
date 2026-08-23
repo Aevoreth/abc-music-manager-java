@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.domain.setplay.relay;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -163,5 +164,61 @@ class SetPlaySyncTest {
         assertEquals(2, applied.layoutCardsByItemId().size());
         assertEquals("Melody", applied.layoutCardsByItemId().get(10L).get(0).partName());
         assertEquals("Harmony", applied.layoutCardsByItemId().get(11L).get(0).partName());
+    }
+
+    @Test
+    void stubRowsAreNotCompleteLocalDataEvenWhenIdsMatch() {
+        SetlistItemInfo stub = new SetlistItemInfo(
+                10L, 1L, 2L, "Tune", "", 60, 1, null, 0, null, null);
+        SetlistItemInfo local = new SetlistItemInfo(
+                10L, 1L, 2L, "Tune", "", 60, 1, "[]", 0, null, 99L);
+        Map<String, Object> snapRow = new java.util.LinkedHashMap<>();
+        snapRow.put("item_id", 10L);
+        List<Map<String, Object>> snapshot = List.of(snapRow);
+
+        assertTrue(SetPlaySync.songRowsMatchSnapshot(List.of(stub), snapshot));
+        assertFalse(SetPlaySync.songRowsHavePartData(List.of(stub)));
+        assertFalse(SetPlaySync.canHostFromLocal(List.of(stub), snapshot));
+        assertTrue(SetPlaySync.canHostFromLocal(List.of(local), snapshot));
+    }
+
+    @Test
+    void songRowsMatchSnapshotIgnoresOrder() {
+        SetlistItemInfo a = new SetlistItemInfo(
+                10L, 1L, 2L, "A", "", 60, 1, "[]", 0, null, null);
+        SetlistItemInfo b = new SetlistItemInfo(
+                11L, 1L, 3L, "B", "", 90, 2, "[]", 1, null, null);
+        Map<String, Object> rowA = new java.util.LinkedHashMap<>();
+        rowA.put("item_id", 10);
+        Map<String, Object> rowB = new java.util.LinkedHashMap<>();
+        rowB.put("item_id", 11);
+        assertTrue(SetPlaySync.songRowsMatchSnapshot(List.of(b, a), List.of(rowA, rowB)));
+    }
+
+    @Test
+    void layoutCardsForFocusUsesByItemMapAndPlaceholdersWhenNextUnset() {
+        SetPlayLayoutCard songA = new SetPlayLayoutCard(
+                5L, "Alice", 0, 0,
+                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
+                "1", "Melody", "Lute",
+                false, false, true, "", "2", false);
+        SetPlayLayoutCard songB = new SetPlayLayoutCard(
+                5L, "Alice", 0, 0,
+                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
+                "2", "Harmony", "Harp",
+                false, false, true, "1", "", false);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(songA),
+                11L, List.of(songB));
+
+        List<SetPlayLayoutCard> focused = SetPlaySync.layoutCardsForFocus(11L, byItem, List.of(songA));
+        assertEquals("Harmony", focused.get(0).partName());
+
+        List<SetPlayLayoutCard> cleared = SetPlaySync.layoutCardsForFocus(null, byItem, List.of(songA));
+        assertEquals(1, cleared.size());
+        assertEquals("---", cleared.get(0).partNumber());
+        assertEquals("(Part Name)", cleared.get(0).partName());
+        assertEquals("Alice", cleared.get(0).playerName());
+        assertEquals("Melody", songA.partName());
     }
 }

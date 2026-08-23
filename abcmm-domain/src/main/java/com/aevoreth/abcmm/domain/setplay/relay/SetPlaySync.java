@@ -3,6 +3,7 @@ package com.aevoreth.abcmm.domain.setplay.relay;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -157,6 +158,88 @@ public final class SetPlaySync {
                 bool(data.get("zip_available"), false),
                 str(data.get("session_name"), ""),
                 layoutCardsByItemIdFromPayload(data.get("layout_cards_by_item_id")));
+    }
+
+    /**
+     * True when local rows still have library part data (not snapshot stubs) and the
+     * same setlist-item ids as the relay snapshot.
+     */
+    public static boolean canHostFromLocal(
+            List<SetlistItemInfo> localRows, List<Map<String, Object>> snapshotRows) {
+        return songRowsHavePartData(localRows) && songRowsMatchSnapshot(localRows, snapshotRows);
+    }
+
+    /**
+     * Snapshot hydration writes {@code partsJson} and {@code songLayoutId} as null.
+     * Real library rows keep at least one of those.
+     */
+    public static boolean songRowsHavePartData(List<SetlistItemInfo> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return false;
+        }
+        for (SetlistItemInfo row : rows) {
+            if (row != null && (row.partsJson() != null || row.songLayoutId() != null)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Same item ids as the snapshot, ignoring table vs {@code order_item_ids} order. */
+    public static boolean songRowsMatchSnapshot(
+            List<SetlistItemInfo> localRows, List<Map<String, Object>> snapshotRows) {
+        if (localRows == null || snapshotRows == null || localRows.size() != snapshotRows.size()) {
+            return false;
+        }
+        Set<Long> localIds = new LinkedHashSet<>();
+        for (SetlistItemInfo row : localRows) {
+            if (row != null) {
+                localIds.add(row.id());
+            }
+        }
+        Set<Long> snapIds = new LinkedHashSet<>();
+        for (Map<String, Object> row : snapshotRows) {
+            if (row == null) {
+                continue;
+            }
+            Long id = toLongOrNull(row.get("item_id"));
+            if (id != null) {
+                snapIds.add(id);
+            }
+        }
+        return !localIds.isEmpty() && localIds.equals(snapIds);
+    }
+
+    /**
+     * Band cards for the NEXT-focused live grid. When NEXT is unset, strips part
+     * labels so Clear session does not keep the previous song's assignments.
+     */
+    public static List<SetPlayLayoutCard> layoutCardsForFocus(
+            Long focusItemId,
+            Map<Long, List<SetPlayLayoutCard>> byItemId,
+            List<SetPlayLayoutCard> currentCards) {
+        List<SetPlayLayoutCard> fallback = currentCards == null ? List.of() : currentCards;
+        if (focusItemId == null) {
+            return positionOnlyCards(fallback);
+        }
+        if (byItemId != null) {
+            List<SetPlayLayoutCard> cards = byItemId.get(focusItemId);
+            if (cards != null && !cards.isEmpty()) {
+                return List.copyOf(cards);
+            }
+        }
+        return fallback.isEmpty() ? List.of() : List.copyOf(fallback);
+    }
+
+    public static List<SetPlayLayoutCard> positionOnlyCards(List<SetPlayLayoutCard> cards) {
+        if (cards == null || cards.isEmpty()) {
+            return List.of();
+        }
+        List<SetPlayLayoutCard> out = new ArrayList<>(cards.size());
+        for (SetPlayLayoutCard card : cards) {
+            out.add(card.asPlaceholder());
+        }
+        return List.copyOf(out);
     }
 
     public static Map<String, Object> layoutCardsByItemIdToPayload(

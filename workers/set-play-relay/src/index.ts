@@ -75,6 +75,29 @@ function zipContentDisposition(setName: string | null | undefined, code: string)
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file)}`;
 }
 
+function placeholderLayoutCards(raw: unknown): unknown[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((card) => {
+    if (!card || typeof card !== "object") {
+      return card;
+    }
+    const c = card as Record<string, unknown>;
+    return {
+      ...c,
+      part_number: "---",
+      part_name: "(Part Name)",
+      instrument_name: "(Made for Instrument)",
+      instrument_warning: false,
+      part_duplicate: false,
+      neighbor_prev_part_label: "",
+      neighbor_next_part_label: "",
+      instrument_changed_from_prior_in_set: false,
+    };
+  });
+}
+
 function randomToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -177,6 +200,7 @@ export class SetPlayRoom extends DurableObject {
     parsed.skipped_item_ids = [];
     parsed.current_item_id = null;
     parsed.next_item_id = null;
+    parsed.next_layout_cards = placeholderLayoutCards(parsed.next_layout_cards);
     const rev = Number(parsed.revision ?? 0) + 1;
     parsed.revision = rev;
     return JSON.stringify(parsed);

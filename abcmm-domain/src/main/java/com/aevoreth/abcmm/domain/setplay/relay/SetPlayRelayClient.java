@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -41,6 +42,9 @@ public final class SetPlayRelayClient implements AutoCloseable {
     private final Listener listener;
     private final AtomicReference<WebSocket> socket = new AtomicReference<>();
     private final StringBuilder textBuffer = new StringBuilder();
+    private final Object sendLock = new Object();
+    private CompletableFuture<WebSocket> inFlight;
+    private String pendingJson;
 
     public SetPlayRelayClient(Listener listener) {
         this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build(), listener);
@@ -66,10 +70,40 @@ public final class SetPlayRelayClient implements AutoCloseable {
         }
         try {
             String json = MAPPER.writeValueAsString(payload);
-            ws.sendText(json, true);
+            synchronized (sendLock) {
+                if (inFlight != null && !inFlight.isDone()) {
+                    pendingJson = json;
+                    return;
+                }
+                sendNow(ws, json);
+            }
         } catch (Exception ex) {
             listener.onError(ex.getMessage() == null ? "Failed to send snapshot" : ex.getMessage());
         }
+    }
+
+    private void sendNow(WebSocket ws, String json) {
+    try {
+        inFlight = ws.sendText(json, true);
+        inFlight.whenComplete((ok, err) -> {
+            if (err != null) {
+                listener.onError(err.getMessage() == null ? "Failed to send snapshot" : err.getMessage());
+            }
+            synchronized (sendLock) {
+                String next = pendingJson;
+                pendingJson = null;
+                WebSocket current = socket.get();
+                if (next != null && current != null && isOpen()) {
+                    sendNow(current, next);
+                } else {
+                    inFlight = null;
+                }
+            }
+        });
+    } catch (Exception ex) {
+        inFlight = null;
+        listener.onError(ex.getMessage() == null ? "Failed to send snapshot" : ex.getMessage());
+    }
     }
 
     public boolean isOpen() {
@@ -79,6 +113,10 @@ public final class SetPlayRelayClient implements AutoCloseable {
 
     @Override
     public void close() {
+        synchronized (sendLock) {
+            pendingJson = null;
+            inFlight = null;
+        }
         WebSocket ws = socket.getAndSet(null);
         if (ws != null) {
             try {

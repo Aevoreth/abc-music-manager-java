@@ -20,4 +20,24 @@ public record SetPlayLayoutCard(
         String neighborPrevPartLabel,
         String neighborNextPartLabel,
         boolean instrumentChangedFromPriorInSet) {
+
+    /** Formation-only card used when NEXT is unset (Clear session, start of set). */
+    public SetPlayLayoutCard asPlaceholder() {
+        return new SetPlayLayoutCard(
+                playerId,
+                playerName,
+                x,
+                y,
+                widthUnits,
+                heightUnits,
+                "---",
+                "(Part Name)",
+                "(Made for Instrument)",
+                false,
+                false,
+                useSetlistPlayerHeader,
+                "",
+                "",
+                false);
+    }
 }

@@ -1157,6 +1157,13 @@ public final class SetPlayPanel extends JPanel {
             zipAvailable = summary.zipAvailable();
             if (loadedSetlist == null || loadedSetlist.id() != (summary.setlistId() == null ? 0L : summary.setlistId())) {
                 hostingFromSnapshot = true;
+                JOptionPane.showMessageDialog(
+                        this,
+                        "The local setlist is missing or different from this session.\n"
+                                + "Hosting from the relay snapshot. Advance still works.\n"
+                                + "Play history is skipped for songs that are not in this library.",
+                        "Snapshot only",
+                        JOptionPane.WARNING_MESSAGE);
             }
         }
         if (setPlayRelayRepository != null) {
@@ -1408,6 +1415,7 @@ public final class SetPlayPanel extends JPanel {
                         session.setCurrentItemId(null);
                         session.setNextItemId(null);
                         session.bumpRevision();
+                        recoverLocalHostIfPossible();
                         lastPushedRevision = session.revision();
                         refreshAll();
                         pushRelayIfLeader();
@@ -1680,40 +1688,51 @@ public final class SetPlayPanel extends JPanel {
     private void applyRemoteSnapshot(Map<String, Object> data) {
         SetPlaySync.AppliedSnapshot applied = SetPlaySync.applySnapshot(data);
         long setlistId = toLong(data.get("setlist_id"), 0L);
-        boolean localMatches = !assistantMode
-                && loadedSetlist != null
-                && loadedSetlist.id() == setlistId
-                && songRowsMatchSnapshot(applied.rows());
-        if (!assistantMode && !localMatches && !hostingFromSnapshot) {
-            hostingFromSnapshot = true;
-            JOptionPane.showMessageDialog(
-                    this,
-                    "The local setlist is missing or different from this session.\n"
-                            + "Hosting from the relay snapshot. Advance still works.\n"
-                            + "Play history is skipped for songs that are not in this library.",
-                    "Snapshot only",
-                    JOptionPane.WARNING_MESSAGE);
-        }
         session = applied.session();
         zipAvailable = applied.zipAvailable();
         if (applied.sessionName() != null && !applied.sessionName().isBlank()) {
             sessionName = applied.sessionName();
         }
 
-        if (localMatches) {
+        boolean recovered = false;
+        if (!assistantMode && adoptLocalRowsForSnapshot(setlistId, applied.rows())) {
+            recovered = hostingFromSnapshot;
             hostingFromSnapshot = false;
             rebuildPartsSheetFromLocal();
             if (loadedSetlist != null) {
                 setlistNameLabel.setText(loadedSetlist.name());
             }
+            rememberAppliedRevision();
             statusLabel.setText("Synced (rev " + session.revision() + ").");
             refreshAll();
             refreshSongBanners();
             updateDownloadButton();
             SwingUtilities.invokeLater(gridPanel::fitCardsToView);
+            if (recovered && relay.isOpen()) {
+                session.bumpRevision();
+                pushRelayIfLeader();
+            }
             return;
         }
 
+        if (!assistantMode && !hostingFromSnapshot) {
+            hostingFromSnapshot = true;
+        }
+
+        hydrateFromSnapshot(applied, setlistId);
+        rememberAppliedRevision();
+        if (!assistantMode && hostingFromSnapshot) {
+            statusLabel.setText("Hosting from relay snapshot (rev " + session.revision() + ").");
+        } else {
+            statusLabel.setText("Synced (rev " + session.revision() + ").");
+        }
+        refreshAll();
+        refreshSongBanners();
+        updateDownloadButton();
+        SwingUtilities.invokeLater(gridPanel::fitCardsToView);
+    }
+
+    private void hydrateFromSnapshot(SetPlaySync.AppliedSnapshot applied, long setlistId) {
         Map<String, Object> meta = applied.setMeta();
         partsSheet = applied.partsSheet() == null ? SetPlayPartsSheet.empty() : applied.partsSheet();
 
@@ -1743,7 +1762,10 @@ public final class SetPlayPanel extends JPanel {
                     null));
         }
 
-        layoutCards = List.copyOf(applied.layoutCards());
+        layoutCards = SetPlaySync.layoutCardsForFocus(
+                SetPlaySessionRules.layoutFocusItemId(session),
+                applied.layoutCardsByItemId(),
+                applied.layoutCards());
         Map<Long, List<SetPlayLayoutCard>> byItem = applied.layoutCardsByItemId();
         layoutCardsByItemId = byItem == null ? Map.of() : Map.copyOf(byItem);
 
@@ -1784,24 +1806,74 @@ public final class SetPlayPanel extends JPanel {
         } else {
             setlistNameLabel.setText(name);
         }
-
-        statusLabel.setText("Synced (rev " + session.revision() + ").");
-        refreshAll();
-        refreshSongBanners();
-        updateDownloadButton();
-        SwingUtilities.invokeLater(gridPanel::fitCardsToView);
     }
 
-    private boolean songRowsMatchSnapshot(List<Map<String, Object>> rows) {
-        if (rows == null || songRows.size() != rows.size()) {
+    /**
+     * Prefer complete library rows over snapshot stubs when this setlist is in the
+     * local DB and item ids still match the hosted session.
+     */
+    private boolean adoptLocalRowsForSnapshot(long setlistId, List<Map<String, Object>> snapshotRows) {
+        if (assistantMode || setlistId <= 0) {
             return false;
         }
-        for (int i = 0; i < songRows.size(); i++) {
-            if (songRows.get(i).id() != toLong(rows.get(i).get("item_id"), 0L)) {
+        if (loadedSetlist != null
+                && loadedSetlist.id() == setlistId
+                && SetPlaySync.canHostFromLocal(songRows, snapshotRows)) {
+            return true;
+        }
+        return reloadSongRowsFromDb(setlistId)
+                && SetPlaySync.canHostFromLocal(songRows, snapshotRows);
+    }
+
+    private boolean recoverLocalHostIfPossible() {
+        if (assistantMode || loadedSetlist == null) {
+            return false;
+        }
+        if (!reloadSongRowsFromDb(loadedSetlist.id())) {
+            return false;
+        }
+        Set<Long> localIds = new HashSet<>();
+        for (SetlistItemInfo row : songRows) {
+            localIds.add(row.id());
+        }
+        if (!localIds.equals(new HashSet<>(session.orderItemIds()))) {
+            return false;
+        }
+        hostingFromSnapshot = false;
+        rebuildPartsSheetFromLocal();
+        return true;
+    }
+
+    private boolean reloadSongRowsFromDb(long setlistId) {
+        if (setlistRepository == null || setlistId <= 0) {
+            return false;
+        }
+        try {
+            SetlistInfo found = null;
+            for (SetlistInfo candidate : setlistRepository.listSetlists()) {
+                if (candidate.id() == setlistId) {
+                    found = candidate;
+                    break;
+                }
+            }
+            if (found == null) {
                 return false;
             }
+            List<SetlistItemInfo> items = setlistRepository.listItems(setlistId);
+            if (!SetPlaySync.songRowsHavePartData(items)) {
+                return false;
+            }
+            loadedSetlist = found;
+            songRows.clear();
+            songRows.addAll(items);
+            return true;
+        } catch (LibraryException ex) {
+            return false;
         }
-        return true;
+    }
+
+    private void rememberAppliedRevision() {
+        lastPushedRevision = Math.max(lastPushedRevision, session.revision());
     }
 
     private void onInnerTabChanged() {
@@ -1829,6 +1901,9 @@ public final class SetPlayPanel extends JPanel {
                 || setlistRepository == null
                 || bandRepository == null
                 || playerRepository == null) {
+            return;
+        }
+        if (!SetPlaySync.songRowsHavePartData(songRows)) {
             return;
         }
         try {
@@ -2031,6 +2106,9 @@ public final class SetPlayPanel extends JPanel {
     }
 
     private void afterStateChange() {
+        if (!assistantMode && hostingFromSnapshot) {
+            recoverLocalHostIfPossible();
+        }
         checkboxGuard = true;
         tableModel.fireTableDataChanged();
         checkboxGuard = false;
@@ -2108,7 +2186,16 @@ public final class SetPlayPanel extends JPanel {
     }
 
     private void refreshGrid() {
-        if (assistantMode || hostingFromSnapshot) {
+        if (assistantMode) {
+            gridPanel.setCards(layoutCards);
+            gridPanel.setHighlightPlayerIds(highlightPlayers);
+            return;
+        }
+        if (hostingFromSnapshot) {
+            layoutCards = SetPlaySync.layoutCardsForFocus(
+                    SetPlaySessionRules.layoutFocusItemId(session),
+                    layoutCardsByItemId,
+                    layoutCards);
             gridPanel.setCards(layoutCards);
             gridPanel.setHighlightPlayerIds(highlightPlayers);
             return;

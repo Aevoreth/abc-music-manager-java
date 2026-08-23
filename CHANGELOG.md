@@ -4,6 +4,8 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+- Fixed Set Play live parts freezing on one song after **Clear session**, then blanking the Parts table (player names and titles stayed). Advance now keeps NEXT parts in sync, and the leader no longer rebuilds Parts from relay stub rows. Redeploy the Cloudflare relay so the browser `/playback` page picks up the same guard.
+
 ## Version 0.4.0b
 
 - Replaced Set Play **Broadcast** rooms with **named sessions** (D1 registry, per-session Durable Objects, R2 zips up to 2 MB)
