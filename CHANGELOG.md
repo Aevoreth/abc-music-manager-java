@@ -4,6 +4,13 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+- Set Play relay: auto-reconnect with backoff after a dropped WebSocket, keepalive pings, and a connection status pill on Sessions / Playback / Connect
+- Set Play no longer rewinds NOW/NEXT when the bandleader reconnects after advancing while disconnected
+- Load set while a session is live stays local until **Republish** (Advance no longer silently replaces the hosted song list)
+- Copy Download and Play uses the selected session’s PIN, not a different connected session
+- Reconnect no longer shows “Disconnected” from the previous socket; leaders with a rejected token are told they are not hosting
+- Browser `/playback` auto-reconnects the same way. **Redeploy** the Cloudflare relay so assistants pick up hello-role, stale-revision ignore, and the new playback page
+
 ## Version 0.4.1b
 
 - Fixed Set Play live parts freezing on one song after **Clear session**, then blanking the Parts table (player names and titles stayed). Advance now keeps NEXT parts in sync, and the leader no longer rebuilds Parts from relay stub rows. Redeploy the Cloudflare relay so the browser `/playback` page picks up the same guard.

@@ -36,7 +36,7 @@ You need:
 
 Prefer `*.workers.dev`. On a custom domain, skip Bot Fight / WAF for the worker hostname or `/api/*` — the Bearer token does not bypass Bot Fight.
 
-If you already deployed a relay before named sessions, use **Redeploy worker on Cloudflare…**. That **wipes** the worker, D1 session list, R2 zips, and issues a new token.
+If you already deployed a relay, use **Redeploy worker on Cloudflare…** to pick up `/playback` auto-reconnect and hello-role. That **wipes** the worker, D1 session list, R2 zips, and issues a new token.
 
 ---
 

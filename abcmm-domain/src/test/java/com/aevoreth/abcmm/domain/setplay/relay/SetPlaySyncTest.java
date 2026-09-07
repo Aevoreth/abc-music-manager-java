@@ -221,4 +221,11 @@ class SetPlaySyncTest {
         assertEquals("Alice", cleared.get(0).playerName());
         assertEquals("Melody", songA.partName());
     }
+
+    @Test
+    void protocolTypeConstants() {
+        assertEquals("set_play_state_v2", SetPlaySync.STATE_TYPE);
+        assertEquals("set_play_hello", SetPlaySync.HELLO_TYPE);
+        assertEquals("ping", SetPlaySync.PING_TYPE);
+    }
 }

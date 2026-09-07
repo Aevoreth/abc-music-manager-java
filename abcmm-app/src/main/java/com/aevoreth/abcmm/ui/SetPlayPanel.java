@@ -96,6 +96,7 @@ import com.aevoreth.abcmm.domain.setplay.SetPlaySessionState;
 import com.aevoreth.abcmm.domain.setplay.SetPlayZipNames;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayRelayClient;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayRelayHttp;
+import com.aevoreth.abcmm.domain.setplay.relay.SetPlayRelayRules;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlayShareUrls;
 import com.aevoreth.abcmm.domain.setplay.relay.SetPlaySync;
 
@@ -165,6 +166,9 @@ public final class SetPlayPanel extends JPanel {
     private String relayShareUrl;
     private boolean zipAvailable;
     private boolean hostingFromSnapshot;
+    private boolean songListDirtyVsRelay;
+    private boolean layoutCardsCacheValid;
+    private boolean sessionOpInFlight;
     private List<SetPlayRelayHttp.SessionSummary> remoteSessions = List.of();
     private SetPlayPartsSheet partsSheet = SetPlayPartsSheet.empty();
     private final JTabbedPane innerTabs = new JTabbedPane();
@@ -186,7 +190,8 @@ public final class SetPlayPanel extends JPanel {
     private final JButton copyPlayOnlyBtn = new JButton("Copy Play Only");
     private final JButton copyDownloadBtn = new JButton("Copy Download and Play");
     private int lastPushedRevision = -1;
-    private int broadcastGeneration;
+    private int sessionsRequestId;
+    private final JLabel connectionPill = new JLabel("Disconnected");
     private final JLabel setlistNameLabel = new JLabel("—");
     private final SetlistPickerCombo setlistCombo = new SetlistPickerCombo();
     private final JButton loadBtn = new JButton("Load set");
@@ -239,6 +244,16 @@ public final class SetPlayPanel extends JPanel {
             @Override
             public void onClosed(int code, String reason) {
                 SwingUtilities.invokeLater(() -> onRelayClosed(code, reason));
+            }
+
+            @Override
+            public void onReconnecting(int attempt) {
+                SwingUtilities.invokeLater(() -> onRelayReconnecting(attempt));
+            }
+
+            @Override
+            public void onHello(String role) {
+                SwingUtilities.invokeLater(() -> onRelayHello(role));
             }
 
             @Override
@@ -363,6 +378,13 @@ public final class SetPlayPanel extends JPanel {
         mainSplitPane.setDividerLocation(MAIN_SPLIT_DEFAULT);
         mainSplit = mainSplitPane;
 
+        connectionPill.setOpaque(true);
+        connectionPill.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
+        setConnectionStatus("Disconnected", "off");
+        JPanel north = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        north.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+        north.add(connectionPill);
+        add(north, BorderLayout.NORTH);
         add(innerTabs, BorderLayout.CENTER);
         innerTabs.addTab(assistantMode ? "Connect" : "Sessions",
                 assistantMode ? buildAssistantConnectPanel() : buildSessionsPanel());
@@ -479,6 +501,11 @@ public final class SetPlayPanel extends JPanel {
         sessionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         sessionList.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         sessionList.getTableHeader().setReorderingAllowed(false);
+        sessionList.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateCopyButtons();
+            }
+        });
         sizeSessionColumns();
         JScrollPane listScroll = new JScrollPane(sessionList);
         listScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -808,8 +835,8 @@ public final class SetPlayPanel extends JPanel {
 
     /** Close the relay WebSocket (call when disposing the window/panel). */
     public void shutdown() {
-        broadcastGeneration++;
-        relay.close();
+        sessionsRequestId++;
+        relay.shutdown();
     }
 
     private SetPlayRelayInfo selectedRelayOrNull() {
@@ -899,11 +926,15 @@ public final class SetPlayPanel extends JPanel {
             return;
         }
         final SetPlayRelayInfo info = relayInfo;
+        final int requestId = ++sessionsRequestId;
         Thread t = new Thread(() -> {
             try {
                 List<SetPlayRelayHttp.SessionSummary> list =
                         relayHttp.listSessions(info.normalizedUrl(), info.token());
                 SwingUtilities.invokeLater(() -> {
+                    if (requestId != sessionsRequestId) {
+                        return;
+                    }
                     remoteSessions = list;
                     Map<String, String> pins = localPinsByCode(info.id());
                     sessionListModel.setRowCount(0);
@@ -934,9 +965,13 @@ public final class SetPlayPanel extends JPanel {
                     updateCopyButtons();
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() ->
-                        statusLabel.setText("Could not list sessions: "
-                                + (ex.getMessage() == null ? ex : ex.getMessage())));
+                SwingUtilities.invokeLater(() -> {
+                    if (requestId != sessionsRequestId) {
+                        return;
+                    }
+                    statusLabel.setText("Could not list sessions: "
+                            + (ex.getMessage() == null ? ex : ex.getMessage()));
+                });
             }
         }, "set-play-list-sessions");
         t.setDaemon(true);
@@ -1080,11 +1115,17 @@ public final class SetPlayPanel extends JPanel {
         if (!warnDuplicateName(prompt.name(), null)) {
             return;
         }
+        if (!beginSessionOp()) {
+            return;
+        }
         rebuildPartsSheetFromLocal();
         hostingFromSnapshot = false;
+        songListDirtyVsRelay = false;
+        layoutCardsCacheValid = false;
         Map<String, Object> state = currentSnapshotPayload(prompt.name());
         final SetPlayRelayInfo info = relayInfo;
         statusLabel.setText("Creating session…");
+        setConnectionStatus("Connecting…", "warn");
         Thread t = new Thread(() -> {
             try {
                 SetPlayRelayHttp.CreateResult created = relayHttp.createSession(
@@ -1106,6 +1147,7 @@ public final class SetPlayPanel extends JPanel {
                             loadedSetlist.id());
                 }
                 SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
                     relayCode = created.roomCode();
                     sessionPassphrase = created.passphrase();
                     sessionName = created.name();
@@ -1125,11 +1167,15 @@ public final class SetPlayPanel extends JPanel {
                             JOptionPane.INFORMATION_MESSAGE);
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
+                    setConnectionStatus("Disconnected", "off");
+                    JOptionPane.showMessageDialog(
                         this,
                         "Could not create session: " + (ex.getMessage() == null ? ex : ex.getMessage()),
                         "Relay",
-                        JOptionPane.WARNING_MESSAGE));
+                        JOptionPane.WARNING_MESSAGE);
+                });
             }
         }, "set-play-create-session");
         t.setDaemon(true);
@@ -1150,12 +1196,19 @@ public final class SetPlayPanel extends JPanel {
             return;
         }
         SetPlayRelayHttp.SessionSummary summary = findRemote(code);
+        boolean sameLocalSet = loadedSetlist != null
+                && summary != null
+                && summary.setlistId() != null
+                && loadedSetlist.id() == summary.setlistId()
+                && SetPlaySync.songRowsHavePartData(songRows)
+                && !songListDirtyVsRelay;
         if (summary != null) {
             sessionName = summary.name();
             sessionDate = summary.setDate();
             sessionTime = summary.setTime();
             zipAvailable = summary.zipAvailable();
-            if (loadedSetlist == null || loadedSetlist.id() != (summary.setlistId() == null ? 0L : summary.setlistId())) {
+            if (!sameLocalSet && (loadedSetlist == null
+                    || loadedSetlist.id() != (summary.setlistId() == null ? 0L : summary.setlistId()))) {
                 hostingFromSnapshot = true;
                 JOptionPane.showMessageDialog(
                         this,
@@ -1178,9 +1231,14 @@ public final class SetPlayPanel extends JPanel {
                 // local PIN is optional
             }
         }
-        lastPushedRevision = -1;
+        if (sameLocalSet) {
+            hostingFromSnapshot = false;
+        } else {
+            lastPushedRevision = -1;
+        }
         relayCode = code;
         updateShareLabels(relayInfo.normalizedUrl());
+        setConnectionStatus("Connecting…", "warn");
         relay.close();
         relay.openLeader(relayInfo.normalizedUrl(), code, relayInfo.token());
         statusLabel.setText("Reconnecting…");
@@ -1213,6 +1271,9 @@ public final class SetPlayPanel extends JPanel {
         if (!warnDuplicateName(next, code)) {
             return;
         }
+        if (!beginSessionOp()) {
+            return;
+        }
         final String name = next;
         final SetPlayRelayInfo info = relayInfo;
         Thread t = new Thread(() -> {
@@ -1222,6 +1283,7 @@ public final class SetPlayPanel extends JPanel {
                     setPlayRelayRepository.updatePublishedSessionName(info.id(), code, name);
                 }
                 SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
                     if (code.equalsIgnoreCase(relayCode)) {
                         sessionName = name;
                         updateShareLabels(info.normalizedUrl());
@@ -1233,11 +1295,14 @@ public final class SetPlayPanel extends JPanel {
                     statusLabel.setText("Renamed session.");
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
+                    JOptionPane.showMessageDialog(
                         this,
                         "Rename failed: " + (ex.getMessage() == null ? ex : ex.getMessage()),
                         "Relay",
-                        JOptionPane.WARNING_MESSAGE));
+                        JOptionPane.WARNING_MESSAGE);
+                });
             }
         }, "set-play-rename");
         t.setDaemon(true);
@@ -1273,6 +1338,9 @@ public final class SetPlayPanel extends JPanel {
         if (ok != JOptionPane.YES_OPTION) {
             return;
         }
+        if (!beginSessionOp()) {
+            return;
+        }
         session = new SetPlaySessionState(session.orderItemIds());
         List<Long> order = new ArrayList<>();
         for (SetlistItemInfo row : songRows) {
@@ -1280,6 +1348,8 @@ public final class SetPlayPanel extends JPanel {
         }
         session = new SetPlaySessionState(order);
         hostingFromSnapshot = false;
+        songListDirtyVsRelay = false;
+        layoutCardsCacheValid = false;
         zipAvailable = false;
         rebuildPartsSheetFromLocal();
         SetPlayRelayHttp.SessionSummary summary = findRemote(code);
@@ -1300,10 +1370,12 @@ public final class SetPlayPanel extends JPanel {
                         time,
                         state);
                 SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
                     lastPushedRevision = session.revision();
                     relayCode = code;
                     updateShareLabels(info.normalizedUrl());
                     if (!relay.isOpen()) {
+                        setConnectionStatus("Connecting…", "warn");
                         relay.openLeader(info.normalizedUrl(), code, info.token());
                     } else {
                         pushRelayIfLeader();
@@ -1313,11 +1385,14 @@ public final class SetPlayPanel extends JPanel {
                     statusLabel.setText("Republished. Zip removed.");
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
+                    JOptionPane.showMessageDialog(
                         this,
                         "Republish failed: " + (ex.getMessage() == null ? ex : ex.getMessage()),
                         "Relay",
-                        JOptionPane.WARNING_MESSAGE));
+                        JOptionPane.WARNING_MESSAGE);
+                });
             }
         }, "set-play-republish");
         t.setDaemon(true);
@@ -1354,6 +1429,9 @@ public final class SetPlayPanel extends JPanel {
             time = parseTimeOrNull(summary.setTime());
         }
         String expires = SetPlayExpiry.expiresAtIso(date, time, relayInfo.retentionDays());
+        if (!beginSessionOp()) {
+            return;
+        }
         final SetPlayRelayInfo info = relayInfo;
         Thread t = new Thread(() -> {
             try {
@@ -1363,6 +1441,7 @@ public final class SetPlayPanel extends JPanel {
                 }
                 relayHttp.uploadZip(info.normalizedUrl(), info.token(), code, bytes, expires);
                 SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
                     zipAvailable = true;
                     refreshRemoteSessions();
                     if (relay.isOpen() && code.equalsIgnoreCase(relayCode)) {
@@ -1371,11 +1450,14 @@ public final class SetPlayPanel extends JPanel {
                     statusLabel.setText("Zip uploaded.");
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
+                    JOptionPane.showMessageDialog(
                         this,
                         "Upload failed: " + (ex.getMessage() == null ? ex : ex.getMessage()),
                         "Relay",
-                        JOptionPane.WARNING_MESSAGE));
+                        JOptionPane.WARNING_MESSAGE);
+                });
             }
         }, "set-play-upload-zip");
         t.setDaemon(true);
@@ -1404,11 +1486,15 @@ public final class SetPlayPanel extends JPanel {
         if (ok != JOptionPane.YES_OPTION) {
             return;
         }
+        if (!beginSessionOp()) {
+            return;
+        }
         final SetPlayRelayInfo info = relayInfo;
         Thread t = new Thread(() -> {
             try {
                 relayHttp.clearSession(info.normalizedUrl(), info.token(), code);
                 SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
                     if (code.equalsIgnoreCase(relayCode)) {
                         session.playedItemIds().clear();
                         session.skippedItemIds().clear();
@@ -1423,11 +1509,14 @@ public final class SetPlayPanel extends JPanel {
                     statusLabel.setText("Session cleared.");
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
+                    JOptionPane.showMessageDialog(
                         this,
                         "Clear failed: " + (ex.getMessage() == null ? ex : ex.getMessage()),
                         "Relay",
-                        JOptionPane.WARNING_MESSAGE));
+                        JOptionPane.WARNING_MESSAGE);
+                });
             }
         }, "set-play-clear");
         t.setDaemon(true);
@@ -1456,6 +1545,9 @@ public final class SetPlayPanel extends JPanel {
         if (ok != JOptionPane.YES_OPTION) {
             return;
         }
+        if (!beginSessionOp()) {
+            return;
+        }
         final SetPlayRelayInfo info = relayInfo;
         Thread t = new Thread(() -> {
             try {
@@ -1464,25 +1556,29 @@ public final class SetPlayPanel extends JPanel {
                     setPlayRelayRepository.deletePublishedSession(info.id(), code);
                 }
                 SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
                     if (code.equalsIgnoreCase(relayCode)) {
-                        broadcastGeneration++;
                         relay.close();
                         relayCode = null;
                         sessionPassphrase = null;
                         sessionName = null;
                         roomLabel.setText("");
                         zipAvailable = false;
+                        setConnectionStatus("Disconnected", "off");
                     }
                     refreshRemoteSessions();
                     updateCopyButtons();
                     statusLabel.setText("Session deleted.");
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                SwingUtilities.invokeLater(() -> {
+                    endSessionOp();
+                    JOptionPane.showMessageDialog(
                         this,
                         "Delete failed: " + (ex.getMessage() == null ? ex : ex.getMessage()),
                         "Relay",
-                        JOptionPane.WARNING_MESSAGE));
+                        JOptionPane.WARNING_MESSAGE);
+                });
             }
         }, "set-play-delete");
         t.setDaemon(true);
@@ -1498,16 +1594,7 @@ public final class SetPlayPanel extends JPanel {
         }
         String text;
         if (downloadAndPlay) {
-            String pin = sessionPassphrase;
-            if ((pin == null || pin.isBlank()) && relayInfo != null && setPlayRelayRepository != null) {
-                try {
-                    pin = setPlayRelayRepository.findPublishedSession(relayInfo.id(), code)
-                            .map(SetPlayPublishedSessionInfo::passphrase)
-                            .orElse(null);
-                } catch (LibraryException ignored) {
-                    pin = null;
-                }
-            }
+            String pin = pinForSelectedCode();
             if (pin == null || pin.isBlank()) {
                 JOptionPane.showMessageDialog(
                         this,
@@ -1540,22 +1627,78 @@ public final class SetPlayPanel extends JPanel {
 
     private void updateCopyButtons() {
         boolean hasCode = selectedRemoteCode() != null && !selectedRemoteCode().isBlank();
-        copyPlayOnlyBtn.setEnabled(hasCode);
-        boolean hasPin = sessionPassphrase != null && !sessionPassphrase.isBlank();
-        if (!hasPin && setPlayRelayRepository != null) {
-            SetPlayRelayInfo info = selectedRelayOrNull();
-            String code = selectedRemoteCode();
-            if (info != null && code != null) {
-                try {
-                    hasPin = setPlayRelayRepository.findPublishedSession(info.id(), code)
-                            .map(s -> s.passphrase() != null && !s.passphrase().isBlank())
-                            .orElse(false);
-                } catch (LibraryException ignored) {
-                    hasPin = false;
-                }
+        copyPlayOnlyBtn.setEnabled(hasCode && !sessionOpInFlight);
+        String pin = pinForSelectedCode();
+        copyDownloadBtn.setEnabled(hasCode && !sessionOpInFlight && pin != null && !pin.isBlank());
+    }
+
+    private String pinForSelectedCode() {
+        String code = selectedRemoteCode();
+        return SetPlayRelayRules.pinForSelectedSession(
+                code, relayCode, sessionPassphrase, localPinForCode(code));
+    }
+
+    private String localPinForCode(String code) {
+        if (code == null || setPlayRelayRepository == null) {
+            return null;
+        }
+        SetPlayRelayInfo info = selectedRelayOrNull();
+        if (info == null) {
+            return null;
+        }
+        try {
+            return setPlayRelayRepository.findPublishedSession(info.id(), code)
+                    .map(SetPlayPublishedSessionInfo::passphrase)
+                    .orElse(null);
+        } catch (LibraryException ignored) {
+            return null;
+        }
+    }
+
+    private boolean beginSessionOp() {
+        if (sessionOpInFlight) {
+            return false;
+        }
+        sessionOpInFlight = true;
+        setSessionButtonsEnabled(false);
+        return true;
+    }
+
+    private void endSessionOp() {
+        sessionOpInFlight = false;
+        setSessionButtonsEnabled(true);
+        updateCopyButtons();
+    }
+
+    private void setSessionButtonsEnabled(boolean enabled) {
+        createSessionBtn.setEnabled(enabled);
+        reconnectSessionBtn.setEnabled(enabled);
+        renameSessionBtn.setEnabled(enabled);
+        republishBtn.setEnabled(enabled);
+        uploadZipBtn.setEnabled(enabled);
+        clearSessionBtn.setEnabled(enabled);
+        deleteSessionBtn.setEnabled(enabled);
+        if (!enabled) {
+            copyPlayOnlyBtn.setEnabled(false);
+            copyDownloadBtn.setEnabled(false);
+        }
+    }
+
+    private void setConnectionStatus(String text, String kind) {
+        connectionPill.setText(text);
+        Color bg;
+        Color fg = Color.WHITE;
+        switch (kind == null ? "" : kind) {
+            case "ok" -> bg = STATUS_NOW;
+            case "warn" -> bg = new Color(0xD4_8A_3A);
+            case "error" -> bg = STATUS_SKIP;
+            default -> {
+                bg = new Color(0x5C_54_60);
+                fg = Color.WHITE;
             }
         }
-        copyDownloadBtn.setEnabled(hasCode && hasPin);
+        connectionPill.setBackground(bg);
+        connectionPill.setForeground(fg);
     }
 
     private SetPlayRelayHttp.SessionSummary findRemote(String code) {
@@ -1599,6 +1742,7 @@ public final class SetPlayPanel extends JPanel {
             assistantLinkField.setText(link.roomCode());
         }
         relay.close();
+        setConnectionStatus("Connecting…", "warn");
         relay.openAssistant(link.relayWsUrl(), link.roomCode());
         assistantDisconnectBtn.setEnabled(true);
         assistantReconnectBtn.setEnabled(true);
@@ -1618,18 +1762,56 @@ public final class SetPlayPanel extends JPanel {
             String raw = assistantLinkField.getText() == null ? "" : assistantLinkField.getText().strip();
             assistantReconnectBtn.setEnabled(raw.length() >= 5);
         }
+        setConnectionStatus("Disconnected", "off");
         statusLabel.setText("Disconnected.");
     }
 
     private void onRelayConnected() {
+        setConnectionStatus("Connected", "ok");
         statusLabel.setText("Relay connected.");
         if (assistantMode && assistantReconnectBtn != null) {
             assistantReconnectBtn.setEnabled(true);
         }
+        if (!assistantMode && SetPlayRelayRules.shouldPushLocalOnLeaderConnect(
+                false, songListDirtyVsRelay, hostingFromSnapshot, canHostFromLocal())) {
+            session.bumpRevision();
+            pushRelayIfLeader();
+        }
+    }
+
+    private void onRelayReconnecting(int attempt) {
+        setConnectionStatus("Reconnecting…", "warn");
+        statusLabel.setText("Relay reconnecting (attempt " + attempt + ")…");
+        if (assistantMode) {
+            if (assistantReconnectBtn != null) {
+                assistantReconnectBtn.setEnabled(true);
+            }
+            if (assistantDisconnectBtn != null) {
+                assistantDisconnectBtn.setEnabled(true);
+            }
+        }
+    }
+
+    private void onRelayHello(String role) {
+        if (!assistantMode && "leader".equals(role)) {
+            setConnectionStatus("Connected (leader)", "ok");
+        } else if (assistantMode) {
+            setConnectionStatus("Connected", "ok");
+        }
+    }
+
+    private boolean canHostFromLocal() {
+        return loadedSetlist != null
+                && !songRows.isEmpty()
+                && SetPlaySync.songRowsHavePartData(songRows);
     }
 
     private void onRelayDisconnected() {
         if (!assistantMode) {
+            if (relay.isOpen()) {
+                return;
+            }
+            setConnectionStatus("Disconnected", "off");
             statusLabel.setText("Relay disconnected.");
         } else {
             if (assistantDisconnectBtn != null) {
@@ -1639,6 +1821,9 @@ public final class SetPlayPanel extends JPanel {
                 String raw = assistantLinkField.getText() == null ? "" : assistantLinkField.getText().strip();
                 assistantReconnectBtn.setEnabled(raw.length() >= 5);
             }
+            if (!relay.isOpen()) {
+                setConnectionStatus("Disconnected", "off");
+            }
             updateDownloadButton();
         }
     }
@@ -1646,6 +1831,7 @@ public final class SetPlayPanel extends JPanel {
     private void onRelayClosed(int code, String reason) {
         String why = reason == null ? "" : reason.strip();
         if (why.toLowerCase(Locale.ROOT).contains("session ended")) {
+            setConnectionStatus("Session ended", "warn");
             statusLabel.setText("Session ended.");
             JOptionPane.showMessageDialog(
                     this,
@@ -1666,6 +1852,11 @@ public final class SetPlayPanel extends JPanel {
     }
 
     private void onRelayError(String message) {
+        if (message != null && message.toLowerCase(Locale.ROOT).contains("not accepted as leader")) {
+            setConnectionStatus("Not leader", "error");
+        } else if (!relay.isOpen()) {
+            setConnectionStatus("Error", "error");
+        }
         statusLabel.setText("Relay: " + (message == null ? "error" : message));
     }
 
@@ -1673,11 +1864,10 @@ public final class SetPlayPanel extends JPanel {
         if (data == null) {
             return;
         }
-        if (!assistantMode) {
-            int revision = toInt(data.get("revision"), 0);
-            if (revision <= lastPushedRevision) {
-                return;
-            }
+        int revision = toInt(data.get("revision"), 0);
+        if (!SetPlayRelayRules.shouldApplyRemoteSnapshot(
+                assistantMode, songListDirtyVsRelay, revision, lastPushedRevision)) {
+            return;
         }
         if (!SetPlaySync.STATE_TYPE.equals(String.valueOf(data.get("type")))) {
             return;
@@ -1698,6 +1888,7 @@ public final class SetPlayPanel extends JPanel {
         if (!assistantMode && adoptLocalRowsForSnapshot(setlistId, applied.rows())) {
             recovered = hostingFromSnapshot;
             hostingFromSnapshot = false;
+            layoutCardsCacheValid = false;
             rebuildPartsSheetFromLocal();
             if (loadedSetlist != null) {
                 setlistNameLabel.setText(loadedSetlist.name());
@@ -1840,6 +2031,7 @@ public final class SetPlayPanel extends JPanel {
             return false;
         }
         hostingFromSnapshot = false;
+        layoutCardsCacheValid = false;
         rebuildPartsSheetFromLocal();
         return true;
     }
@@ -1920,7 +2112,7 @@ public final class SetPlayPanel extends JPanel {
     }
 
     private void pushRelayIfLeader() {
-        if (assistantMode || !relay.isOpen() || loadedSetlist == null) {
+        if (assistantMode || !relay.isOpen() || loadedSetlist == null || songListDirtyVsRelay) {
             return;
         }
         if (!hostingFromSnapshot) {
@@ -2070,18 +2262,21 @@ public final class SetPlayPanel extends JPanel {
             highlightPlayers.clear();
             hostingFromSnapshot = false;
             layoutCardsByItemId = Map.of();
+            layoutCardsCacheValid = false;
             rebuildPartsSheetFromLocal();
             refreshAll();
             SwingUtilities.invokeLater(gridPanel::fitCardsToView);
             if (relay.isOpen()) {
+                songListDirtyVsRelay = true;
                 JOptionPane.showMessageDialog(
                         this,
                         "The loaded set is local only. Use Republish to replace the hosted song list, "
-                                + "reset flags, and delete the zip.",
+                                + "reset flags, and delete the zip. Advances stay on this PC until then.",
                         "Load set",
                         JOptionPane.INFORMATION_MESSAGE);
                 statusLabel.setText("Loaded locally. Republish to push song-list changes.");
             } else {
+                songListDirtyVsRelay = false;
                 statusLabel.setText("Loaded \"" + found.name() + "\" (" + songRows.size() + " songs).");
             }
         } catch (LibraryException ex) {
@@ -2620,10 +2815,15 @@ public final class SetPlayPanel extends JPanel {
         if (assistantMode || hostingFromSnapshot) {
             return layoutCardsByItemId;
         }
+        if (layoutCardsCacheValid) {
+            return layoutCardsByItemId;
+        }
         if (layoutBuilder == null
                 || loadedSetlist == null
                 || loadedSetlist.bandLayoutId() == null) {
-            return Map.of();
+            layoutCardsByItemId = Map.of();
+            layoutCardsCacheValid = true;
+            return layoutCardsByItemId;
         }
         Map<Long, List<SetPlayLayoutCard>> out = new LinkedHashMap<>();
         for (SetlistItemInfo row : songRows) {
@@ -2633,7 +2833,9 @@ public final class SetPlayPanel extends JPanel {
                 out.put(row.id(), List.of());
             }
         }
-        return out;
+        layoutCardsByItemId = Map.copyOf(out);
+        layoutCardsCacheValid = true;
+        return layoutCardsByItemId;
     }
 
     private void sizeColumns() {

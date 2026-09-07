@@ -24,9 +24,9 @@ Inner tabs: **Connect | Playback | Parts**.
 
 **Bare room code:** you can still paste only the code if you select the same **Relay (for bare code)** as the leader (configured under [Set Playback settings](settings/set-playback-relays.md)). Standalone `--assistant` has no library database — paste a full link.
 
-Use **Reconnect** after connection drops. **Disconnect** leaves the session. If the leader deletes the session, clients show **session ended** and controls disable.
+Use **Reconnect** after connection drops, or wait — the app and browser **auto-reconnect** unless you clicked Disconnect or the leader ended the session. A connection pill shows Connected / Reconnecting / Disconnected. If the leader deletes the session, clients show **session ended** and controls disable.
 
-If the browser shows **404** on `/playback`, the leader’s worker was deployed before this page existed — ask them to **redeploy** from Settings → Set Playback.
+If the browser shows **404** on `/playback`, or assistants do not auto-reconnect, the leader’s worker needs a **redeploy** from Settings → Set Playback so it includes the current playback page.
 
 ---
 

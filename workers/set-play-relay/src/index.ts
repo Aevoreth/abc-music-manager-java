@@ -14,6 +14,7 @@ export interface Env {
 }
 
 const STATE_TYPE = "set_play_state_v2";
+const HELLO_TYPE = "set_play_hello";
 const MAX_ZIP_BYTES = 2 * 1024 * 1024;
 const PIN_FAIL_LIMIT = 10;
 const PIN_WINDOW_MS = 5 * 60 * 1000;
@@ -289,6 +290,12 @@ export class SetPlayRoom extends DurableObject {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment(JSON.stringify({ role }));
 
+    try {
+      server.send(JSON.stringify({ type: HELLO_TYPE, role }));
+    } catch {
+      /* ignore */
+    }
+
     const snap = this._getKv("state_json");
     if (snap && snap !== "{}" && snap.length > 2) {
       try {
@@ -319,13 +326,20 @@ export class SetPlayRoom extends DurableObject {
     } catch {
       return;
     }
+    if (parsed.type === "ping") {
+      return;
+    }
     if (parsed.type !== STATE_TYPE) {
       return;
     }
+    const stored = Number(this._getKv("revision") ?? 0);
     const rev = Number(parsed.revision ?? 0);
+    if (rev < stored) {
+      return;
+    }
     this._setKv("state_json", raw);
     this._setKv("revision", String(rev));
-    this._broadcast(raw);
+    this._broadcast(raw, ws);
   }
 
   async webSocketClose(): Promise<void> {

@@ -6,6 +6,8 @@
   "use strict";
 
   const STATE_TYPE = "set_play_state_v2";
+  const HELLO_TYPE = "set_play_hello";
+  const PING_TYPE = "ping";
   const CARD_W = 9;
   const CARD_H = 7;
   const BASE_PPU = 15;
@@ -16,6 +18,9 @@
   const SETLIST_PANE_MIN = 120;
   const GRID_H_STORAGE = "abcmm-playback-grid-h";
   const EMPTY_PART = "---";
+  const PING_MS = 25000;
+  const RECONNECT_BASE_MS = 1000;
+  const RECONNECT_MAX_MS = 30000;
 
   const COLORS = {
     surface: "#12101a",
@@ -98,6 +103,12 @@
   let ppu = BASE_PPU;
   let lastCanvasW = 0;
   let lastCanvasH = 0;
+  let userDisconnect = false;
+  let reconnectAttempt = 0;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let reconnectTimer = null;
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let pingTimer = null;
 
   // Canvas pan state (pixel offsets applied after logical→view transform)
   let viewOffsetX = 0;
@@ -247,8 +258,12 @@
   }
 
   function disconnect() {
+    userDisconnect = true;
+    clearReconnect();
+    clearPing();
     if (ws) {
       try {
+        ws.onclose = null;
         ws.close();
       } catch {
         /* ignore */
@@ -261,7 +276,55 @@
     setPill("Disconnected", "warn");
   }
 
-  function connect(code) {
+  function clearReconnect() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function clearPing() {
+    if (pingTimer) {
+      clearInterval(pingTimer);
+      pingTimer = null;
+    }
+  }
+
+  function startPing() {
+    clearPing();
+    pingTimer = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        ws.send(JSON.stringify({ type: PING_TYPE }));
+      } catch {
+        /* ignore */
+      }
+    }, PING_MS);
+  }
+
+  function reconnectDelayMs(attempt) {
+    const n = Math.max(1, attempt);
+    const delay = RECONNECT_BASE_MS * Math.pow(2, Math.min(n - 1, 10));
+    return Math.min(delay, RECONNECT_MAX_MS);
+  }
+
+  function scheduleReconnect() {
+    if (userDisconnect || !lastCode || lastCode.length < 5) return;
+    clearReconnect();
+    reconnectAttempt += 1;
+    const delay = reconnectDelayMs(reconnectAttempt);
+    disconnectBtn.disabled = false;
+    reconnectBtn.disabled = false;
+    setStatus("Relay reconnecting (attempt " + reconnectAttempt + ")…");
+    setPill("Reconnecting…", "warn");
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (userDisconnect || !lastCode) return;
+      connect(lastCode, true);
+    }, delay);
+  }
+
+  function connect(code, isAuto) {
     const parsed = parseJoinInput(code) || (code ? { code: String(code).toUpperCase() } : null);
     if (!parsed || parsed.code.length < 5) {
       setStatus("Enter a valid set code or paste a share link.");
@@ -274,6 +337,13 @@
     connCode.textContent = lastCode;
     connHost.textContent = location.host;
 
+    if (!isAuto) {
+      userDisconnect = false;
+      reconnectAttempt = 0;
+      clearReconnect();
+    }
+
+    clearPing();
     if (ws) {
       try {
         ws.onclose = null;
@@ -284,24 +354,29 @@
       ws = null;
     }
 
-    setStatus("Connecting…");
-    setPill("Connecting…", "warn");
+    setStatus(isAuto ? "Reconnecting…" : "Connecting…");
+    setPill(isAuto ? "Reconnecting…" : "Connecting…", "warn");
     const url = wsUrlForCode(lastCode);
     ws = new WebSocket(url);
 
     ws.onopen = () => {
+      reconnectAttempt = 0;
       disconnectBtn.disabled = false;
       reconnectBtn.disabled = false;
+      startPing();
       setStatus("Connected — waiting for set state…");
       setPill("Connected", "ok");
     };
 
     ws.onclose = (ev) => {
+      clearPing();
       ws = null;
       disconnectBtn.disabled = true;
       reconnectBtn.disabled = !!(lastCode && lastCode.length >= 5);
       const reason = ev && ev.reason ? String(ev.reason) : "";
       if (/session ended/i.test(reason)) {
+        userDisconnect = true;
+        clearReconnect();
         setStatus("Session ended by the bandleader.");
         setPill("Session ended", "warn");
         setContentTabsEnabled(false);
@@ -309,6 +384,8 @@
           downloadBtn.disabled = true;
           downloadBtn.hidden = true;
         }
+      } else if (!userDisconnect) {
+        scheduleReconnect();
       } else {
         setStatus("Relay disconnected.");
         setPill("Disconnected", "warn");
@@ -327,7 +404,9 @@
       } catch {
         return;
       }
-      if (!data || data.type !== STATE_TYPE) return;
+      if (!data) return;
+      if (data.type === HELLO_TYPE || data.type === PING_TYPE) return;
+      if (data.type !== STATE_TYPE) return;
       applySnapshot(data);
     };
   }

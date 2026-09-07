@@ -59,10 +59,11 @@ The database path may be stale if files moved. Re-scan the library. If duplicate
 - Assistants: paste that link into Band Assistant or open it in a browser (no Settings relay required)
 - Bare session codes still need the **same relay URL** as the leader under Settings → Set Playback
 - URL format for relays: `wss://…` or `https://…` with **no trailing slash**
-- The relay must have a **token**; a 401 usually means the token does not match Cloudflare (redeploy to issue a new one)
+- The relay must have a **token**; a 401 usually means the token does not match Cloudflare (redeploy to issue a new one). If Set Play says the token was not accepted as leader, edit the token in Settings or redeploy.
 - Deploy or verify your Cloudflare worker ([Set Playback relays](settings/set-playback-relays.md))
-- Browser **404** on `/playback`: redeploy the worker so it includes the playback page assets
+- Browser **404** on `/playback`, or no auto-reconnect in the browser: redeploy the worker so it includes the current playback page
 - Prefer `*.workers.dev`; custom domains need Bot Fight / WAF skipped for the worker or `/api/*`
+- If the connection pill stays on **Reconnecting…**, check the network; the app retries with backoff. **Disconnect** (Band Assistant) or **Delete session** stops retries.
 
 If **Redeploy worker on Cloudflare…** reports that the zip bucket is not empty, you can still click Next — provision reuses the existing bucket. To delete the bucket yourself, empty it first in the Cloudflare dashboard (R2 → bucket → Settings → Empty).
 
@@ -74,7 +75,8 @@ If **Redeploy worker on Cloudflare…** reports that the zip bucket is not empty
 - If using a bare code, confirm the correct Relay is selected
 - Confirm set/room code spelling
 - Leader session must be active (named session connected)
-- Try **Reconnect** on both sides
+- Try **Reconnect** on both sides, or wait for auto-reconnect
+- If the browser never catches up after a drop, ask the bandleader to **redeploy** the relay so `/playback` includes auto-reconnect
 
 ---
 

@@ -22,6 +22,8 @@ import com.aevoreth.abcmm.domain.setplay.SetPlaySessionState;
 public final class SetPlaySync {
 
     public static final String STATE_TYPE = "set_play_state_v2";
+    public static final String HELLO_TYPE = "set_play_hello";
+    public static final String PING_TYPE = "ping";
 
     /**
      * Wire payload omits card size (Python {@code LayoutCard} is always fixed). Assistants and

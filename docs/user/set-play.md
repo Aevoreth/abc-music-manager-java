@@ -13,13 +13,15 @@ Open from the **Set Play** tab. Inner tabs: **Sessions | Playback | Parts**.
 3. Click **Create session**. You will be asked for a session name and date/time (session metadata only — this does **not** change the setlist’s date/time). Prefill uses the setlist values, or **now + 7 days** if empty. Duplicate names are allowed after a warning.
 4. Copy **Play Only** (watch playback) and/or **Download and Play** (includes the 6-digit zip PIN in the URL fragment). The PIN is shown once and cannot be recovered from Cloudflare.
 
-If you are already connected, **Load set** updates the local Playback/Parts views only. Use **Republish** to replace the hosted song list, reset NOW/NEXT/played/skip, and delete the zip.
+If you are already connected, **Load set** updates the local Playback/Parts views only — Advance and skip stay on this PC until you **Republish**. Republish replaces the hosted song list, resets NOW/NEXT/played/skip, and deletes the zip.
+
+**Reconnect** restores the leader WebSocket. If this library still has the same setlist, Set Play keeps your local NOW/NEXT and pushes it to assistants (so a drop mid-set does not rewind the show). When the local setlist is missing or different: the app warns and hosts from the relay **snapshot**. Advance still works; the band grid follows NEXT from the snapshot’s per-song layouts. Play history is skipped for songs that are not in this library. If the same setlist is in this library, Set Play reloads it from the database instead of using incomplete snapshot rows.
+
+A connection pill at the top of Set Play shows **Connected**, **Reconnecting…**, or **Disconnected**. Unexpected drops auto-reconnect (not after **Delete session** / session ended, and not after you disconnect on purpose).
 
 Other session actions (relay token required): **Reconnect**, **Rename** (code and URLs stay the same), **Republish**, **Upload zip** (existing `*.zip`, max 2 MB; chooser starts in the set-export folder), **Clear session**, **Delete session**.
 
 Zip download expires after the session date/time (America/New_York) plus that relay’s **retention days** (default 14). Playback continues after the zip expires. Changing retention does not rewrite existing zips. There is no minimum remaining life if you upload late.
-
-**Reconnect** when the local setlist is missing or different: the app warns and hosts from the relay **snapshot**. Advance still works; the band grid follows NEXT from the snapshot’s per-song layouts. Play history is skipped for songs that are not in this library. If the same setlist is in this library, Set Play reloads it from the database instead of using incomplete snapshot rows.
 
 ---
 
@@ -107,7 +109,7 @@ Assistants can open the link in a browser or paste it into Band Assistant — th
 
 Set Play works locally without a session; the relay is only needed for assistants.
 
-**Note:** Existing relays must be **redeployed** once (Settings → Set Playback). Redeploy wipes the worker, D1 session list, R2 zips, and issues a new token. Prefer `*.workers.dev`; on a custom domain, skip Bot Fight / WAF for the worker hostname or `/api/*` (the Bearer token does not bypass Bot Fight).
+**Note:** Existing relays must be **redeployed** once (Settings → Set Playback) to pick up auto-reconnect, hello-role, and stale-revision guards on `/playback`. Redeploy wipes the worker, D1 session list, R2 zips, and issues a new token. Prefer `*.workers.dev`; on a custom domain, skip Bot Fight / WAF for the worker hostname or `/api/*` (the Bearer token does not bypass Bot Fight).
 
 ---
 
