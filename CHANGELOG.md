@@ -4,6 +4,8 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+## Version 0.4.2b
+
 - Set Play relay: auto-reconnect with backoff after a dropped WebSocket, keepalive pings, and a connection status pill on Sessions / Playback / Connect
 - Set Play no longer rewinds NOW/NEXT when the bandleader reconnects after advancing while disconnected
 - Load set while a session is live stays local until **Republish** (Advance no longer silently replaces the hosted song list)
