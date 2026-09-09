@@ -4,6 +4,8 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+## Version 0.4.3b
+
 - Set Play instrument-change highlighting (orange part numbers and neighbor gutters) now follows live CURRENT vs NEXT on Band Assistant and the browser `/playback` page, including skip/jump. After **Advance** to the last song, the grid keeps NOW’s parts instead of going blank. Cards also use setlist part overrides (and ABC `made-for` names) so assignments show even when a song has no linked layout. **Redeploy** the Cloudflare relay so `/playback` picks up the page.
 
 ## Version 0.4.2b
