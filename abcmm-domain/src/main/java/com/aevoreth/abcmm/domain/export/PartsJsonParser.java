@@ -37,7 +37,8 @@ public final class PartsJsonParser {
                         partNumber,
                         extractJsonString(object, "part_name"),
                         extractJsonString(object, "title_from_t"),
-                        extractJsonLong(object, "instrument_id")));
+                        extractJsonLong(object, "instrument_id"),
+                        extractJsonString(object, "made_for")));
             }
             index = objEnd + 1;
         }

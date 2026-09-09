@@ -488,7 +488,7 @@
     nextMeta.textContent = songMetaLine(nxt);
 
     const layoutKey = lastCards
-      .map((c) => `${c.player_id}:${c.x},${c.y}:${c.part_number}:${c.part_name}:${c.instrument_name}`)
+      .map((c) => `${c.player_id}:${c.x},${c.y}:${c.part_number}:${c.part_name}:${c.instrument_name}:${c.neighbor_prev_part_label || ""}:${c.neighbor_next_part_label || ""}:${c.instrument_changed_from_prior_in_set ? 1 : 0}`)
       .sort()
       .join("|");
     const layoutChanged = layoutKey !== lastLayoutKey;
@@ -527,6 +527,79 @@
     return Array.isArray(cards) ? cards : [];
   }
 
+  function cardsForItemFrom(byItem, itemId) {
+    if (itemId == null || !byItem) return [];
+    const cards = byItem[itemId] || byItem[String(itemId)];
+    return Array.isArray(cards) ? cards : [];
+  }
+
+  function firstNonEmptyCards(byItem) {
+    if (!byItem) return [];
+    for (const cards of Object.values(byItem)) {
+      if (Array.isArray(cards) && cards.length) return cards;
+    }
+    return [];
+  }
+
+  function cardsByPlayer(cards) {
+    const map = new Map();
+    for (const card of cards) {
+      map.set(Number(card.player_id), card);
+    }
+    return map;
+  }
+
+  function partGutterLabel(card) {
+    if (!card) return "";
+    const pn = String(card.part_number || "").trim();
+    if (!pn || pn === "---") return "";
+    return pn;
+  }
+
+  function hasRealPart(card) {
+    return partGutterLabel(card) !== "";
+  }
+
+  function hasRealInstrument(card) {
+    if (!card) return false;
+    const name = String(card.instrument_name || "").trim();
+    return !!name && name !== "—" && name !== "-" && name !== "(Made for Instrument)";
+  }
+
+  function normalizeInstrumentName(name) {
+    return String(name || "").trim().toLowerCase();
+  }
+
+  function travelerAlternate(name) {
+    if (name.includes("traveler")) return name.replaceAll("traveler", "traveller");
+    if (name.includes("traveller")) return name.replaceAll("traveller", "traveler");
+    return name;
+  }
+
+  function instrumentsEquivalent(a, b) {
+    const left = normalizeInstrumentName(a);
+    const right = normalizeInstrumentName(b);
+    if (left === right) return true;
+    return travelerAlternate(left) === right || travelerAlternate(right) === left;
+  }
+
+  function scanNextItemId(order, skipped, afterIndex) {
+    for (let i = afterIndex + 1; i < order.length; i++) {
+      const id = Number(order[i]);
+      if (!skipped.has(id)) return id;
+    }
+    return null;
+  }
+
+  function withLiveHints(card, prevLabel, nextLabel, instChanged) {
+    return {
+      ...card,
+      neighbor_prev_part_label: prevLabel || "",
+      neighbor_next_part_label: nextLabel || "",
+      instrument_changed_from_prior_in_set: !!instChanged,
+    };
+  }
+
   function placeholderCard(card) {
     return {
       ...card,
@@ -541,22 +614,77 @@
     };
   }
 
-  /** Prefer per-song cards for NEXT so a stale next_layout_cards snapshot cannot freeze parts. */
+  /**
+   * Per-song cards are assignment data only. Orange flags and gutters are
+   * derived from CURRENT vs NEXT so they stay correct after skip/jump.
+   */
   function layoutCardsFromSnapshot(data) {
     const nextId = data.next_item_id != null ? Number(data.next_item_id) : null;
+    const currentId = data.current_item_id != null ? Number(data.current_item_id) : null;
+    const skipped = new Set((data.skipped_item_ids || []).map(Number));
+    const order = Array.isArray(data.order_item_ids) ? data.order_item_ids.map(Number) : [];
     const byItem =
       data.layout_cards_by_item_id && typeof data.layout_cards_by_item_id === "object"
         ? data.layout_cards_by_item_id
         : {};
-    if (nextId != null) {
-      const cards = byItem[nextId] || byItem[String(nextId)];
-      if (Array.isArray(cards) && cards.length) return cards;
-    }
     const fallback = Array.isArray(data.next_layout_cards) ? data.next_layout_cards : [];
-    if (nextId == null && fallback.length) {
-      return fallback.map(placeholderCard);
+    const nextFromMap = cardsForItemFrom(byItem, nextId);
+
+    if (nextId == null) {
+      if (currentId != null) {
+        const currentFromMap = cardsForItemFrom(byItem, currentId);
+        if (currentFromMap.length) {
+          let priorId = null;
+          const ci = order.indexOf(currentId);
+          if (ci > 0) {
+            for (let i = ci - 1; i >= 0; i--) {
+              const id = Number(order[i]);
+              if (!skipped.has(id)) {
+                priorId = id;
+                break;
+              }
+            }
+          }
+          const priorByPlayer = cardsByPlayer(cardsForItemFrom(byItem, priorId));
+          return currentFromMap.map((card) => {
+            const prior = priorByPlayer.get(Number(card.player_id));
+            const instChanged =
+              !card.part_duplicate &&
+              hasRealPart(card) &&
+              hasRealInstrument(card) &&
+              prior &&
+              hasRealInstrument(prior) &&
+              !instrumentsEquivalent(card.instrument_name, prior.instrument_name);
+            return withLiveHints(card, partGutterLabel(prior), "", instChanged);
+          });
+        }
+      }
+      const source = fallback.length ? fallback : firstNonEmptyCards(byItem);
+      return source.map(placeholderCard);
     }
-    return fallback;
+    if (!nextFromMap.length) {
+      return fallback;
+    }
+
+    let afterNextId = null;
+    const ni = order.indexOf(nextId);
+    if (ni >= 0) {
+      afterNextId = scanNextItemId(order, skipped, ni);
+    }
+    const currentByPlayer = cardsByPlayer(cardsForItemFrom(byItem, currentId));
+    const afterByPlayer = cardsByPlayer(cardsForItemFrom(byItem, afterNextId));
+    return nextFromMap.map((card) => {
+      const current = currentByPlayer.get(Number(card.player_id));
+      const after = afterByPlayer.get(Number(card.player_id));
+      const instChanged =
+        !card.part_duplicate &&
+        hasRealPart(card) &&
+        hasRealInstrument(card) &&
+        current &&
+        hasRealInstrument(current) &&
+        !instrumentsEquivalent(card.instrument_name, current.instrument_name);
+      return withLiveHints(card, partGutterLabel(current), partGutterLabel(after), instChanged);
+    });
   }
 
   function layoutPreviewCell(itemId, title) {

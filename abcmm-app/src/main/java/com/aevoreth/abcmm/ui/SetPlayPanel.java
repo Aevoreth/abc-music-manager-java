@@ -1953,8 +1953,8 @@ public final class SetPlayPanel extends JPanel {
                     null));
         }
 
-        layoutCards = SetPlaySync.layoutCardsForFocus(
-                SetPlaySessionRules.layoutFocusItemId(session),
+        layoutCards = SetPlaySync.liveGridCards(
+                session,
                 applied.layoutCardsByItemId(),
                 applied.layoutCards());
         Map<Long, List<SetPlayLayoutCard>> byItem = applied.layoutCardsByItemId();
@@ -2381,16 +2381,8 @@ public final class SetPlayPanel extends JPanel {
     }
 
     private void refreshGrid() {
-        if (assistantMode) {
-            gridPanel.setCards(layoutCards);
-            gridPanel.setHighlightPlayerIds(highlightPlayers);
-            return;
-        }
-        if (hostingFromSnapshot) {
-            layoutCards = SetPlaySync.layoutCardsForFocus(
-                    SetPlaySessionRules.layoutFocusItemId(session),
-                    layoutCardsByItemId,
-                    layoutCards);
+        if (assistantMode || hostingFromSnapshot) {
+            layoutCards = SetPlaySync.liveGridCards(session, layoutCardsByItemId, layoutCards);
             gridPanel.setCards(layoutCards);
             gridPanel.setHighlightPlayerIds(highlightPlayers);
             return;
@@ -2414,6 +2406,8 @@ public final class SetPlayPanel extends JPanel {
                     rightId = SetPlaySessionRules.scanNextItemId(
                             session.orderItemIds(), session.skippedItemIds(), ni);
                 }
+            } else if (focusId != null) {
+                curRow = rowForItem(SetPlaySessionRules.previousUnskippedItemId(session, focusId));
             }
             SetlistItemInfo rightRow = rowForItem(rightId);
             layoutCards = layoutBuilder.build(

@@ -7,5 +7,10 @@ public record ExportPartMeta(
         int partNumber,
         String partName,
         String titleFromT,
-        Long instrumentId) {
+        Long instrumentId,
+        String madeFor) {
+
+    public ExportPartMeta(int partNumber, String partName, String titleFromT, Long instrumentId) {
+        this(partNumber, partName, titleFromT, instrumentId, null);
+    }
 }

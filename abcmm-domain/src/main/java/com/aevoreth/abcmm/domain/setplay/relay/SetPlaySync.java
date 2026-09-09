@@ -1,10 +1,12 @@
 package com.aevoreth.abcmm.domain.setplay.relay;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -14,6 +16,7 @@ import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
 import com.aevoreth.abcmm.domain.setplay.SetPlayLayoutCard;
 import com.aevoreth.abcmm.domain.setplay.SetPlayPartsSheet;
+import com.aevoreth.abcmm.domain.setplay.SetPlaySessionRules;
 import com.aevoreth.abcmm.domain.setplay.SetPlaySessionState;
 
 /**
@@ -213,24 +216,77 @@ public final class SetPlaySync {
     }
 
     /**
-     * Band cards for the NEXT-focused live grid. When NEXT is unset, strips part
-     * labels so Clear session does not keep the previous song's assignments.
+     * Band cards for the NEXT-focused live grid. Per-song cards are assignment
+     * data only; orange flags and neighbor gutters are derived from CURRENT vs
+     * NEXT at display time. When NEXT is unset, strips part labels so Clear
+     * session does not keep the previous song's assignments.
      */
     public static List<SetPlayLayoutCard> layoutCardsForFocus(
             Long focusItemId,
             Map<Long, List<SetPlayLayoutCard>> byItemId,
             List<SetPlayLayoutCard> currentCards) {
-        List<SetPlayLayoutCard> fallback = currentCards == null ? List.of() : currentCards;
-        if (focusItemId == null) {
-            return positionOnlyCards(fallback);
-        }
-        if (byItemId != null) {
-            List<SetPlayLayoutCard> cards = byItemId.get(focusItemId);
-            if (cards != null && !cards.isEmpty()) {
-                return List.copyOf(cards);
+        return liveGridCards(focusItemId, null, null, byItemId, currentCards);
+    }
+
+    public static List<SetPlayLayoutCard> liveGridCards(
+            SetPlaySessionState session,
+            Map<Long, List<SetPlayLayoutCard>> byItemId,
+            List<SetPlayLayoutCard> fallback) {
+        Objects.requireNonNull(session, "session");
+        Long nextId = session.nextItemId();
+        Long currentId = session.currentItemId();
+        if (nextId != null) {
+            Long afterNextId = null;
+            int ni = session.orderItemIds().indexOf(nextId);
+            if (ni >= 0) {
+                afterNextId = SetPlaySessionRules.scanNextItemId(
+                        session.orderItemIds(), session.skippedItemIds(), ni);
             }
+            return liveGridCards(nextId, currentId, afterNextId, byItemId, fallback);
         }
-        return fallback.isEmpty() ? List.of() : List.copyOf(fallback);
+        if (currentId != null) {
+            Long priorId = SetPlaySessionRules.previousUnskippedItemId(session, currentId);
+            return liveGridCards(currentId, priorId, null, byItemId, fallback);
+        }
+        return liveGridCards(null, null, null, byItemId, fallback);
+    }
+
+    /**
+     * Live grid from per-song assignment cards. {@code fallback} is the leader's
+     * {@code next_layout_cards} (used when the by-item map has no NEXT entry).
+     */
+    public static List<SetPlayLayoutCard> liveGridCards(
+            Long nextItemId,
+            Long currentItemId,
+            Long afterNextItemId,
+            Map<Long, List<SetPlayLayoutCard>> byItemId,
+            List<SetPlayLayoutCard> fallback) {
+        List<SetPlayLayoutCard> fallbackCards = fallback == null ? List.of() : fallback;
+        List<SetPlayLayoutCard> nextFromMap = cardsForItem(byItemId, nextItemId);
+        if (nextItemId == null) {
+            List<SetPlayLayoutCard> source = !fallbackCards.isEmpty()
+                    ? fallbackCards
+                    : firstNonEmpty(byItemId);
+            return positionOnlyCards(source);
+        }
+        if (nextFromMap.isEmpty()) {
+            return fallbackCards.isEmpty() ? List.of() : List.copyOf(fallbackCards);
+        }
+        Map<Long, SetPlayLayoutCard> currentByPlayer = cardsByPlayer(cardsForItem(byItemId, currentItemId));
+        Map<Long, SetPlayLayoutCard> afterByPlayer = cardsByPlayer(cardsForItem(byItemId, afterNextItemId));
+        List<SetPlayLayoutCard> out = new ArrayList<>(nextFromMap.size());
+        for (SetPlayLayoutCard card : nextFromMap) {
+            SetPlayLayoutCard current = currentByPlayer.get(card.playerId());
+            SetPlayLayoutCard after = afterByPlayer.get(card.playerId());
+            boolean instChanged = !card.partDuplicate()
+                    && hasRealPart(card)
+                    && hasRealInstrument(card)
+                    && current != null
+                    && hasRealInstrument(current)
+                    && !instrumentsEquivalent(card.instrumentName(), current.instrumentName());
+            out.add(card.withLiveHints(partGutterLabel(current), partGutterLabel(after), instChanged));
+        }
+        return List.copyOf(out);
     }
 
     public static List<SetPlayLayoutCard> positionOnlyCards(List<SetPlayLayoutCard> cards) {
@@ -327,6 +383,92 @@ public final class SetPlaySync {
                     bool(d.get("instrument_changed_from_prior_in_set"), false)));
         }
         return out;
+    }
+
+    private static List<SetPlayLayoutCard> cardsForItem(
+            Map<Long, List<SetPlayLayoutCard>> byItemId, Long itemId) {
+        if (byItemId == null || itemId == null) {
+            return List.of();
+        }
+        List<SetPlayLayoutCard> cards = byItemId.get(itemId);
+        return cards == null || cards.isEmpty() ? List.of() : cards;
+    }
+
+    private static List<SetPlayLayoutCard> firstNonEmpty(Map<Long, List<SetPlayLayoutCard>> byItemId) {
+        if (byItemId == null) {
+            return List.of();
+        }
+        for (List<SetPlayLayoutCard> cards : byItemId.values()) {
+            if (cards != null && !cards.isEmpty()) {
+                return cards;
+            }
+        }
+        return List.of();
+    }
+
+    private static Map<Long, SetPlayLayoutCard> cardsByPlayer(List<SetPlayLayoutCard> cards) {
+        Map<Long, SetPlayLayoutCard> out = new HashMap<>();
+        for (SetPlayLayoutCard card : cards) {
+            out.put(card.playerId(), card);
+        }
+        return out;
+    }
+
+    private static String partGutterLabel(SetPlayLayoutCard card) {
+        if (card == null) {
+            return "";
+        }
+        String pn = card.partNumber();
+        if (pn == null) {
+            return "";
+        }
+        String trimmed = pn.strip();
+        if (trimmed.isEmpty() || "---".equals(trimmed)) {
+            return "";
+        }
+        return trimmed;
+    }
+
+    private static boolean hasRealPart(SetPlayLayoutCard card) {
+        return !partGutterLabel(card).isEmpty();
+    }
+
+    private static boolean hasRealInstrument(SetPlayLayoutCard card) {
+        if (card == null) {
+            return false;
+        }
+        String name = card.instrumentName();
+        if (name == null) {
+            return false;
+        }
+        String trimmed = name.strip();
+        return !trimmed.isEmpty()
+                && !"\u2014".equals(trimmed)
+                && !"-".equals(trimmed)
+                && !"(Made for Instrument)".equals(trimmed);
+    }
+
+    private static boolean instrumentsEquivalent(String a, String b) {
+        String left = normalizeInstrumentName(a);
+        String right = normalizeInstrumentName(b);
+        if (left.equals(right)) {
+            return true;
+        }
+        return travelerAlternate(left).equals(right) || travelerAlternate(right).equals(left);
+    }
+
+    private static String travelerAlternate(String name) {
+        if (name.contains("traveler")) {
+            return name.replace("traveler", "traveller");
+        }
+        if (name.contains("traveller")) {
+            return name.replace("traveller", "traveler");
+        }
+        return name;
+    }
+
+    private static String normalizeInstrumentName(String name) {
+        return name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
     }
 
     public record AppliedSnapshot(

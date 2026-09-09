@@ -197,22 +197,18 @@ class SetPlaySyncTest {
 
     @Test
     void layoutCardsForFocusUsesByItemMapAndPlaceholdersWhenNextUnset() {
-        SetPlayLayoutCard songA = new SetPlayLayoutCard(
-                5L, "Alice", 0, 0,
-                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
-                "1", "Melody", "Lute",
-                false, false, true, "", "2", false);
-        SetPlayLayoutCard songB = new SetPlayLayoutCard(
-                5L, "Alice", 0, 0,
-                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
-                "2", "Harmony", "Harp",
-                false, false, true, "1", "", false);
+        SetPlayLayoutCard songA = card(5L, "Alice", "1", "Melody", "Lute", "", "2", false);
+        SetPlayLayoutCard songB = card(5L, "Alice", "2", "Harmony", "Harp", "1", "", true);
         Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
                 10L, List.of(songA),
                 11L, List.of(songB));
 
         List<SetPlayLayoutCard> focused = SetPlaySync.layoutCardsForFocus(11L, byItem, List.of(songA));
         assertEquals("Harmony", focused.get(0).partName());
+        assertEquals("Harp", focused.get(0).instrumentName());
+        // Baked previous-in-set flags are not the live grid (no CURRENT here).
+        assertEquals("", focused.get(0).neighborPrevPartLabel());
+        assertFalse(focused.get(0).instrumentChangedFromPriorInSet());
 
         List<SetPlayLayoutCard> cleared = SetPlaySync.layoutCardsForFocus(null, byItem, List.of(songA));
         assertEquals(1, cleared.size());
@@ -220,6 +216,162 @@ class SetPlaySyncTest {
         assertEquals("(Part Name)", cleared.get(0).partName());
         assertEquals("Alice", cleared.get(0).playerName());
         assertEquals("Melody", songA.partName());
+    }
+
+    @Test
+    void liveGridCardsHighlightsVsCurrentNotPreviousInOrder() {
+        SetPlayLayoutCard songA = card(5L, "Alice", "1", "Melody", "Lute", "", "", false);
+        SetPlayLayoutCard songB = card(5L, "Alice", "2", "Harmony", "Harp", "1", "3", false);
+        SetPlayLayoutCard songC = card(5L, "Alice", "3", "Bass", "Clarinet", "2", "", false);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(songA),
+                11L, List.of(songB),
+                12L, List.of(songC));
+
+        List<SetPlayLayoutCard> sequential = SetPlaySync.liveGridCards(
+                11L, 10L, 12L, byItem, List.of(songA));
+        assertEquals("Harmony", sequential.get(0).partName());
+        assertEquals("1", sequential.get(0).neighborPrevPartLabel());
+        assertEquals("3", sequential.get(0).neighborNextPartLabel());
+        assertTrue(sequential.get(0).instrumentChangedFromPriorInSet());
+
+        List<SetPlayLayoutCard> jumped = SetPlaySync.liveGridCards(
+                12L, 10L, null, byItem, List.of(songA));
+        assertEquals("Bass", jumped.get(0).partName());
+        assertEquals("1", jumped.get(0).neighborPrevPartLabel());
+        assertEquals("", jumped.get(0).neighborNextPartLabel());
+        assertTrue(jumped.get(0).instrumentChangedFromPriorInSet());
+        assertEquals("Clarinet", jumped.get(0).instrumentName());
+    }
+
+    @Test
+    void liveGridCardsFromSessionUsesSkipAwareAfterNext() {
+        SetPlayLayoutCard songA = card(5L, "Alice", "1", "Melody", "Lute", "", "", false);
+        SetPlayLayoutCard songB = card(5L, "Alice", "2", "Harmony", "Harp", "", "", false);
+        SetPlayLayoutCard songC = card(5L, "Alice", "3", "Bass", "Clarinet", "", "", false);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(songA),
+                11L, List.of(songB),
+                12L, List.of(songC));
+
+        SetPlaySessionState sequential = new SetPlaySessionState(List.of(10L, 11L, 12L));
+        sequential.setCurrentItemId(10L);
+        sequential.setNextItemId(11L);
+        List<SetPlayLayoutCard> nextB = SetPlaySync.liveGridCards(sequential, byItem, List.of());
+        assertEquals("2", nextB.get(0).partNumber());
+        assertEquals("1", nextB.get(0).neighborPrevPartLabel());
+        assertEquals("3", nextB.get(0).neighborNextPartLabel());
+        assertTrue(nextB.get(0).instrumentChangedFromPriorInSet());
+
+        SetPlaySessionState skipped = new SetPlaySessionState(List.of(10L, 11L, 12L));
+        skipped.setCurrentItemId(10L);
+        skipped.setNextItemId(12L);
+        skipped.skippedItemIds().add(11L);
+        List<SetPlayLayoutCard> nextC = SetPlaySync.liveGridCards(skipped, byItem, List.of());
+        assertEquals("3", nextC.get(0).partNumber());
+        assertEquals("1", nextC.get(0).neighborPrevPartLabel());
+        assertEquals("", nextC.get(0).neighborNextPartLabel());
+        assertTrue(nextC.get(0).instrumentChangedFromPriorInSet());
+    }
+
+    @Test
+    void liveGridCardsClearsPartsWhenFocusUnset() {
+        SetPlayLayoutCard songA = card(5L, "Alice", "1", "Melody", "Lute", "9", "8", true);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(10L, List.of(songA));
+        List<SetPlayLayoutCard> cleared = SetPlaySync.liveGridCards(
+                null, 10L, 11L, byItem, List.of(songA));
+        assertEquals("---", cleared.get(0).partNumber());
+        assertEquals("(Part Name)", cleared.get(0).partName());
+        assertEquals("(Made for Instrument)", cleared.get(0).instrumentName());
+        assertEquals("", cleared.get(0).neighborPrevPartLabel());
+        assertFalse(cleared.get(0).instrumentChangedFromPriorInSet());
+    }
+
+    @Test
+    void liveGridCardsShowsCurrentWhenNextUnsetAtEndOfSet() {
+        SetPlayLayoutCard songA = card(5L, "Alice", "1", "Melody", "Lute", "", "", false);
+        SetPlayLayoutCard songB = card(5L, "Alice", "2", "Harmony", "Harp", "", "", false);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(songA),
+                11L, List.of(songB));
+        SetPlaySessionState end = new SetPlaySessionState(List.of(10L, 11L));
+        end.setCurrentItemId(11L);
+        end.setNextItemId(null);
+        List<SetPlayLayoutCard> live = SetPlaySync.liveGridCards(end, byItem, List.of());
+        assertEquals("Harmony", live.get(0).partName());
+        assertEquals("Harp", live.get(0).instrumentName());
+        assertEquals("1", live.get(0).neighborPrevPartLabel());
+        assertTrue(live.get(0).instrumentChangedFromPriorInSet());
+    }
+
+    @Test
+    void liveGridCardsTreatsTravelerSpellingsAsSameInstrument() {
+        SetPlayLayoutCard current = card(
+                5L, "Alice", "1", "Melody", "Traveler's Trusty Fiddle", "", "", false);
+        SetPlayLayoutCard next = card(
+                5L, "Alice", "2", "Harmony", "Traveller's Trusty Fiddle", "", "", false);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(current),
+                11L, List.of(next));
+        List<SetPlayLayoutCard> live = SetPlaySync.liveGridCards(
+                11L, 10L, null, byItem, List.of());
+        assertFalse(live.get(0).instrumentChangedFromPriorInSet());
+        assertEquals("1", live.get(0).neighborPrevPartLabel());
+    }
+
+    @Test
+    void liveGridCardsSkipsHighlightWhenPartIsDuplicated() {
+        SetPlayLayoutCard current = card(5L, "Alice", "1", "Melody", "Lute", "", "", false);
+        SetPlayLayoutCard next = new SetPlayLayoutCard(
+                5L, "Alice", 0, 0,
+                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS, SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
+                "2", "Harmony", "Harp",
+                false, true, true, "", "", false);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(current),
+                11L, List.of(next));
+        List<SetPlayLayoutCard> live = SetPlaySync.liveGridCards(
+                11L, 10L, null, byItem, List.of());
+        assertFalse(live.get(0).instrumentChangedFromPriorInSet());
+        assertEquals("1", live.get(0).neighborPrevPartLabel());
+    }
+
+    @Test
+    void liveGridCardsFallsBackToNextLayoutCardsWhenByItemMissingNext() {
+        SetPlayLayoutCard liveFromLeader = card(5L, "Alice", "2", "Harmony", "Harp", "1", "3", true);
+        List<SetPlayLayoutCard> fallback = SetPlaySync.liveGridCards(
+                11L, 10L, 12L, Map.of(), List.of(liveFromLeader));
+        assertEquals(1, fallback.size());
+        assertEquals("Harmony", fallback.get(0).partName());
+        assertTrue(fallback.get(0).instrumentChangedFromPriorInSet());
+        assertEquals("1", fallback.get(0).neighborPrevPartLabel());
+    }
+
+    private static SetPlayLayoutCard card(
+            long playerId,
+            String playerName,
+            String partNumber,
+            String partName,
+            String instrumentName,
+            String prev,
+            String next,
+            boolean instChanged) {
+        return new SetPlayLayoutCard(
+                playerId,
+                playerName,
+                0,
+                0,
+                SetPlaySync.DEFAULT_CARD_WIDTH_UNITS,
+                SetPlaySync.DEFAULT_CARD_HEIGHT_UNITS,
+                partNumber,
+                partName,
+                instrumentName,
+                false,
+                false,
+                true,
+                prev,
+                next,
+                instChanged);
     }
 
     @Test

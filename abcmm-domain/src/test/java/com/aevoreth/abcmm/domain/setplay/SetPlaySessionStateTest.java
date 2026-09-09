@@ -211,11 +211,11 @@ class SetPlaySessionStateTest {
     }
 
     @Test
-    void layoutFocusIsNullWhenNextUnset() {
+    void layoutFocusFallsBackToCurrentWhenNextUnset() {
         SetPlaySessionState st = state(ids(1, 2, 3));
         st.setCurrentItemId(3L);
         st.setNextItemId(null);
-        assertNull(SetPlaySessionRules.layoutFocusItemId(st));
+        assertEquals(3L, SetPlaySessionRules.layoutFocusItemId(st));
     }
 
     @Test
@@ -237,5 +237,13 @@ class SetPlaySessionStateTest {
         SetPlaySessionState st = state(ids(1, 2, 3));
         st.skippedItemIds().add(1L);
         assertNull(SetPlaySessionRules.layoutFocusItemId(st));
+    }
+
+    @Test
+    void previousUnskippedSkipsSkippedRows() {
+        SetPlaySessionState st = state(ids(1, 2, 3));
+        st.skippedItemIds().add(2L);
+        assertEquals(1L, SetPlaySessionRules.previousUnskippedItemId(st, 3L));
+        assertNull(SetPlaySessionRules.previousUnskippedItemId(st, 1L));
     }
 }

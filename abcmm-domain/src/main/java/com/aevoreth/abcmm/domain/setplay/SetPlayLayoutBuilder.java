@@ -47,9 +47,9 @@ public final class SetPlayLayoutBuilder {
 
     /**
      * Cards show {@code nextRow} assignments; gutters: current (left), row after next (right).
-     * When {@code nextRow} is missing or has no song layout, paints player positions
-     * with placeholder part/instrument labels (same as the setlist editor with no
-     * assignments) so the formation is visible before NEXT is chosen.
+     * When {@code nextRow} is missing, paints player positions with placeholder
+     * part/instrument labels so the formation is visible before NEXT/NOW is chosen.
+     * Setlist overrides are used even when the item has no song layout.
      */
     public List<SetPlayLayoutCard> build(
             long bandLayoutId,
@@ -61,7 +61,7 @@ public final class SetPlayLayoutBuilder {
         if (slots.isEmpty()) {
             return List.of();
         }
-        if (nextRow == null || nextRow.songLayoutId() == null) {
+        if (nextRow == null) {
             return positionOnlyCards(slots);
         }
 
@@ -70,7 +70,9 @@ public final class SetPlayLayoutBuilder {
             partsByNum.put(part.partNumber(), part);
         }
 
-        Map<Long, Integer> layoutAssigns = loadLayoutAssigns(nextRow.songLayoutId());
+        Map<Long, Integer> layoutAssigns = nextRow.songLayoutId() == null
+                ? Map.of()
+                : loadLayoutAssigns(nextRow.songLayoutId());
         Map<Long, Integer> overrides = loadOverrides(nextRow.id());
         Set<Long> overridePlayers = overrides.keySet();
 
@@ -130,10 +132,7 @@ public final class SetPlayLayoutBuilder {
                 String rawName = meta.partName() == null ? "" : meta.partName().strip();
                 pname = rawName.isBlank() ? ("Part " + eff) : rawName;
                 iid = meta.instrumentId();
-                iname = iid == null
-                        ? "—"
-                        : LotroInstrumentDefaults.uiName(
-                                instrumentNames.getOrDefault(iid, "—"));
+                iname = instrumentDisplayName(meta, instrumentNames);
                 if (iname == null || iname.isBlank()) {
                     iname = "—";
                 }
@@ -157,29 +156,38 @@ public final class SetPlayLayoutBuilder {
 
             boolean instChanged = false;
             Long priorIid = null;
+            String priorName = null;
             if (currentRow != null) {
                 Integer curEff = setlistIdx >= 0
                         ? effectiveFor(currentRow, slot.playerId(), bulkOverrides, layoutCache)
                         : effectiveForItem(currentRow, slot.playerId());
                 if (curEff != null) {
-                    priorIid = instrumentIdForPart(currentRow.partsJson(), curEff);
+                    ExportPartMeta prior = partMeta(currentRow.partsJson(), curEff);
+                    if (prior != null) {
+                        priorIid = prior.instrumentId();
+                        priorName = instrumentDisplayName(prior, instrumentNames);
+                    }
                 }
             } else if (setlistIdx > 0) {
                 for (int j = setlistIdx - 1; j >= 0; j--) {
                     SetlistItemInfo back = rows.get(j);
                     Integer bpn = effectiveFor(back, slot.playerId(), bulkOverrides, layoutCache);
                     if (bpn != null) {
-                        priorIid = instrumentIdForPart(back.partsJson(), bpn);
+                        ExportPartMeta prior = partMeta(back.partsJson(), bpn);
+                        if (prior != null) {
+                            priorIid = prior.instrumentId();
+                            priorName = instrumentDisplayName(prior, instrumentNames);
+                        }
                         break;
                     }
                 }
             }
-            if (!partDup
-                    && eff != null
-                    && partsByNum.containsKey(eff)
-                    && iid != null
-                    && priorIid != null) {
-                instChanged = !instrumentsEquivalent(iid, priorIid, equivByInstrument);
+            if (!partDup && eff != null && partsByNum.containsKey(eff) && !isPlaceholderInstrument(iname)) {
+                if (iid != null && priorIid != null) {
+                    instChanged = !instrumentsEquivalent(iid, priorIid, equivByInstrument);
+                } else if (!isPlaceholderInstrument(priorName)) {
+                    instChanged = !instrumentNamesEquivalent(iname, priorName);
+                }
             }
 
             Integer curPn = effectiveForItem(currentRow, slot.playerId());
@@ -238,14 +246,17 @@ public final class SetPlayLayoutBuilder {
     }
 
     private Integer effectiveForItem(SetlistItemInfo row, long playerId) throws LibraryException {
-        if (row == null || row.songLayoutId() == null) {
+        if (row == null) {
             return null;
         }
-        Map<Long, Integer> layoutAssigns = loadLayoutAssigns(row.songLayoutId());
         Map<Long, Integer> overrides = loadOverrides(row.id());
         if (overrides.containsKey(playerId)) {
             return overrides.get(playerId);
         }
+        if (row.songLayoutId() == null) {
+            return null;
+        }
+        Map<Long, Integer> layoutAssigns = loadLayoutAssigns(row.songLayoutId());
         return layoutAssigns.get(playerId);
     }
 
@@ -351,14 +362,67 @@ public final class SetPlayLayoutBuilder {
         return equiv != null && equiv.contains(b);
     }
 
+    private static boolean instrumentNamesEquivalent(String a, String b) {
+        String left = normalizeName(a);
+        String right = normalizeName(b);
+        if (left.equals(right)) {
+            return true;
+        }
+        return travelerAlternate(left).equals(right) || travelerAlternate(right).equals(left);
+    }
+
+    private static String travelerAlternate(String name) {
+        if (name.contains("traveler")) {
+            return name.replace("traveler", "traveller");
+        }
+        if (name.contains("traveller")) {
+            return name.replace("traveller", "traveler");
+        }
+        return name;
+    }
+
+    private static String instrumentDisplayName(ExportPartMeta meta, Map<Long, String> instrumentNames) {
+        if (meta == null) {
+            return "—";
+        }
+        if (meta.instrumentId() != null) {
+            String fromId = instrumentNames.get(meta.instrumentId());
+            if (fromId != null && !fromId.isBlank()) {
+                String ui = LotroInstrumentDefaults.uiName(fromId);
+                if (ui != null && !ui.isBlank()) {
+                    return ui;
+                }
+            }
+        }
+        if (meta.madeFor() != null && !meta.madeFor().isBlank()) {
+            String ui = LotroInstrumentDefaults.uiName(meta.madeFor().strip());
+            if (ui != null && !ui.isBlank()) {
+                return ui;
+            }
+            return meta.madeFor().strip();
+        }
+        return "—";
+    }
+
+    private static boolean isPlaceholderInstrument(String name) {
+        if (name == null) {
+            return true;
+        }
+        String trimmed = name.strip();
+        return trimmed.isEmpty()
+                || "—".equals(trimmed)
+                || "-".equals(trimmed)
+                || "(Made for Instrument)".equals(trimmed);
+    }
+
     private static String normalizeName(String name) {
         return name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
     }
 
-    private static Long instrumentIdForPart(String partsJson, int partNum) {
+    private static ExportPartMeta partMeta(String partsJson, int partNum) {
         for (ExportPartMeta part : PartsJsonParser.parse(partsJson)) {
             if (part.partNumber() == partNum) {
-                return part.instrumentId();
+                return part;
             }
         }
         return null;

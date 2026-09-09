@@ -14,13 +14,40 @@ public final class SetPlaySessionRules {
     }
 
     /**
-     * Item whose parts/instruments the band grid should show: NEXT only.
-     * When unset (session open, Clear session, or end of set), the grid paints the
-     * band formation with placeholder part/instrument labels.
+     * Item whose parts/instruments the band grid should show.
+     * Prefers NEXT (prepare for the upcoming song). When NEXT is unset but NOW
+     * is set (last song after Advance), shows CURRENT so cards are not blanked.
+     * When both are unset (load / Clear session), returns null so the grid
+     * paints the formation with placeholder part labels.
      */
     public static Long layoutFocusItemId(SetPlaySessionState state) {
         Objects.requireNonNull(state, "state");
-        return state.nextItemId();
+        if (state.nextItemId() != null) {
+            return state.nextItemId();
+        }
+        return state.currentItemId();
+    }
+
+    /**
+     * Nearest earlier unskipped item, or null at the start of the set.
+     */
+    public static Long previousUnskippedItemId(SetPlaySessionState state, Long itemId) {
+        Objects.requireNonNull(state, "state");
+        if (itemId == null) {
+            return null;
+        }
+        List<Long> order = state.orderItemIds();
+        int idx = order.indexOf(itemId);
+        if (idx <= 0) {
+            return null;
+        }
+        for (int i = idx - 1; i >= 0; i--) {
+            Long id = order.get(i);
+            if (!state.skippedItemIds().contains(id)) {
+                return id;
+            }
+        }
+        return null;
     }
 
     /**

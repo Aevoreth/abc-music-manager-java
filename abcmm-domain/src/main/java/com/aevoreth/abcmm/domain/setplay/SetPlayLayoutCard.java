@@ -40,4 +40,30 @@ public record SetPlayLayoutCard(
                 "",
                 false);
     }
+
+    /**
+     * Same assignment (part/instrument) with live Current/Next gutters and
+     * instrument-change highlighting applied at display time.
+     */
+    public SetPlayLayoutCard withLiveHints(
+            String neighborPrevPartLabel,
+            String neighborNextPartLabel,
+            boolean instrumentChangedFromPriorInSet) {
+        return new SetPlayLayoutCard(
+                playerId,
+                playerName,
+                x,
+                y,
+                widthUnits,
+                heightUnits,
+                partNumber,
+                partName,
+                instrumentName,
+                instrumentWarning,
+                partDuplicate,
+                useSetlistPlayerHeader,
+                neighborPrevPartLabel == null ? "" : neighborPrevPartLabel,
+                neighborNextPartLabel == null ? "" : neighborNextPartLabel,
+                instrumentChangedFromPriorInSet);
+    }
 }

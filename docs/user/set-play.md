@@ -81,9 +81,9 @@ Enable **Mark songs as played automatically** to write play history to the Libra
 
 ## Band layout panel {#band-grid}
 
-When the loaded set has a band layout, the grid shows player positions as soon as the set is opened. Cards use the **NEXT** song’s part/instrument assignments when one is set; otherwise they show the formation with placeholder parts (same as the setlist editor with no assignments yet). **Clear session** only resets NOW/NEXT/played/skip — the formation stays. Each song row has a layout button that previews that song’s assignments without changing NEXT. In the browser Playback tab the grid stays pinned to the bottom of the page; drag the splitter above it to resize. Player cards scale down so the full formation fits in the pane. Only **Your players** and the setlist scroll.
+When the loaded set has a band layout, the grid shows player positions as soon as the set is opened. Cards use the **NEXT** song’s part/instrument assignments when one is set. After **Advance** on the last song, NEXT is empty and the grid keeps the **NOW** song’s assignments (with change highlighting vs the previous song) instead of blanking the cards. When neither NOW nor NEXT is set (session open or **Clear session**), cards show the formation with placeholder parts. **Clear session** only resets NOW/NEXT/played/skip — the formation stays. Each song row has a layout button that previews that song’s assignments without changing NEXT. In the browser Playback tab the grid stays pinned to the bottom of the page; drag the splitter above it to resize. Player cards scale down so the full formation fits in the pane. Only **Your players** and the setlist scroll.
 
-**Part change highlighting** compares the **next** selected song to the **current** song (instrument/part changes between them).
+**Part change highlighting** compares the song on the grid (NEXT, or NOW at the end of the set) to the prior song (instrument/part changes between them).
 
 The player name list (**Your players** on Playback, or **Players** on Parts) highlights selected members on the grid and draws a stronger tint accent on their Parts columns (local only — not sent to the relay). Useful to remind you which player(s) you are controlling.
 
