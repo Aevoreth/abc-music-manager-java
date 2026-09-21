@@ -64,6 +64,7 @@ public final class SongPickerDialog extends JDialog {
         });
 
         JTextField search = new JTextField(24);
+        TextFieldClearButton.install(search);
         search.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {

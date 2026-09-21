@@ -181,6 +181,8 @@ public final class BandsPanel extends JPanel {
         JPanel filters = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         playerNameFilter.putClientProperty("JTextField.placeholderText", "Filter by name");
         playerClassFilter.putClientProperty("JTextField.placeholderText", "Filter by class");
+        TextFieldClearButton.install(playerNameFilter);
+        TextFieldClearButton.install(playerClassFilter);
         filters.add(playerNameFilter);
         filters.add(new JLabel("Level:"));
         SpinnerMouseWheel.install(playerLevelMin);

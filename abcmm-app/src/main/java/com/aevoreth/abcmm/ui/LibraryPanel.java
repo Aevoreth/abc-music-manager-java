@@ -806,6 +806,7 @@ public final class LibraryPanel extends JPanel {
         });
         mainRow.add(filtersButton);
         mainRow.add(new JLabel("Title / Composer"));
+        TextFieldClearButton.install(titleComposerField);
         mainRow.add(titleComposerField);
         JButton reset = new JButton("Reset Filters");
         JButton clear = new JButton("Clear Filters");

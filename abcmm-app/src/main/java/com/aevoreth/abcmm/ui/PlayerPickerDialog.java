@@ -84,6 +84,7 @@ public final class PlayerPickerDialog extends JDialog {
             }
         });
 
+        TextFieldClearButton.install(search);
         search.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
