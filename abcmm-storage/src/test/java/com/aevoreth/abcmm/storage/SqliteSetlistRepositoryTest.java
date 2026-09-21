@@ -78,7 +78,7 @@ class SqliteSetlistRepositoryTest {
 
             SqliteSetlistRepository repo = new SqliteSetlistRepository(database);
             long source = repo.addSetlist("Friday", null);
-            repo.updateSetlist(source, "Friday", null, null, 0, false, 20, "notes", "2026-08-01", "19:00", 3600);
+            repo.updateSetlist(source, "Friday", null, null, 0, false, 20, "notes", "F1", "2026-08-01", "19:00", 3600);
             repo.addItem(source, 1, 0, null, null);
             repo.addItem(source, 2, 1, 15, null);
 
@@ -86,12 +86,13 @@ class SqliteSetlistRepositoryTest {
             repo.addItem(target, 3, 0, null, null);
 
             long copyId = repo.duplicateSetlist(
-                    source, "Copy of Friday", null, true, 20, "notes", "2026-08-01", "19:00", 3600);
+                    source, "Copy of Friday", null, true, 20, "notes", "F1", "2026-08-01", "19:00", 3600);
             SetlistInfo copy = repo.listSetlists().stream()
                     .filter(s -> s.id() == copyId)
                     .findFirst()
                     .orElseThrow();
             assertEquals("Copy of Friday", copy.name());
+            assertEquals("F1", copy.setCode());
             assertEquals(true, copy.locked());
             assertEquals(2, repo.listItems(copyId).size());
             assertEquals(1, repo.listItems(copyId).get(0).songId());
@@ -112,7 +113,7 @@ class SqliteSetlistRepositoryTest {
             assertEquals(List.of(1L, 2L, 3L, 1L, 2L), songIds);
 
             long copyNoLayout = repo.duplicateSetlist(
-                    source, "No Layout Copy", null, false, 20, null, null, null, null);
+                    source, "No Layout Copy", null, false, 20, null, null, null, null, null);
             assertEquals(2, repo.listItems(copyNoLayout).size());
             assertEquals(1, repo.listItems(copyNoLayout).get(0).songId());
             assertNull(repo.listSetlists().stream()

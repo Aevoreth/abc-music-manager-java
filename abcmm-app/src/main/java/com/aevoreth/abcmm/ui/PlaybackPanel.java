@@ -950,6 +950,7 @@ public final class PlaybackPanel extends JPanel {
                         details.locked(),
                         details.switchDelaySeconds(),
                         details.notes(),
+                        details.setCode(),
                         details.setDate(),
                         details.setTime(),
                         details.targetDurationSeconds());

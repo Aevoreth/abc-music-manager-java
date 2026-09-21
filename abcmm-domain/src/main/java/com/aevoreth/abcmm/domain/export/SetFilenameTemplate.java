@@ -40,7 +40,8 @@ public final class SetFilenameTemplate {
             int partCount,
             boolean partCountZeroPadded,
             String songLengthSep,
-            SongLengthPad songLengthPad) {
+            SongLengthPad songLengthPad,
+            String setCode) {
         String filenameStem = "unknown";
         if (filePath != null && !filePath.isBlank()) {
             Path path = Path.of(filePath);
@@ -79,6 +80,7 @@ public final class SetFilenameTemplate {
         map.put("$SongTranscriber", transcriber == null ? "" : transcriber);
         map.put("$SongLength", durationStr);
         map.put("$SongTitle", title == null ? "" : title);
+        map.put("$SetCode", setCode == null ? "" : setCode);
         return map;
     }
 
@@ -118,7 +120,8 @@ public final class SetFilenameTemplate {
             Integer durationSeconds,
             int partCount,
             String whitespaceReplace,
-            boolean partCountZeroPadded) {
+            boolean partCountZeroPadded,
+            String setCode) {
         Map<String, String> variables = buildSongVariableMap(
                 filePath,
                 index,
@@ -129,7 +132,8 @@ public final class SetFilenameTemplate {
                 partCount,
                 partCountZeroPadded,
                 "_",
-                SongLengthPad.BOTH);
+                SongLengthPad.BOTH,
+                setCode);
         String result = substitute(pattern, variables, whitespaceReplace);
         if (!result.toLowerCase(Locale.ROOT).endsWith(".abc")) {
             result += ".abc";
@@ -153,7 +157,8 @@ public final class SetFilenameTemplate {
             String playerAssignment,
             String numeration,
             String whitespaceReplace,
-            boolean partCountZeroPadded) {
+            boolean partCountZeroPadded,
+            String setCode) {
         Map<String, String> variables = buildSongVariableMap(
                 filePath,
                 index,
@@ -164,7 +169,8 @@ public final class SetFilenameTemplate {
                 partCount,
                 partCountZeroPadded,
                 ":",
-                SongLengthPad.SECONDS);
+                SongLengthPad.SECONDS,
+                setCode);
         variables.put("$PartInstrument", partInstrument == null ? "" : partInstrument);
         variables.put("$PartName", partName == null ? "" : partName);
         variables.put("$PartTitle", partTitle == null ? "" : partTitle);

@@ -41,6 +41,7 @@ Click **Edit** to open the setlist details dialog (**Edit setlist** / **New setl
 | Field | Purpose |
 |-------|---------|
 | **Set Name** | Setlist title |
+| **Set Code** | Optional short code for `$SetCode` on [set export](set-export.md) (filenames and part renaming); use it to tag songs and limit duplication issues within a songbook |
 | **Band Layout** | Optional; enables part UI and Set Play grid |
 | **Set Date** / **Time** | Event scheduling info |
 | **Target Duration** | Planned length of the set |

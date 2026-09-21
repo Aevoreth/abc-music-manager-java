@@ -58,7 +58,7 @@ class SqliteSongLayoutSnapshotTest {
             fx.songLayouts.setAssignment(songLayout.id(), fx.playerB, null);
 
             fx.setlists.updateSetlist(
-                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null);
+                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null, null);
             long itemId = fx.setlists.addItem(fx.setlistId, fx.songId, 0, null, null);
 
             List<SetlistItemInfo> items = fx.setlists.listItems(fx.setlistId);
@@ -82,7 +82,7 @@ class SqliteSongLayoutSnapshotTest {
             fx.songLayouts.setAssignment(songLayout.id(), fx.playerA, 1);
 
             fx.setlists.updateSetlist(
-                    fx.setlistId, "Set", fx.layoutB, null, 0, false, null, null, null, null, null);
+                    fx.setlistId, "Set", fx.layoutB, null, 0, false, null, null, null, null, null, null);
             long itemId = fx.setlists.addItem(fx.setlistId, fx.songId, 0, null, null);
             assertEquals(null, fx.setlists.listItems(fx.setlistId).get(0).songLayoutId());
             assertTrue(fx.setlists.listBandAssignments(itemId).isEmpty());
@@ -114,7 +114,7 @@ class SqliteSongLayoutSnapshotTest {
             fx.songLayouts.setAssignment(songLayout.id(), fx.playerA, 1);
 
             fx.setlists.updateSetlist(
-                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null);
+                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null, null);
             long itemId = fx.setlists.addItem(fx.setlistId, fx.songId, 0, null, null);
             assertEquals(1, partFor(fx.setlists.listBandAssignments(itemId), fx.playerA));
 
@@ -149,7 +149,7 @@ class SqliteSongLayoutSnapshotTest {
             fx.songLayouts.setAssignment(layoutB.id(), fx.playerC, 4);
 
             fx.setlists.updateSetlist(
-                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null);
+                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null, null);
             long itemId = fx.setlists.addItem(fx.setlistId, fx.songId, 0, null, null);
             fx.setlists.upsertBandAssignment(itemId, fx.playerA, 9);
 
@@ -171,12 +171,12 @@ class SqliteSongLayoutSnapshotTest {
             fx.songLayouts.setAssignment(songLayout.id(), fx.playerA, 1);
 
             fx.setlists.updateSetlist(
-                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null);
+                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null, null);
             long itemId = fx.setlists.addItem(fx.setlistId, fx.songId, 0, null, null);
             fx.setlists.upsertBandAssignment(itemId, fx.playerA, 7);
 
             long copyId = fx.setlists.duplicateSetlist(
-                    fx.setlistId, "Copy", fx.layoutA, false, null, null, null, null, null);
+                    fx.setlistId, "Copy", fx.layoutA, false, null, null, null, null, null, null);
             long copyItemId = fx.setlists.listItems(copyId).get(0).id();
             assertEquals(7, partFor(fx.setlists.listBandAssignments(copyItemId), fx.playerA));
             assertEquals(1, fx.songLayouts.listAssignments(songLayout.id()).stream()
@@ -197,7 +197,7 @@ class SqliteSongLayoutSnapshotTest {
             fx.songLayouts.setAssignment(songLayout.id(), fx.playerA, 1);
 
             fx.setlists.updateSetlist(
-                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null);
+                    fx.setlistId, "Set", fx.layoutA, null, 0, false, null, null, null, null, null, null);
             long itemId = fx.setlists.addItem(fx.setlistId, fx.songId, 0, null, null);
 
             fx.songLayouts.deleteSongLayout(songLayout.id());

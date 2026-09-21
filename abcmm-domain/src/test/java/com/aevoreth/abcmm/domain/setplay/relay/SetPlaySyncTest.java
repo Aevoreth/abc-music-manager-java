@@ -21,7 +21,7 @@ class SetPlaySyncTest {
     @Test
     void snapshotRoundTrip() {
         SetlistInfo setlist = new SetlistInfo(
-                42L, "Friday set", 7L, null, 0, false, 30, "notes", "2026-08-12", "20:00", 3600);
+                42L, "Friday set", 7L, null, 0, false, 30, "notes", null, "2026-08-12", "20:00", 3600);
         SetlistItemInfo row1 = new SetlistItemInfo(
                 101L, 42L, 1L, "Song A", "Composer", 120, 3, "[]", 0, null, null);
         SetlistItemInfo row2 = new SetlistItemInfo(
@@ -74,7 +74,7 @@ class SetPlaySyncTest {
     @Test
     void partsSheetAndZipRoundTrip() {
         SetlistInfo setlist = new SetlistInfo(
-                1L, "Set", null, null, 0, false, 0, null, null, null, null);
+                1L, "Set", null, null, 0, false, 0, null, null, null, null, null);
         SetlistItemInfo row = new SetlistItemInfo(
                 10L, 1L, 2L, "Tune", "", 60, 1, "[]", 0, null, null);
         SetPlaySessionState state = new SetPlaySessionState(List.of(10L));
@@ -138,7 +138,7 @@ class SetPlaySyncTest {
     @Test
     void layoutCardsByItemIdRoundTrip() {
         SetlistInfo setlist = new SetlistInfo(
-                1L, "Set", 7L, null, 0, false, 0, null, null, null, null);
+                1L, "Set", 7L, null, 0, false, 0, null, null, null, null, null);
         SetlistItemInfo row1 = new SetlistItemInfo(
                 10L, 1L, 2L, "Tune A", "", 60, 1, "[]", 0, null, null);
         SetlistItemInfo row2 = new SetlistItemInfo(

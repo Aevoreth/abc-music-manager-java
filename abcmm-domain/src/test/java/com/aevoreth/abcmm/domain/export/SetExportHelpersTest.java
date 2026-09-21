@@ -28,7 +28,8 @@ class SetExportHelpersTest {
                 65,
                 2,
                 " ",
-                true);
+                true,
+                null);
         assertEquals("001_my song.abc", name);
     }
 
@@ -44,7 +45,8 @@ class SetExportHelpersTest {
                 3,
                 true,
                 "_",
-                SetFilenameTemplate.SongLengthPad.BOTH);
+                SetFilenameTemplate.SongLengthPad.BOTH,
+                null);
         assertEquals("02_05", vars.get("$SongLength"));
         assertEquals("003", vars.get("$SongIndex"));
     }
@@ -67,8 +69,60 @@ class SetExportHelpersTest {
                 "Alice",
                 "",
                 " ",
-                true);
+                true,
+                null);
         assertEquals("2:05-Part Title", title);
+    }
+
+    @Test
+    void formatFilenameAndPartNameSubstituteSetCode() {
+        String name = SetFilenameTemplate.formatFilename(
+                "$SetCode_$SongTitle",
+                "C:/music/my song.abc",
+                0,
+                "My Song",
+                "Composer",
+                null,
+                65,
+                2,
+                " ",
+                true,
+                "Fri");
+        assertEquals("Fri_My Song.abc", name);
+
+        String title = SetFilenameTemplate.formatPartName(
+                "$SetCode $PartName",
+                "a.abc",
+                0,
+                "Song",
+                "C",
+                null,
+                125,
+                1,
+                "Lute",
+                "Flute",
+                "Part Title",
+                "1",
+                "Alice",
+                "",
+                " ",
+                true,
+                "Fri");
+        assertEquals("Fri Flute", title);
+
+        String empty = SetFilenameTemplate.formatFilename(
+                "$SetCode$SongTitle",
+                "a.abc",
+                0,
+                "Title",
+                null,
+                null,
+                1,
+                1,
+                " ",
+                true,
+                null);
+        assertEquals("Title.abc", empty);
     }
 
     @Test

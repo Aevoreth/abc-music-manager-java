@@ -31,6 +31,7 @@ import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
+import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 
 /**
@@ -59,6 +60,19 @@ public final class SetExportService {
     public static String sanitizeForPath(String s) {
         String cleaned = INVALID_PATH_CHARS.matcher(s == null ? "" : s).replaceAll("").strip();
         return cleaned.isEmpty() ? "untitled" : cleaned;
+    }
+
+    private String resolveSetCode(long setlistId) throws SetExportException {
+        try {
+            for (SetlistInfo setlist : setlistRepository.listSetlists()) {
+                if (setlist.id() == setlistId) {
+                    return setlist.setCode() == null ? "" : setlist.setCode();
+                }
+            }
+        } catch (LibraryException ex) {
+            throw new SetExportException("Failed to load setlist", ex);
+        }
+        return "";
     }
 
     /**
@@ -162,6 +176,7 @@ public final class SetExportService {
 
             Map<String, Integer> usedNames = new HashMap<>();
             List<ExportEntry> exportEntries = new ArrayList<>();
+            String setCode = resolveSetCode(setlistId);
 
             for (int i = 0; i < items.size(); i++) {
                 SetExportItemInfo item = items.get(i);
@@ -182,7 +197,8 @@ public final class SetExportService {
                             item.durationSeconds(),
                             item.partCount(),
                             settings.whitespaceReplace(),
-                            settings.partCountZeroPadded());
+                            settings.partCountZeroPadded(),
+                            setCode);
                 } else {
                     Path name = src.getFileName();
                     base = name == null ? "song.abc" : name.toString();
@@ -213,7 +229,8 @@ public final class SetExportService {
                             assigns,
                             playersById,
                             instrumentNames,
-                            settings);
+                            settings,
+                            setCode);
                     String text = Files.readString(entry.source(), StandardCharsets.UTF_8);
                     String newText = AbcPartTitleRewrite.rewriteAbcPartTLines(text, partMap);
                     Files.writeString(dest, newText, StandardCharsets.UTF_8);
@@ -330,7 +347,8 @@ public final class SetExportService {
             Map<Long, Integer> assigns,
             Map<Long, String> playersById,
             Map<Long, String> instrumentNames,
-            SetExportSettings settings) {
+            SetExportSettings settings,
+            String setCode) {
         List<ExportPartMeta> parts = PartsJsonParser.parse(item.partsJson());
         if (parts.isEmpty()) {
             return Map.of();
@@ -362,7 +380,8 @@ public final class SetExportService {
                     player,
                     numer.getOrDefault(part.partNumber(), ""),
                     settings.whitespaceReplace(),
-                    settings.partCountZeroPadded());
+                    settings.partCountZeroPadded(),
+                    setCode);
             out.put(part.partNumber(), newTitle);
         }
         return out;

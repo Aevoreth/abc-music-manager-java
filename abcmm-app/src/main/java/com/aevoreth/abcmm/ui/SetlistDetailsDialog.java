@@ -37,7 +37,11 @@ public final class SetlistDetailsDialog extends JDialog {
 
     static final int DEFAULT_SWITCH_DELAY_SECONDS = 20;
 
+    static final String SET_CODE_TOOLTIP =
+            "Short optional code that can be used to tag songs on export to limit duplication issues within songbook.";
+
     private final JTextField nameField = new JTextField(28);
+    private final JTextField setCodeField = new JTextField(12);
     private final JComboBox<LayoutChoice> layoutCombo = new JComboBox<>();
     private final CalendarDatePicker datePicker = new CalendarDatePicker();
     private final TimeChooser timeChooser = new TimeChooser();
@@ -65,6 +69,10 @@ public final class SetlistDetailsDialog extends JDialog {
 
         int row = 0;
         addLabeled(form, gc, row++, "Set Name", nameField);
+        JLabel setCodeLabel = new JLabel("Set Code");
+        setCodeLabel.setToolTipText(SET_CODE_TOOLTIP);
+        setCodeField.setToolTipText(SET_CODE_TOOLTIP);
+        addLabeled(form, gc, row++, setCodeLabel, setCodeField);
         addLabeled(form, gc, row++, "Band Layout", layoutCombo);
 
         JPanel dateTimeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -136,6 +144,7 @@ public final class SetlistDetailsDialog extends JDialog {
         Objects.requireNonNull(setlist, "setlist");
         SetlistDetailsDialog dialog = new SetlistDetailsDialog(owner, "Edit setlist");
         dialog.nameField.setText(setlist.name() == null ? "" : setlist.name());
+        dialog.setCodeField.setText(setlist.setCode() == null ? "" : setlist.setCode());
         dialog.loadLayouts(bands, setlist.bandLayoutId());
         dialog.datePicker.setIsoDate(setlist.setDate());
         dialog.timeChooser.setHhMm(setlist.setTime() == null || setlist.setTime().isBlank() ? "19:00" : setlist.setTime());
@@ -161,6 +170,7 @@ public final class SetlistDetailsDialog extends JDialog {
         Objects.requireNonNull(source, "source");
         SetlistDetailsDialog dialog = new SetlistDetailsDialog(owner, "Duplicate setlist");
         dialog.nameField.setText(suggestedName == null ? "" : suggestedName);
+        dialog.setCodeField.setText(source.setCode() == null ? "" : source.setCode());
         dialog.loadLayouts(bands, source.bandLayoutId());
         dialog.datePicker.setIsoDate(source.setDate());
         dialog.timeChooser.setHhMm(
@@ -217,6 +227,7 @@ public final class SetlistDetailsDialog extends JDialog {
         int target = ((Number) targetDurationSpinner.getValue()).intValue();
         int delay = ((Number) switchDelaySpinner.getValue()).intValue();
         String notes = notesArea.getText();
+        String setCode = setCodeField.getText() == null ? "" : setCodeField.getText().trim();
         result = new Result(
                 name,
                 layout == null ? null : layout.id(),
@@ -225,17 +236,23 @@ public final class SetlistDetailsDialog extends JDialog {
                 target <= 0 ? null : target,
                 delay,
                 notes == null || notes.isBlank() ? null : notes,
+                setCode.isEmpty() ? null : setCode,
                 lockedCheck.isSelected());
         dispose();
     }
 
     private static void addLabeled(JPanel panel, GridBagConstraints gc, int row, String label, java.awt.Component field) {
+        addLabeled(panel, gc, row, new JLabel(label), field);
+    }
+
+    private static void addLabeled(
+            JPanel panel, GridBagConstraints gc, int row, JLabel label, java.awt.Component field) {
         gc.gridx = 0;
         gc.gridy = row;
         gc.weightx = 0;
         gc.weighty = 0;
         gc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel(label), gc);
+        panel.add(label, gc);
         gc.gridx = 1;
         gc.fill = GridBagConstraints.HORIZONTAL;
         gc.weightx = 1;
@@ -250,6 +267,7 @@ public final class SetlistDetailsDialog extends JDialog {
             Integer targetDurationSeconds,
             int switchDelaySeconds,
             String notes,
+            String setCode,
             boolean locked) {
     }
 

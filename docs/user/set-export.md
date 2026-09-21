@@ -29,6 +29,7 @@ Define filename patterns for exported ABC files. Common variables:
 | `$SongTranscriber` | Transcriber (Z: field) |
 | `$SongLength` | Duration in `mm_ss` format (for filenames) |
 | `$SongTitle` | Title (T: field) |
+| `$SetCode` | Optional set code from the setlist (tags songs to limit songbook duplication) |
 
 You can also choose how spaces in expanded variables are replaced.
 
@@ -47,6 +48,7 @@ Rename individual parts within ABC files when exporting multi-part sets. Variabl
 | `$PlayerAssignment` | Player assigned to this part in the setlist band layout |
 | `$Numeration` | `1`, `2`, … when multiple parts share the same `%%part-name`; empty if unique |
 | `$SongLength` | Duration as `m:ss` (e.g. `2:05`) |
+| `$SetCode` | Optional set code from the setlist (tags songs to limit songbook duplication) |
 
 `$PlayerAssignment` only works if you defined a band layout and assigned parts — useful so part names include who should play them.
 

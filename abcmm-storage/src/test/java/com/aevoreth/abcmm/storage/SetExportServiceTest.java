@@ -149,6 +149,62 @@ class SetExportServiceTest {
     }
 
     @Test
+    void exportSubstitutesSetCodeInFilenameAndPartTitle() throws Exception {
+        Path src = tempDir.resolve("src");
+        Files.createDirectories(src);
+        Path aPath = src.resolve("a.abc");
+        Files.writeString(aPath, "X:1\nT:Old Title\n", StandardCharsets.UTF_8);
+
+        Path outParent = tempDir.resolve("out");
+        Files.createDirectories(outParent);
+
+        Path dbPath = tempDir.resolve("setcode.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(dbPath)) {
+            seedSong(database, 1, "A", aPath.toString(),
+                    "[{\"part_number\":1,\"part_name\":\"Flute\",\"instrument_id\":null}]");
+
+            SqliteSetlistRepository setlists = new SqliteSetlistRepository(database);
+            long setlistId = setlists.addSetlist("Test Set", null);
+            setlists.updateSetlist(
+                    setlistId, "Test Set", null, null, 0, false, null, null, "Fri", null, null, null);
+            setlists.addItem(setlistId, 1, 0, null, null);
+
+            SetExportSettings settings = new SetExportSettings();
+            settings.setOutputDirectory(outParent);
+            settings.setSetName("MySet");
+            settings.setExportAsFolder(true);
+            settings.setExportAsZip(false);
+            settings.setRenameAbcFiles(true);
+            settings.setFilenamePattern("$SetCode_$SongIndex_$FileName");
+            settings.setWhitespaceReplace(" ");
+            settings.setPartCountZeroPadded(true);
+            settings.setRenameParts(true);
+            settings.setPartNamePattern("$SetCode $PartName");
+            settings.setExportCsvPartSheet(false);
+            settings.setExportAbcpPlaylist(false);
+
+            SetExportService service = new SetExportService(
+                    setlists,
+                    new SqliteSongRepository(database),
+                    new SqliteBandRepository(database),
+                    new SqlitePlayerRepository(database));
+            service.exportSet(
+                    setlistId,
+                    "Test Set",
+                    null,
+                    setlists.listItemsForExport(setlistId),
+                    settings,
+                    null,
+                    null);
+
+            Path exported = outParent.resolve("MySet").resolve("Fri_001_a.abc");
+            assertTrue(Files.isRegularFile(exported));
+            String text = Files.readString(exported, StandardCharsets.UTF_8);
+            assertTrue(text.contains("T: Fri Flute"));
+        }
+    }
+
+    @Test
     void refusesExistingFolder() throws Exception {
         Path src = tempDir.resolve("src");
         Files.createDirectories(src);

@@ -17,13 +17,13 @@ Helpers: `com.aevoreth.abcmm.storage.DataPaths`.
 ## Schema authority
 
 Prefer the Java migration chain in `SchemaMigrator`
-(`CURRENT_SCHEMA_VERSION = 13`). Opening a Python v12 database migrates to v13
+(`CURRENT_SCHEMA_VERSION = 14`). Opening a Python v12 database migrates to v14
 and will not round-trip to Python. Known older quirks:
 [docs/SCHEMA_ISSUES.md](../docs/SCHEMA_ISSUES.md).
 
 ## Current status
 
-- JDBC (`sqlite-jdbc`) opens or creates the DB **read-write** and migrates to schema version 13
+- JDBC (`sqlite-jdbc`) opens or creates the DB **read-write** and migrates to schema version 14
 - Repositories cover songs, play log, settings (Status / FolderRule / AccountTarget), players, bands, setlists, song layouts, library scan, and Set Play relays / published sessions
 - `JsonPreferencesStore` reads/writes `preferences.json`; `set_play_relays` is copied into SQLite once and then no longer written
 

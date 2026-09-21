@@ -41,6 +41,7 @@ public interface SetlistRepository {
             boolean locked,
             Integer defaultChangeDurationSeconds,
             String notes,
+            String setCode,
             String setDate,
             String setTime,
             Integer targetDurationSeconds) throws LibraryException;
@@ -61,6 +62,7 @@ public interface SetlistRepository {
             boolean locked,
             Integer defaultChangeDurationSeconds,
             String notes,
+            String setCode,
             String setDate,
             String setTime,
             Integer targetDurationSeconds) throws LibraryException;

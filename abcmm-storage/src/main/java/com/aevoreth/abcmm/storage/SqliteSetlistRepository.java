@@ -145,7 +145,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
     public List<SetlistInfo> listSetlists() throws LibraryException {
         String sql = """
                 SELECT s.id, s.name, s.band_layout_id, s.folder_id, COALESCE(s.sort_order, 0) AS sort_order,
-                       s.locked, s.default_change_duration_seconds, s.notes, s.set_date, s.set_time,
+                       s.locked, s.default_change_duration_seconds, s.notes, s.set_code, s.set_date, s.set_time,
                        s.target_duration_seconds
                 FROM Setlist s
                 LEFT JOIN SetlistFolder f ON s.folder_id = f.id
@@ -261,6 +261,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             boolean locked,
             Integer defaultChangeDurationSeconds,
             String notes,
+            String setCode,
             String setDate,
             String setTime,
             Integer targetDurationSeconds) throws LibraryException {
@@ -274,6 +275,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                   locked = ?,
                   default_change_duration_seconds = ?,
                   notes = ?,
+                  set_code = ?,
                   set_date = ?,
                   set_time = ?,
                   target_duration_seconds = ?,
@@ -288,11 +290,12 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             statement.setInt(5, locked ? 1 : 0);
             setNullableInt(statement, 6, defaultChangeDurationSeconds);
             statement.setString(7, blankToNull(notes));
-            statement.setString(8, blankToNull(setDate));
-            statement.setString(9, blankToNull(setTime));
-            setNullableInt(statement, 10, targetDurationSeconds);
-            statement.setString(11, SqliteTimestamps.now());
-            statement.setLong(12, id);
+            statement.setString(8, blankToNull(setCode));
+            statement.setString(9, blankToNull(setDate));
+            statement.setString(10, blankToNull(setTime));
+            setNullableInt(statement, 11, targetDurationSeconds);
+            statement.setString(12, SqliteTimestamps.now());
+            statement.setLong(13, id);
             statement.executeUpdate();
         } catch (SQLException ex) {
             throw new LibraryException("Failed to update setlist", ex);
@@ -326,6 +329,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             boolean locked,
             Integer defaultChangeDurationSeconds,
             String notes,
+            String setCode,
             String setDate,
             String setTime,
             Integer targetDurationSeconds) throws LibraryException {
@@ -342,6 +346,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                     locked,
                     defaultChangeDurationSeconds,
                     notes,
+                    setCode,
                     setDate,
                     setTime,
                     targetDurationSeconds);
@@ -472,6 +477,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                     target.locked(),
                     target.defaultChangeDurationSeconds(),
                     target.notes(),
+                    target.setCode(),
                     target.setDate(),
                     target.setTime(),
                     target.targetDurationSeconds());
@@ -924,6 +930,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                 rs.getInt("locked") != 0,
                 defaultChange,
                 blankToNull(rs.getString("notes")),
+                blankToNull(rs.getString("set_code")),
                 blankToNull(rs.getString("set_date")),
                 blankToNull(rs.getString("set_time")),
                 targetDuration);

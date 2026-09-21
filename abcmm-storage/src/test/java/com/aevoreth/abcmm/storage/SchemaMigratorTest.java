@@ -17,14 +17,14 @@ class SchemaMigratorTest {
     Path tempDir;
 
     @Test
-    void openOrCreateBuildsSchemaVersionThirteenWithSeeds() throws Exception {
+    void openOrCreateBuildsSchemaVersionFourteenWithSeeds() throws Exception {
         Path db = tempDir.resolve("new.sqlite");
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement()) {
             try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
                 assertTrue(version.next());
-                assertEquals(13, version.getInt(1));
+                assertEquals(14, version.getInt(1));
             }
             try (ResultSet statuses = statement.executeQuery("SELECT COUNT(*) FROM Status")) {
                 assertTrue(statuses.next());
@@ -46,19 +46,32 @@ class SchemaMigratorTest {
     }
 
     @Test
-    void openOrCreateMigratesOlderVersionToThirteen() throws Exception {
+    void openOrCreateMigratesOlderVersionToFourteen() throws Exception {
         Path db = FixtureDatabases.createWrongVersionFixture(tempDir.resolve("v11.sqlite"));
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement();
              ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
             assertTrue(version.next());
-            assertEquals(13, version.getInt(1));
+            assertEquals(14, version.getInt(1));
+        }
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
+             Connection connection = database.connection();
+             Statement statement = connection.createStatement();
+             ResultSet cols = statement.executeQuery("PRAGMA table_info(Setlist)")) {
+            boolean hasSetCode = false;
+            while (cols.next()) {
+                if ("set_code".equals(cols.getString("name"))) {
+                    hasSetCode = true;
+                    break;
+                }
+            }
+            assertTrue(hasSetCode);
         }
     }
 
     @Test
-    void openOrCreateIsIdempotentOnExistingV13() throws Exception {
+    void openOrCreateIsIdempotentOnExistingV14() throws Exception {
         Path db = tempDir.resolve("idempotent.sqlite");
         try (SqliteDatabase first = SqliteDatabase.openOrCreate(db)) {
             // create once

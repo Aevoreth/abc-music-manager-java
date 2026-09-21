@@ -15,11 +15,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Creates and migrates the SQLite schema through version 13 (Java-only from v13).
+ * Creates and migrates the SQLite schema through version 14 (Java-only from v13).
  */
 final class SchemaMigrator {
 
-    static final int CURRENT_SCHEMA_VERSION = 13;
+    static final int CURRENT_SCHEMA_VERSION = 14;
 
     /** 24 LOTRO instruments for Players tab (same order as Python). */
     static final List<String> PLAYER_INSTRUMENTS = List.of(
@@ -215,6 +215,7 @@ final class SchemaMigrator {
                         default_change_duration_seconds INTEGER,
                         export_naming_rules TEXT,
                         notes TEXT,
+                        set_code TEXT,
                         set_date TEXT,
                         set_time TEXT,
                         target_duration_seconds INTEGER,
@@ -387,6 +388,11 @@ final class SchemaMigrator {
         if (current < 13) {
             migrateSetPlayRelayTables(connection);
             setSchemaVersion(connection, 13);
+            current = 13;
+        }
+        if (current < 14) {
+            migrateSetlistSetCode(connection);
+            setSchemaVersion(connection, 14);
         }
     }
 
@@ -624,6 +630,16 @@ final class SchemaMigrator {
         }
         try (Statement statement = connection.createStatement()) {
             statement.execute("ALTER TABLE Setlist ADD COLUMN notes TEXT");
+        }
+        connection.commit();
+    }
+
+    private static void migrateSetlistSetCode(Connection connection) throws SQLException {
+        if (hasColumn(connection, "Setlist", "set_code")) {
+            return;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE Setlist ADD COLUMN set_code TEXT");
         }
         connection.commit();
     }

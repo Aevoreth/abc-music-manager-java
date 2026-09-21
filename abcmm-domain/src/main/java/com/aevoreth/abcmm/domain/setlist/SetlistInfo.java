@@ -12,6 +12,7 @@ public record SetlistInfo(
         boolean locked,
         Integer defaultChangeDurationSeconds,
         String notes,
+        String setCode,
         String setDate,
         String setTime,
         Integer targetDurationSeconds) {

@@ -138,6 +138,7 @@ public final class SetlistsPanel extends JPanel {
     private final JButton editDetailsButton = new JButton("Edit");
     private final JButton exportDetailsButton = new JButton("Export");
     private final JButton deleteSetlistButton = new JButton(PlaybackIcons.trash(14));
+    private final JLabel setCodeValue = new JLabel("\u2014");
     private final JLabel layoutValue = new JLabel("\u2014");
     private final JLabel dateTimeValue = new JLabel("\u2014");
     private final JLabel targetDurationValue = new JLabel("\u2014");
@@ -403,6 +404,8 @@ public final class SetlistsPanel extends JPanel {
         nameRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
         metaPanel.add(nameRow);
 
+        JPanel setCodeField = inlineField("Set Code", setCodeValue, SetlistDetailsDialog.SET_CODE_TOOLTIP);
+        metaPanel.add(setCodeField);
         metaPanel.add(inlineField("Band Layout", layoutValue));
         metaPanel.add(inlineField("Set Date / Time", dateTimeValue));
 
@@ -502,10 +505,22 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private static JPanel inlineField(String label, Component field) {
+        return inlineField(label, field, null);
+    }
+
+    private static JPanel inlineField(String label, Component field, String tooltip) {
         JPanel panel = new JPanel(new BorderLayout(8, 0));
         panel.setOpaque(false);
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(new JLabel(label), BorderLayout.WEST);
+        JLabel caption = new JLabel(label);
+        if (tooltip != null && !tooltip.isBlank()) {
+            caption.setToolTipText(tooltip);
+            if (field instanceof JComponent component) {
+                component.setToolTipText(tooltip);
+            }
+            panel.setToolTipText(tooltip);
+        }
+        panel.add(caption, BorderLayout.WEST);
         panel.add(field, BorderLayout.CENTER);
         int height = Math.max(field.getPreferredSize().height, 24);
         panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, height + 12));
@@ -1102,6 +1117,7 @@ public final class SetlistsPanel extends JPanel {
 
     private void clearEditor() {
         nameValue.setText("\u2014");
+        setCodeValue.setText("\u2014");
         layoutValue.setText("\u2014");
         dateTimeValue.setText("\u2014");
         targetDurationValue.setText("\u2014");
@@ -1138,6 +1154,7 @@ public final class SetlistsPanel extends JPanel {
 
     private void loadSetlistEditor(SetlistInfo setlist) {
         nameValue.setText(displayOrDash(setlist.name()));
+        setCodeValue.setText(displayOrDash(setlist.setCode()));
         layoutValue.setText(resolveLayoutLabel(setlist.bandLayoutId()));
         dateTimeValue.setText(formatDateTime(setlist.setDate(), setlist.setTime()));
         targetDurationValue.setText(
@@ -1624,6 +1641,7 @@ public final class SetlistsPanel extends JPanel {
                                 details.locked(),
                                 details.switchDelaySeconds(),
                                 details.notes(),
+                                details.setCode(),
                                 details.setDate(),
                                 details.setTime(),
                                 details.targetDurationSeconds());
@@ -1909,6 +1927,7 @@ public final class SetlistsPanel extends JPanel {
                                 details.locked(),
                                 details.switchDelaySeconds(),
                                 details.notes(),
+                                details.setCode(),
                                 details.setDate(),
                                 details.setTime(),
                                 details.targetDurationSeconds());
@@ -2086,6 +2105,7 @@ public final class SetlistsPanel extends JPanel {
                     !setlist.locked(),
                     setlist.defaultChangeDurationSeconds(),
                     setlist.notes(),
+                    setlist.setCode(),
                     setlist.setDate(),
                     setlist.setTime(),
                     setlist.targetDurationSeconds());
@@ -2152,6 +2172,7 @@ public final class SetlistsPanel extends JPanel {
                                 details.locked(),
                                 details.switchDelaySeconds(),
                                 details.notes(),
+                                details.setCode(),
                                 details.setDate(),
                                 details.setTime(),
                                 details.targetDurationSeconds());

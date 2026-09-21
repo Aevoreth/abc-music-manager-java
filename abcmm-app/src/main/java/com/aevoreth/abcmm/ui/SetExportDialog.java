@@ -71,6 +71,7 @@ public final class SetExportDialog extends JDialog {
             $SongTranscriber — Transcriber (Z: field)
             $SongLength — Duration in mm_ss format (for exported filenames)
             $SongTitle — Title (T: field)
+            $SetCode — Optional set code from the setlist (tags songs to limit songbook duplication)
             """;
 
     private static final String PART_VARS_HELP = """
@@ -81,6 +82,7 @@ public final class SetExportDialog extends JDialog {
             $SongTranscriber — Transcriber (Z: field)
             $SongLength — Duration as m:ss (minutes not zero-padded, seconds two digits, e.g. 2:05)
             $SongTitle — Title (T: field)
+            $SetCode — Optional set code from the setlist (tags songs to limit songbook duplication)
             $PartInstrument — Made-for instrument (from %%made-for)
             $PartName — Unmodified %%part-name comment value
             $PartTitle — Original part T: line (first T: in that X: block)
@@ -547,7 +549,8 @@ public final class SetExportDialog extends JDialog {
                 125,
                 3,
                 currentWhitespace(),
-                true);
+                true,
+                setlist.setCode());
         exampleLabel.setText("Example: " + example);
     }
 
@@ -572,7 +575,8 @@ public final class SetExportDialog extends JDialog {
                 "Player One",
                 "1",
                 currentWhitespace(),
-                true);
+                true,
+                setlist.setCode());
         partExampleLabel.setText("Example T: line: " + example);
     }
 
