@@ -7,7 +7,7 @@
   <parent>
     <groupId>com.aevoreth.abcmm</groupId>
     <artifactId>abc-music-manager-java</artifactId>
-    <version>0.4.3b</version>
+    <version>0.4.4b</version>
   </parent>
 
   <artifactId>abcmm-maestro-adapter</artifactId>

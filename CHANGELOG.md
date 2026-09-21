@@ -4,6 +4,11 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+## Version 0.4.4b
+
+- Setlist editor: optional **Set Code** on set details, used as `$SetCode` in set export filenames and part names so exported songs can be tagged and songbook duplication limited
+- Filter search fields (Library, Bands, song picker, player picker) now have an in-field clear button that resets the query and returns focus so you can type immediately
+
 ## Version 0.4.3b
 
 - Set Play instrument-change highlighting (orange part numbers and neighbor gutters) now follows live CURRENT vs NEXT on Band Assistant and the browser `/playback` page, including skip/jump. After **Advance** to the last song, the grid keeps NOW’s parts instead of going blank. Cards also use setlist part overrides (and ABC `made-for` names) so assignments show even when a song has no linked layout. **Redeploy** the Cloudflare relay so `/playback` picks up the page.
