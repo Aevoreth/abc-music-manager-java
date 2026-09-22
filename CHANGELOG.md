@@ -4,6 +4,10 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+## Version 0.4.5b
+
+- Changing a player on a band layout slot now updates every set that uses that layout, so the new player takes that spot and the parts the previous player had. Sets on a different layout are left unchanged. Setlists and Set Play refresh those players when you open the tab.
+
 ## Version 0.4.4b
 
 - Setlist editor: optional **Set Code** on set details, used as `$SetCode` in set export filenames and part names so exported songs can be tagged and songbook duplication limited

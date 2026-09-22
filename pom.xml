@@ -6,7 +6,7 @@
 
   <groupId>com.aevoreth.abcmm</groupId>
   <artifactId>abc-music-manager-java</artifactId>
-  <version>0.4.4b</version>
+  <version>0.4.5b</version>
   <packaging>pom</packaging>
 
   <name>ABC Music Manager (Java)</name>
