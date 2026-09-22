@@ -59,7 +59,8 @@ public interface BandRepository {
 
     /**
      * Replace {@code oldPlayerId} with {@code newPlayerId} on this band layout and transfer
-     * song/setlist part assignments scoped to the layout. Does not modify {@code PlayerInstrument}.
+     * song-layout parts for that layout, plus setlist part copies on sets that use this layout
+     * or whose items are linked to a song layout for it. Does not modify {@code PlayerInstrument}.
      * Adds the new player to {@code BandMember} (does not remove the old member), matching Python.
      */
     void replacePlayerInBandLayout(

@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -82,6 +83,62 @@ class SqliteBandReplacePlayerTest {
 
             assertEquals(1, instrumentFlag(database, playerA, instrumentId));
             assertEquals(0, instrumentFlag(database, playerB, instrumentId));
+        }
+    }
+
+    @Test
+    void replacePlayerTransfersUnlinkedSetlistCopiesAndLeavesOtherLayouts() throws Exception {
+        Path dbPath = tempDir.resolve("replace-setlist-band.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(dbPath)) {
+            SqliteBandRepository bands = new SqliteBandRepository(database);
+            SqlitePlayerRepository players = new SqlitePlayerRepository(database);
+            SqliteSetlistRepository setlists = new SqliteSetlistRepository(database);
+
+            long bandId = bands.addBand("Test Band", null);
+            long layoutId = bands.getOrCreatePrimaryLayout(bandId).id();
+            long otherBandId = bands.addBand("Other Band", null);
+            long otherLayoutId = bands.getOrCreatePrimaryLayout(otherBandId).id();
+            long playerA = players.addPlayer("Alice", null, null);
+            long playerB = players.addPlayer("Bob", null, null);
+            bands.setSlot(layoutId, playerA, 0, 0, 9, 7);
+
+            long song1 = insertSong(database);
+            long song2 = insertSong(database);
+            long otherSong = insertSong(database);
+
+            long setlistId = setlists.addSetlist("Lined Up", null);
+            setlists.updateSetlist(
+                    setlistId, "Lined Up", layoutId, null, 0, false, null, null, null, null, null, null);
+            long item1 = setlists.addItem(setlistId, song1, 0, null, null);
+            long item2 = setlists.addItem(setlistId, song2, 1, null, null);
+            assertNull(setlists.listItems(setlistId).get(0).songLayoutId());
+            assertNull(setlists.listItems(setlistId).get(1).songLayoutId());
+            setlists.upsertBandAssignment(item1, playerA, 4);
+            setlists.upsertBandAssignment(item2, playerA, null);
+
+            long otherSetlistId = setlists.addSetlist("Other Set", null);
+            setlists.updateSetlist(
+                    otherSetlistId, "Other Set", otherLayoutId, null, 0, false,
+                    null, null, null, null, null, null);
+            long otherItem = setlists.addItem(otherSetlistId, otherSong, 0, null, null);
+            setlists.upsertBandAssignment(otherItem, playerA, 8);
+
+            bands.replacePlayerInBandLayout(layoutId, bandId, playerA, playerB);
+
+            List<SetlistBandAssignmentInfo> first = setlists.listBandAssignments(item1);
+            assertEquals(1, first.size());
+            assertEquals(playerB, first.get(0).playerId());
+            assertEquals(4, first.get(0).partNumber());
+
+            List<SetlistBandAssignmentInfo> second = setlists.listBandAssignments(item2);
+            assertEquals(1, second.size());
+            assertEquals(playerB, second.get(0).playerId());
+            assertNull(second.get(0).partNumber());
+
+            List<SetlistBandAssignmentInfo> other = setlists.listBandAssignments(otherItem);
+            assertEquals(1, other.size());
+            assertEquals(playerA, other.get(0).playerId());
+            assertEquals(8, other.get(0).partNumber());
         }
     }
 

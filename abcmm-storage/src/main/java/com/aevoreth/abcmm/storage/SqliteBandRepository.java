@@ -612,11 +612,14 @@ public final class SqliteBandRepository implements BandRepository {
                 SELECT sba.setlist_item_id, sba.part_number
                 FROM SetlistBandAssignment sba
                 JOIN SetlistItem si ON si.id = sba.setlist_item_id
-                JOIN SongLayout sl ON sl.id = si.song_layout_id
-                WHERE sl.band_layout_id = ? AND sba.player_id = ?
+                JOIN Setlist s ON s.id = si.setlist_id
+                LEFT JOIN SongLayout sl ON sl.id = si.song_layout_id
+                WHERE sba.player_id = ?
+                  AND (s.band_layout_id = ? OR sl.band_layout_id = ?)
                 """)) {
-            select.setLong(1, bandLayoutId);
-            select.setLong(2, oldPlayerId);
+            select.setLong(1, oldPlayerId);
+            select.setLong(2, bandLayoutId);
+            select.setLong(3, bandLayoutId);
             try (ResultSet rs = select.executeQuery()) {
                 while (rs.next()) {
                     long setlistItemId = rs.getLong(1);

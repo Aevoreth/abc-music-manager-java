@@ -333,6 +333,14 @@ public final class SetlistsPanel extends JPanel {
         onTreeSelection();
     }
 
+    /**
+     * Refresh the open assignment grid after another tab changes players on a band layout.
+     * Does not rebuild the setlist tree.
+     */
+    public void onShown() {
+        reloadAssignments();
+    }
+
     private JPanel buildLeftPane() {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
         JPanel toolbar = new JPanel(new WrapLayout(FlowLayout.LEFT, 4, 4));

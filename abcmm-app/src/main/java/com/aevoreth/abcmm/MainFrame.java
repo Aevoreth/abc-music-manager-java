@@ -87,6 +87,7 @@ public final class MainFrame extends JFrame {
     private static final String[] NAV_SECTIONS = {
             "Library", "Setlists", "Bands", "Set Play", "Band Assistant"
     };
+    private static final int NAV_SETLISTS = 1;
     private static final int NAV_SET_PLAY = 3;
     private static final int NAV_BAND_ASSISTANT = 4;
 
@@ -196,7 +197,9 @@ public final class MainFrame extends JFrame {
             }
             currentNavIndex = selected;
             preferences.extras().put("java_nav_section", selected);
-            if (selected == NAV_SET_PLAY) {
+            if (selected == NAV_SETLISTS) {
+                setlistsPanel.onShown();
+            } else if (selected == NAV_SET_PLAY) {
                 setPlayPanel.onShown();
             } else if (selected == NAV_BAND_ASSISTANT) {
                 bandAssistantPanel.onShown();
@@ -408,7 +411,9 @@ public final class MainFrame extends JFrame {
             } finally {
                 suppressNavChange = false;
             }
-            if (index == NAV_SET_PLAY) {
+            if (index == NAV_SETLISTS) {
+                setlistsPanel.onShown();
+            } else if (index == NAV_SET_PLAY) {
                 setPlayPanel.onShown();
             } else if (index == NAV_BAND_ASSISTANT) {
                 bandAssistantPanel.onShown();

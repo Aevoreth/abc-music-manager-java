@@ -828,6 +828,8 @@ public final class SetPlayPanel extends JPanel {
         refreshRelayPicker();
         if (!assistantMode) {
             refreshRemoteSessions();
+            refreshGrid();
+            refreshPlayers();
         }
         maybeRestoreSplits();
         SwingUtilities.invokeLater(gridPanel::fitCardsToView);
