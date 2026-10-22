@@ -58,8 +58,6 @@ import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.library.LibraryFilter;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
-import com.aevoreth.abcmm.domain.library.SetlistRef;
-import com.aevoreth.abcmm.domain.library.SongAppMetadataUpdate;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
@@ -124,7 +122,7 @@ public final class LibraryPanel extends JPanel {
     };
     private SetlistRepository setlistRepository;
     private SongRepository songRepository;
-    private PlayLogRepository playLogRepository;
+    private final SongFieldActions songFields = new SongFieldActions(this);
     private Consumer<Map<String, Object>> headerStateListener = state -> {
     };
     private final Timer headerSaveTimer;
@@ -211,6 +209,7 @@ public final class LibraryPanel extends JPanel {
     public void setEditSongListener(Consumer<LibrarySong> editSongListener) {
         this.editSongListener = Objects.requireNonNullElse(editSongListener, song -> {
         });
+        songFields.setEditSong(this.editSongListener);
     }
 
     public void setOpenUserGuideListener(Runnable openUserGuideListener) {
@@ -221,11 +220,13 @@ public final class LibraryPanel extends JPanel {
     public void setNavigateToSetlistListener(LongConsumer navigateToSetlistListener) {
         this.navigateToSetlistListener = Objects.requireNonNullElse(navigateToSetlistListener, id -> {
         });
+        songFields.setNavigateToSetlist(this.navigateToSetlistListener);
     }
 
     public void setLibraryChangedListener(Runnable libraryChangedListener) {
         this.libraryChangedListener = Objects.requireNonNullElse(libraryChangedListener, () -> {
         });
+        songFields.setOnChanged(this.libraryChangedListener);
     }
 
     public void setSetlistRepository(SetlistRepository setlistRepository) {
@@ -234,6 +235,7 @@ public final class LibraryPanel extends JPanel {
 
     public void setSongRepository(SongRepository songRepository) {
         this.songRepository = songRepository;
+        songFields.setSongRepository(songRepository);
     }
 
     public void setInstrumentNames(Map<Long, String> instrumentNames) {
@@ -241,7 +243,7 @@ public final class LibraryPanel extends JPanel {
     }
 
     public void setPlayLogRepository(PlayLogRepository playLogRepository) {
-        this.playLogRepository = playLogRepository;
+        songFields.setPlayLogRepository(playLogRepository);
     }
 
     public void setHeaderStateListener(Consumer<Map<String, Object>> headerStateListener) {
@@ -347,6 +349,7 @@ public final class LibraryPanel extends JPanel {
     public void setStatuses(List<StatusInfo> statuses) {
         this.statuses = statuses == null ? List.of() : List.copyOf(statuses);
         statusFilter.setItems(this.statuses);
+        songFields.setStatuses(this.statuses);
     }
 
     public void setTranscribers(List<String> transcribers) {
@@ -617,121 +620,15 @@ public final class LibraryPanel extends JPanel {
                     enqueueListener.accept(song);
                 }
             }
-            case LibraryTableModel.COL_HISTORY -> handleHistoryClick(song, xInCell, cellWidth);
-            case LibraryTableModel.COL_RATING -> handleRatingClick(song, xInCell, cellWidth);
-            case LibraryTableModel.COL_SET -> handleSetClick(song, screenX, screenY);
-            case LibraryTableModel.COL_STATUS -> handleStatusClick(song, screenX, screenY);
+            case LibraryTableModel.COL_HISTORY ->
+                    songFields.handleHistory(table, song, xInCell, cellWidth);
+            case LibraryTableModel.COL_RATING -> songFields.handleRating(song, xInCell, cellWidth);
+            case LibraryTableModel.COL_SET -> songFields.handleSet(table, song, screenX, screenY);
+            case LibraryTableModel.COL_STATUS -> songFields.handleStatus(table, song, screenX, screenY);
             case LibraryTableModel.COL_EDIT -> editSongListener.accept(song);
             default -> {
             }
         }
-    }
-
-    private void handleHistoryClick(LibrarySong song, int xInCell, int cellWidth) {
-        if (playLogRepository == null) {
-            return;
-        }
-        // Three equal thirds: Now | Set… | History
-        int third = Math.max(1, cellWidth / 3);
-        if (xInCell < third) {
-            try {
-                playLogRepository.logPlay(song.id(), null, null);
-                libraryChangedListener.run();
-            } catch (LibraryException ex) {
-                JOptionPane.showMessageDialog(
-                        this, ex.getMessage(), "Playback History", JOptionPane.ERROR_MESSAGE);
-            }
-        } else if (xInCell < third * 2) {
-            PlayDateTimeDialog dialog = new PlayDateTimeDialog(
-                    SwingUtilities.getWindowAncestor(this),
-                    "Set last played",
-                    java.time.Instant.now(),
-                    null,
-                    false);
-            dialog.showDialog().ifPresent(result -> {
-                try {
-                    playLogRepository.logPlayAt(song.id(), result.playedAtIso(), null, null);
-                    libraryChangedListener.run();
-                } catch (LibraryException ex) {
-                    JOptionPane.showMessageDialog(
-                            this, ex.getMessage(), "Playback History", JOptionPane.ERROR_MESSAGE);
-                }
-            });
-        } else {
-            PlayHistoryDialog dialog = new PlayHistoryDialog(
-                    SwingUtilities.getWindowAncestor(this),
-                    playLogRepository,
-                    song.id(),
-                    song.title());
-            if (dialog.showDialog()) {
-                libraryChangedListener.run();
-            }
-        }
-    }
-
-    private void handleRatingClick(LibrarySong song, int xInCell, int cellWidth) {
-        if (songRepository == null) {
-            return;
-        }
-        int starWidth = Math.max(1, cellWidth / 5);
-        int starIdx = Math.min(5, Math.max(1, (xInCell / starWidth) + 1));
-        int current = song.rating() == null ? 0 : song.rating();
-        int newRating = current == starIdx ? 0 : starIdx;
-        try {
-            songRepository.updateSongAppMetadata(song.id(), SongAppMetadataUpdate.ratingOnly(newRating));
-            libraryChangedListener.run();
-        } catch (LibraryException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Rating", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    private void handleSetClick(LibrarySong song, int screenX, int screenY) {
-        if (!song.inUpcomingSet() || songRepository == null) {
-            return;
-        }
-        try {
-            List<SetlistRef> setlists = songRepository.listUnlockedSetlistsContainingSong(song.id());
-            if (setlists.isEmpty()) {
-                return;
-            }
-            JPopupMenu menu = new JPopupMenu();
-            for (SetlistRef setlist : setlists) {
-                JMenuItem item = new JMenuItem("Go to: " + setlist.name());
-                long setlistId = setlist.id();
-                item.addActionListener(ev -> navigateToSetlistListener.accept(setlistId));
-                menu.add(item);
-            }
-            java.awt.Point tableLoc = table.getLocationOnScreen();
-            menu.show(table, screenX - tableLoc.x, screenY - tableLoc.y);
-        } catch (LibraryException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Set", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    private void handleStatusClick(LibrarySong song, int screenX, int screenY) {
-        if (songRepository == null || statuses.isEmpty()) {
-            return;
-        }
-        JPopupMenu menu = new JPopupMenu();
-        for (StatusInfo status : statuses) {
-            JCheckBoxMenuItem item =
-                    new JCheckBoxMenuItem(LibraryDisplayFormats.statusFilterLabel(status));
-            item.setSelected(song.statusId() != null && song.statusId() == status.id());
-            long statusId = status.id();
-            item.addActionListener(ev -> {
-                try {
-                    songRepository.updateSongAppMetadata(
-                            song.id(), SongAppMetadataUpdate.statusOnly(statusId));
-                    libraryChangedListener.run();
-                } catch (LibraryException ex) {
-                    JOptionPane.showMessageDialog(
-                            this, ex.getMessage(), "Status", JOptionPane.ERROR_MESSAGE);
-                }
-            });
-            menu.add(item);
-        }
-        java.awt.Point tableLoc = table.getLocationOnScreen();
-        menu.show(table, screenX - tableLoc.x, screenY - tableLoc.y);
     }
 
     /** Right-click a column header to show or hide columns. */

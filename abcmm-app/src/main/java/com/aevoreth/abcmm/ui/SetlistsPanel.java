@@ -27,6 +27,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.LongConsumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -79,7 +81,10 @@ import com.aevoreth.abcmm.domain.export.SetExportException;
 import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
 import com.aevoreth.abcmm.domain.export.SetExportService;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.library.LibrarySong;
+import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
+import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.playback.PlayQueueItem;
 import com.aevoreth.abcmm.domain.playback.PlaybackException;
 import com.aevoreth.abcmm.domain.playback.PlaybackSession;
@@ -108,6 +113,8 @@ public final class SetlistsPanel extends JPanel {
     private static final int COL_PARTS = 4;
     private static final int COL_DURATION = 5;
     private static final int COL_COMPOSER = 6;
+    /** Library columns (last played, history, rating, set, status, transcriber, edit). */
+    private static final int COL_FIRST_LINKED = 7;
     private static final int DEFAULT_TITLE_WIDTH = 220;
     private static final int DEFAULT_COMPOSER_WIDTH = 160;
     private static final int HEADER_PAD = 16;
@@ -162,6 +169,11 @@ public final class SetlistsPanel extends JPanel {
 
     private final ItemTableModel itemModel = new ItemTableModel();
     private final JTable itemTable = new JTable(itemModel);
+    private final SongFieldActions songFields = new SongFieldActions(this);
+    private final String[] linkedLabels = SongLinkedColumns.menuLabels();
+    private TableColumn[] linkedColumns = new TableColumn[0];
+    private Runnable songMetadataListener = () -> {
+    };
 
     private final SetlistBandAssignmentPanel assignmentPanel = new SetlistBandAssignmentPanel();
 
@@ -199,6 +211,7 @@ public final class SetlistsPanel extends JPanel {
         itemTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         itemTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         itemTable.setFillsViewportHeight(true);
+        itemTable.setRowHeight(28);
         itemTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 reloadAssignments();
@@ -209,6 +222,8 @@ public final class SetlistsPanel extends JPanel {
         enableItemTableReorder();
         enableItemTablePlaybackActions();
         enableItemTableWarningColumn();
+        itemModel.setSongLoader(this::loadLinkedSongs);
+        installLinkedSongColumns();
         TableColumn indexColumn = columnByModelIndex(COL_INDEX);
         if (indexColumn != null) {
             DefaultTableCellRenderer indexRenderer = new DefaultTableCellRenderer();
@@ -259,6 +274,7 @@ public final class SetlistsPanel extends JPanel {
         this.bandRepository = bands;
         this.setlistRepository = setlists;
         this.songRepository = songs;
+        songFields.setSongRepository(songs);
         this.songLayoutRepository = songLayouts;
         assignmentPanel.bind(bands, players, setlists, songLayouts);
         reload();
@@ -276,6 +292,33 @@ public final class SetlistsPanel extends JPanel {
 
     public void setPreferencesStore(PreferencesStore preferencesStore) {
         this.preferencesStore = preferencesStore;
+    }
+
+    public void setPlayLogRepository(PlayLogRepository playLogRepository) {
+        songFields.setPlayLogRepository(playLogRepository);
+    }
+
+    public void setStatuses(List<StatusInfo> statuses) {
+        songFields.setStatuses(statuses);
+    }
+
+    public void setEditSongListener(Consumer<LibrarySong> editSong) {
+        songFields.setEditSong(editSong);
+    }
+
+    public void setNavigateToSetlistListener(LongConsumer navigateToSetlist) {
+        songFields.setNavigateToSetlist(navigateToSetlist);
+    }
+
+    public void setSongMetadataListener(Runnable songMetadataListener) {
+        this.songMetadataListener = songMetadataListener == null ? () -> {
+        } : songMetadataListener;
+        songFields.setOnChanged(this.songMetadataListener);
+    }
+
+    /** Reload original-song columns (status, rating, last played, and the rest). */
+    public void refreshLinkedSongs() {
+        itemModel.setSongs(loadLinkedSongs(itemModel.items()));
     }
 
     public void persistUiState(Preferences preferences) {
@@ -623,31 +666,36 @@ public final class SetlistsPanel extends JPanel {
     }
 
     private void restoreColumnWidths() {
+        applyDefaultColumnWidths();
+        SongLinkedColumns.hideAll(itemTable, linkedColumns);
         if (preferences == null) {
-            applyDefaultColumnWidths();
             return;
         }
         Object raw = preferences.extras().get(COLUMN_WIDTHS_PREF_KEY);
         List<Integer> widthsByModel = null;
         List<Integer> order = null;
+        boolean hasHiddenKey = false;
+        List<String> hidden = null;
         if (raw instanceof Map<?, ?> map) {
             widthsByModel = asIntegerList(map.get("widths"));
             order = asIntegerList(map.get("order"));
+            hasHiddenKey = map.containsKey("hidden_columns");
+            hidden = asStringList(map.get("hidden_columns"));
         } else {
             // Legacy: plain width list in default model order / view order.
             widthsByModel = asIntegerList(raw);
-            if (widthsByModel != null && widthsByModel.size() == 6 && itemModel.getColumnCount() == 7) {
+            if (widthsByModel != null && widthsByModel.size() == 6) {
                 widthsByModel = new ArrayList<>(widthsByModel);
                 widthsByModel.add(COL_WARNING, fixedLeadingColumnWidth());
             }
         }
+        if (hasHiddenKey) {
+            SongLinkedColumns.applyHidden(
+                    itemTable, linkedColumns, linkedLabels, hidden, FIXED_COLUMN_COUNT);
+        }
         if (widthsByModel == null || widthsByModel.isEmpty()) {
-            applyDefaultColumnWidths();
             return;
         }
-
-        restoreColumnOrder(order);
-        applyDefaultColumnWidths();
         for (int modelIndex = FIXED_COLUMN_COUNT;
                 modelIndex < widthsByModel.size() && modelIndex < itemModel.getColumnCount();
                 modelIndex++) {
@@ -656,19 +704,23 @@ public final class SetlistsPanel extends JPanel {
                 setFlexiblePreferredWidth(columnByModelIndex(modelIndex), width);
             }
         }
+        restoreColumnOrder(order);
     }
 
     private void restoreColumnOrder(List<Integer> order) {
-        if (order == null || order.size() != itemModel.getColumnCount()) {
+        if (order == null || order.isEmpty()) {
             return;
         }
         // Fixed leading columns must stay at view indices 0..FIXED-1 in model order.
-        for (int i = 0; i < FIXED_COLUMN_COUNT; i++) {
+        for (int i = 0; i < FIXED_COLUMN_COUNT && i < order.size(); i++) {
             if (order.get(i) == null || order.get(i) != i) {
                 return;
             }
         }
         for (int viewIndex = FIXED_COLUMN_COUNT; viewIndex < order.size(); viewIndex++) {
+            if (viewIndex >= itemTable.getColumnCount()) {
+                break;
+            }
             Integer modelIndex = order.get(viewIndex);
             if (modelIndex == null
                     || modelIndex < FIXED_COLUMN_COUNT
@@ -702,7 +754,58 @@ public final class SetlistsPanel extends JPanel {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("widths", widths);
         state.put("order", order);
+        state.put("hidden_columns", SongLinkedColumns.hiddenLabels(itemTable, linkedColumns, linkedLabels));
         return state;
+    }
+
+    private void rememberColumnState() {
+        if (preferences == null) {
+            return;
+        }
+        preferences.extras().put(COLUMN_WIDTHS_PREF_KEY, captureColumnState());
+    }
+
+    private void installLinkedSongColumns() {
+        SongLinkedColumns.Kind[] kinds = SongLinkedColumns.Kind.values();
+        linkedColumns = new TableColumn[kinds.length];
+        for (int i = 0; i < kinds.length; i++) {
+            TableColumn column = columnByModelIndex(COL_FIRST_LINKED + i);
+            linkedColumns[i] = column;
+            SongLinkedColumns.Kind kind = kinds[i];
+            SongLinkedColumns.installRenderer(itemTable, column, kind, this::linkedSongAtViewRow);
+            SongLinkedColumns.applyDefaultWidth(itemTable, column, kind);
+        }
+        SongLinkedColumns.attachHeaderMenu(
+                itemTable, linkedColumns, linkedLabels, FIXED_COLUMN_COUNT, this::rememberColumnState);
+        SongLinkedColumns.hideAll(itemTable, linkedColumns);
+    }
+
+    private LibrarySong linkedSongAtViewRow(int viewRow) {
+        if (viewRow < 0) {
+            return null;
+        }
+        return itemModel.songAt(itemTable.convertRowIndexToModel(viewRow));
+    }
+
+    private Map<Long, LibrarySong> loadLinkedSongs(List<SetlistItemInfo> items) {
+        if (songRepository == null || items == null || items.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = new ArrayList<>();
+        for (SetlistItemInfo item : items) {
+            if (!ids.contains(item.songId())) {
+                ids.add(item.songId());
+            }
+        }
+        try {
+            Map<Long, LibrarySong> songs = new HashMap<>();
+            for (LibrarySong song : songRepository.findSongsByIds(ids)) {
+                songs.put(song.id(), song);
+            }
+            return songs;
+        } catch (LibraryException ex) {
+            return Map.of();
+        }
     }
 
     private static List<Integer> asIntegerList(Object value) {
@@ -724,6 +827,19 @@ public final class SetlistsPanel extends JPanel {
             }
         }
         return widths;
+    }
+
+    private static List<String> asStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<String> names = new ArrayList<>(list.size());
+        for (Object entry : list) {
+            if (entry != null) {
+                names.add(String.valueOf(entry));
+            }
+        }
+        return names;
     }
 
     private void enableTreeReorder() {
@@ -1351,7 +1467,7 @@ public final class SetlistsPanel extends JPanel {
                 }
             });
         }
-        itemTable.addMouseListener(new java.awt.event.MouseAdapter() {
+        java.awt.event.MouseAdapter itemClicks = new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 if (!SwingUtilities.isLeftMouseButton(e) || e.getClickCount() != 1) {
@@ -1363,10 +1479,45 @@ public final class SetlistsPanel extends JPanel {
                     return;
                 }
                 int modelCol = itemTable.convertColumnIndexToModel(viewCol);
+                SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(modelCol, COL_FIRST_LINKED);
+                if (kind != null) {
+                    if (e.getClickCount() != 1) {
+                        return;
+                    }
+                    int modelRow = itemTable.convertRowIndexToModel(viewRow);
+                    java.awt.Rectangle cell = itemTable.getCellRect(viewRow, viewCol, false);
+                    songFields.handle(
+                            itemTable,
+                            kind,
+                            itemModel.songAt(modelRow),
+                            e.getX() - cell.x,
+                            cell.width,
+                            e.getXOnScreen(),
+                            e.getYOnScreen());
+                    return;
+                }
                 if (modelCol != COL_PLAY) {
                     return;
                 }
                 playSetlistFromRow(viewRow);
+            }
+
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                int viewRow = itemTable.rowAtPoint(e.getPoint());
+                int viewCol = itemTable.columnAtPoint(e.getPoint());
+                if (viewRow < 0 || viewCol < 0) {
+                    itemTable.setToolTipText(null);
+                    return;
+                }
+                int modelCol = itemTable.convertColumnIndexToModel(viewCol);
+                SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(modelCol, COL_FIRST_LINKED);
+                if (kind == null) {
+                    itemTable.setToolTipText(null);
+                    return;
+                }
+                int modelRow = itemTable.convertRowIndexToModel(viewRow);
+                itemTable.setToolTipText(SongLinkedColumns.cellTooltip(kind, itemModel.songAt(modelRow)));
             }
 
             @Override
@@ -1378,7 +1529,9 @@ public final class SetlistsPanel extends JPanel {
             public void mouseReleased(java.awt.event.MouseEvent e) {
                 maybeShowItemPopup(e);
             }
-        });
+        };
+        itemTable.addMouseListener(itemClicks);
+        itemTable.addMouseMotionListener(itemClicks);
     }
 
     private void enableItemTableWarningColumn() {
@@ -2498,7 +2651,28 @@ public final class SetlistsPanel extends JPanel {
     private static final class ItemTableModel extends AbstractTableModel {
         private final List<SetlistItemInfo> items = new ArrayList<>();
         private final List<String> warnings = new ArrayList<>();
-        private final String[] columns = {"#", "", "", "Title", "Parts", "Duration", "Composer"};
+        private final String[] columns;
+        private Map<Long, LibrarySong> songsById = Map.of();
+        private Function<List<SetlistItemInfo>, Map<Long, LibrarySong>> songLoader = list -> Map.of();
+
+        ItemTableModel() {
+            SongLinkedColumns.Kind[] kinds = SongLinkedColumns.Kind.values();
+            columns = new String[COL_FIRST_LINKED + kinds.length];
+            columns[COL_INDEX] = "#";
+            columns[COL_PLAY] = "";
+            columns[COL_WARNING] = "";
+            columns[COL_TITLE] = "Title";
+            columns[COL_PARTS] = "Parts";
+            columns[COL_DURATION] = "Duration";
+            columns[COL_COMPOSER] = "Composer";
+            for (int i = 0; i < kinds.length; i++) {
+                columns[COL_FIRST_LINKED + i] = kinds[i].columnHeader(false);
+            }
+        }
+
+        void setSongLoader(Function<List<SetlistItemInfo>, Map<Long, LibrarySong>> songLoader) {
+            this.songLoader = songLoader == null ? list -> Map.of() : songLoader;
+        }
 
         void setItems(List<SetlistItemInfo> next) {
             items.clear();
@@ -2509,7 +2683,25 @@ public final class SetlistsPanel extends JPanel {
             for (int i = 0; i < items.size(); i++) {
                 warnings.add(null);
             }
+            songsById = songLoader.apply(List.copyOf(items));
+            if (songsById == null) {
+                songsById = Map.of();
+            }
             fireTableDataChanged();
+        }
+
+        void setSongs(Map<Long, LibrarySong> songs) {
+            songsById = songs == null || songs.isEmpty() ? Map.of() : Map.copyOf(songs);
+            if (!items.isEmpty()) {
+                fireTableRowsUpdated(0, items.size() - 1);
+            }
+        }
+
+        LibrarySong songAt(int modelRow) {
+            if (modelRow < 0 || modelRow >= items.size()) {
+                return null;
+            }
+            return songsById.get(items.get(modelRow).songId());
         }
 
         void setWarnings(List<String> next) {
@@ -2555,6 +2747,13 @@ public final class SetlistsPanel extends JPanel {
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
+            SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(columnIndex, COL_FIRST_LINKED);
+            if (kind == SongLinkedColumns.Kind.RATING) {
+                return Integer.class;
+            }
+            if (kind == SongLinkedColumns.Kind.SET) {
+                return Boolean.class;
+            }
             return switch (columnIndex) {
                 case 0, 4 -> Integer.class;
                 default -> String.class;
@@ -2564,6 +2763,10 @@ public final class SetlistsPanel extends JPanel {
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             SetlistItemInfo item = items.get(rowIndex);
+            SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(columnIndex, COL_FIRST_LINKED);
+            if (kind != null) {
+                return SongLinkedColumns.value(kind, songAt(rowIndex));
+            }
             return switch (columnIndex) {
                 case 0 -> rowIndex + 1;
                 case 1 -> "";

@@ -1,12 +1,15 @@
 package com.aevoreth.abcmm.storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -94,6 +97,35 @@ class SqliteSongRepositoryTest {
             neverPlayed.setLastPlayedNever(true);
             assertEquals(1, repository.listLibrarySongs(neverPlayed).size());
             assertEquals("Alpha March", repository.listLibrarySongs(neverPlayed).get(0).title());
+        }
+    }
+
+    @Test
+    void findSongsByIdsReturnsOriginalSongFieldsAndSkipsMissingIds() throws Exception {
+        Path db = FixtureDatabases.createLibraryFixture(tempDir.resolve("library.sqlite"));
+        try (SqliteDatabase database = SqliteDatabase.openReadOnly(db);
+             SqliteSongRepository repository = new SqliteSongRepository(database)) {
+            assertTrue(repository.findSongsByIds(List.of()).isEmpty());
+            assertTrue(repository.findSongsByIds(null).isEmpty());
+
+            Map<Long, LibrarySong> byId = new java.util.HashMap<>();
+            for (LibrarySong song : repository.findSongsByIds(List.of(2L, 1L, 1L, 99L))) {
+                byId.put(song.id(), song);
+            }
+            assertEquals(2, byId.size());
+            LibrarySong alpha = byId.get(1L);
+            assertEquals("Alpha March", alpha.title());
+            assertEquals("Ada", alpha.transcriber());
+            assertEquals("New", alpha.statusName());
+            assertEquals(3, alpha.rating());
+            assertTrue(alpha.inUpcomingSet());
+            assertNull(alpha.lastPlayedAt());
+
+            LibrarySong beta = byId.get(2L);
+            assertEquals("Ready", beta.statusName());
+            assertEquals(5, beta.rating());
+            assertFalse(beta.inUpcomingSet());
+            assertEquals("2024-01-01T00:00:00Z", beta.lastPlayedAt());
         }
     }
 

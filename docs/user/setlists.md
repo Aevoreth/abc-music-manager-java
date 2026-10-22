@@ -64,6 +64,7 @@ On the details panel, computed timing shows **Raw Duration**, **Actual Duration*
 - **Move up** / **Move down** — reorder (drag-and-drop also works when unlocked)
 - Play icon (first column) — preview from this song in the set
 - Warning icon (when present) — hover for part-assignment issues
+- **Library columns** — right-click a column header to show or hide columns from the [Library](library.md) table: **Last played**, **Playback History**, **Rating**, **Set**, **Status**, **Transcriber**, and **Edit**. They are hidden until you turn them on. Status, rating, playback history, and last played read and update the original song, so a change here shows up in the Library as well. **Set** jumps to a setlist that contains that song. **Edit** opens song detail. If the song is not in this library, the cell is blank.
 
 Song list edits for unlocked sets are applied as you go.
 

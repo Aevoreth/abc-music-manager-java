@@ -21,7 +21,9 @@ The **Library** tab is your main song browser: filter, sort, play, edit metadata
 | **Transcriber** | Person who transcribed the song |
 | **Edit** | Open [Song detail](song-detail-and-layouts.md) |
 
-Click column headers to sort (where supported). Column widths/order can be remembered across sessions.
+Click column headers to sort (where supported). Right-click a column header to show or hide columns. Column widths, order, and hidden columns are remembered across sessions.
+
+The same Library columns can be turned on in the [setlist editor](setlists.md#timing) and on the bandleader’s [Set Play](set-play.md#status) list. Status, rating, playback history, and last played always refer to the original song. Band Assistant does not show them.
 
 ---
 

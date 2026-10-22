@@ -46,7 +46,9 @@ Each song has one primary **status** (shown as a badge) plus an optional **Skip*
 | **SKIP** | Excluded from automatic next-song selection |
 | *(blank)* | Pending — not yet current, next, played, or skipped |
 
-**Skip** is the only per-row checkbox. Change Current / Next / Played via the row **Actions** menu (button or right-click), or **double-click** a row to set it as Next. Each row also has a small **layout** button that opens a preview of that song’s band assignments:
+**Skip** is the only per-row checkbox. Change Current / Next / Played via the row **Actions** menu (button or right-click), or **double-click** a row to set it as Next (not on a library column). Each row also has a small **layout** button that opens a preview of that song’s band assignments.
+
+Right-click a song-list header and choose **Library columns** to show fields from the [Library](library.md) table: **Last played**, **Playback History**, **Rating**, **Set**, **Status** (header **Song status**, so it stays distinct from the NOW/NEXT badge), **Transcriber**, and **Edit**. They are hidden until you turn them on, and the choice is remembered on this PC. Status, rating, playback history, and last played read and update the original song in your library. Songs that are not in this library show a blank cell and cannot be edited. **Set** opens a setlist that contains the song. **Edit** opens song detail. These columns stay on the bandleader’s Set Play table. [Band Assistant](band-assistant.md) and the browser playback page show only the published session list.
 
 | Action | Effect |
 |--------|--------|

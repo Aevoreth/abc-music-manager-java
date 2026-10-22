@@ -50,7 +50,7 @@ Assistants receive the leader's Set Play state (read-only):
 - Band layout grid (formation as soon as the set is loaded; parts fill in for **NEXT**, or **NOW** after the last Advance) and part-change highlighting (pinned to the bottom of Playback; drag the splitter to resize; player cards scale to fit)
 - Parts table (Player Column Order / CSV renames)
 
-Assistants cannot edit status; only the bandleader changes Current, Next, Skip, and Played.
+Assistants cannot edit status; only the bandleader changes Current, Next, Skip, and Played. Library columns from the leader’s Set Play list (rating, song status, last played, and the rest) are not part of the published session.
 
 ---
 

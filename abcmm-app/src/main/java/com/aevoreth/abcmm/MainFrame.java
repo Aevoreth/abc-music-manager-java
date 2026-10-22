@@ -246,11 +246,14 @@ public final class MainFrame extends JFrame {
         });
         libraryPanel.setAddToSetlistListener(this::addLibrarySongToSetlist);
         libraryPanel.setEditSongListener(this::openSongDetail);
-        libraryPanel.setNavigateToSetlistListener(setlistId -> {
-            navTabs.setSelectedIndex(1);
-            setlistsPanel.navigateToSetlist(setlistId);
-        });
-        libraryPanel.setLibraryChangedListener(() -> reloadLibrary(libraryPanel.currentFilter()));
+        libraryPanel.setNavigateToSetlistListener(this::showSetlist);
+        libraryPanel.setLibraryChangedListener(this::onSongMetadataChanged);
+        setlistsPanel.setEditSongListener(this::openSongDetail);
+        setlistsPanel.setNavigateToSetlistListener(this::showSetlist);
+        setlistsPanel.setSongMetadataListener(this::onSongMetadataChanged);
+        setPlayPanel.setEditSongListener(this::openSongDetail);
+        setPlayPanel.setNavigateToSetlistListener(this::showSetlist);
+        setPlayPanel.setSongMetadataListener(this::onSongMetadataChanged);
         libraryPanel.setOpenUserGuideListener(() -> UserGuideDialog.open(this));
         libraryPanel.setHeaderStateListener(state -> {
             preferences.extras().put("library_table_header_state", state);
@@ -454,6 +457,7 @@ public final class MainFrame extends JFrame {
                     setlistRepository,
                     songRepository,
                     songLayoutRepository);
+            setlistsPanel.setPlayLogRepository(playLogRepository);
             setPlayPanel.bind(
                     setlistRepository,
                     bandRepository,
@@ -482,6 +486,9 @@ public final class MainFrame extends JFrame {
 
             refreshEntityCaches();
             libraryPanel.setStatuses(statuses);
+            setlistsPanel.setStatuses(statuses);
+            setPlayPanel.setStatuses(statuses);
+            bandAssistantPanel.setStatuses(statuses);
             libraryPanel.setTranscribers(songRepository.listUniqueTranscribers());
             libraryPanel.applyDefaultFilters();
             bandsPanel.reload();
@@ -511,6 +518,10 @@ public final class MainFrame extends JFrame {
             libraryPanel.setInstrumentNames(Map.of());
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
+            setlistsPanel.setPlayLogRepository(null);
+            setlistsPanel.setStatuses(List.of());
+            setPlayPanel.setStatuses(List.of());
+            bandAssistantPanel.setStatuses(List.of());
             setPlayPanel.bind(null, null, null, null, null, null, null);
             bandAssistantPanel.bind(null, null, null, null, null, null, null);
             statusBar.setMessage(ex.getMessage());
@@ -533,13 +544,24 @@ public final class MainFrame extends JFrame {
                 playerRepository,
                 songLayoutRepository);
         if (dialog.showDialog()) {
-            reloadLibrary(libraryPanel.currentFilter());
+            onSongMetadataChanged();
             try {
                 libraryPanel.setTranscribers(songRepository.listUniqueTranscribers());
             } catch (LibraryException ignored) {
                 // keep prior list
             }
         }
+    }
+
+    private void showSetlist(long setlistId) {
+        navTabs.setSelectedIndex(1);
+        setlistsPanel.navigateToSetlist(setlistId);
+    }
+
+    private void onSongMetadataChanged() {
+        reloadLibrary(libraryPanel.currentFilter());
+        setlistsPanel.refreshLinkedSongs();
+        setPlayPanel.refreshLinkedSongs();
     }
 
     private void refreshEntityCaches() throws LibraryException {
@@ -675,6 +697,9 @@ public final class MainFrame extends JFrame {
         try {
             refreshEntityCaches();
             libraryPanel.setStatuses(statuses);
+            setlistsPanel.setStatuses(statuses);
+            setPlayPanel.setStatuses(statuses);
+            bandAssistantPanel.setStatuses(statuses);
             libraryPanel.applyDefaultFilters();
             if (bandsPanel != null) {
                 bandsPanel.reload();

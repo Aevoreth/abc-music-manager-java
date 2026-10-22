@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -67,28 +68,7 @@ public final class SqliteSongRepository implements SongRepository {
             try (ResultSet rs = statement.executeQuery()) {
                 List<LibrarySong> songs = new ArrayList<>();
                 while (rs.next()) {
-                    Integer rating = rs.getObject("rating") == null ? null : rs.getInt("rating");
-                    Integer duration = rs.getObject("duration_seconds") == null
-                            ? null
-                            : rs.getInt("duration_seconds");
-                    Long statusId = rs.getObject("status_id") == null ? null : rs.getLong("status_id");
-                    songs.add(new LibrarySong(
-                            rs.getLong("id"),
-                            nullToEmpty(rs.getString("title")),
-                            nullToEmpty(rs.getString("composers")),
-                            blankToNull(rs.getString("transcriber")),
-                            duration,
-                            rs.getInt("part_count"),
-                            rs.getString("parts"),
-                            blankToNull(rs.getString("last_played_at")),
-                            rs.getInt("total_plays"),
-                            rating,
-                            statusId,
-                            rs.getString("status_name"),
-                            rs.getString("status_color"),
-                            blankToNull(rs.getString("notes")),
-                            blankToNull(rs.getString("lyrics")),
-                            rs.getInt("in_upcoming_set") != 0));
+                    songs.add(mapLibrarySong(rs));
                 }
                 return List.copyOf(songs);
             }
@@ -200,56 +180,99 @@ public final class SqliteSongRepository implements SongRepository {
         }
     }
 
+    private static final String LIBRARY_SONG_FROM = """
+            SELECT s.id, s.title, s.composers, s.transcriber, s.duration_seconds,
+                   json_array_length(COALESCE(s.parts, '[]')) AS part_count,
+                   s.parts,
+                   s.last_played_at, s.total_plays, s.rating, s.status_id,
+                   st.name AS status_name, st.color AS status_color,
+                   s.notes, s.lyrics,
+                   EXISTS (
+                       SELECT 1 FROM SetlistItem si JOIN Setlist sl ON sl.id = si.setlist_id
+                       WHERE si.song_id = s.id AND sl.locked = 0
+                   ) AS in_upcoming_set
+            FROM Song s
+            LEFT JOIN Status st ON st.id = s.status_id
+            """;
+
     @Override
     public Optional<LibrarySong> findSongById(long songId) throws LibraryException {
         // Prefer a direct query so set-only songs still resolve for playback.
-        String sql = """
-                SELECT s.id, s.title, s.composers, s.transcriber, s.duration_seconds,
-                       json_array_length(COALESCE(s.parts, '[]')) AS part_count,
-                       s.parts,
-                       s.last_played_at, s.total_plays, s.rating, s.status_id,
-                       st.name AS status_name, st.color AS status_color,
-                       s.notes, s.lyrics,
-                       EXISTS (
-                           SELECT 1 FROM SetlistItem si JOIN Setlist sl ON sl.id = si.setlist_id
-                           WHERE si.song_id = s.id AND sl.locked = 0
-                       ) AS in_upcoming_set
-                FROM Song s
-                LEFT JOIN Status st ON st.id = s.status_id
-                WHERE s.id = ?
-                """;
+        String sql = LIBRARY_SONG_FROM + " WHERE s.id = ?";
         try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
             statement.setLong(1, songId);
             try (ResultSet rs = statement.executeQuery()) {
                 if (!rs.next()) {
                     return Optional.empty();
                 }
-                Integer rating = rs.getObject("rating") == null ? null : rs.getInt("rating");
-                Integer duration = rs.getObject("duration_seconds") == null
-                        ? null
-                        : rs.getInt("duration_seconds");
-                Long statusId = rs.getObject("status_id") == null ? null : rs.getLong("status_id");
-                return Optional.of(new LibrarySong(
-                        rs.getLong("id"),
-                        nullToEmpty(rs.getString("title")),
-                        nullToEmpty(rs.getString("composers")),
-                        blankToNull(rs.getString("transcriber")),
-                        duration,
-                        rs.getInt("part_count"),
-                        rs.getString("parts"),
-                        blankToNull(rs.getString("last_played_at")),
-                        rs.getInt("total_plays"),
-                        rating,
-                        statusId,
-                        rs.getString("status_name"),
-                        rs.getString("status_color"),
-                        blankToNull(rs.getString("notes")),
-                        blankToNull(rs.getString("lyrics")),
-                        rs.getInt("in_upcoming_set") != 0));
+                return Optional.of(mapLibrarySong(rs));
             }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to find song " + songId, ex);
         }
+    }
+
+    @Override
+    public List<LibrarySong> findSongsByIds(Collection<Long> songIds) throws LibraryException {
+        if (songIds == null || songIds.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = new ArrayList<>();
+        for (Long id : songIds) {
+            if (id != null && !ids.contains(id)) {
+                ids.add(id);
+            }
+        }
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder placeholders = new StringBuilder();
+        for (int i = 0; i < ids.size(); i++) {
+            if (i > 0) {
+                placeholders.append(',');
+            }
+            placeholders.append('?');
+        }
+        String sql = LIBRARY_SONG_FROM + " WHERE s.id IN (" + placeholders + ")";
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            for (int i = 0; i < ids.size(); i++) {
+                statement.setLong(i + 1, ids.get(i));
+            }
+            try (ResultSet rs = statement.executeQuery()) {
+                List<LibrarySong> songs = new ArrayList<>();
+                while (rs.next()) {
+                    songs.add(mapLibrarySong(rs));
+                }
+                return List.copyOf(songs);
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to find songs", ex);
+        }
+    }
+
+    private static LibrarySong mapLibrarySong(ResultSet rs) throws SQLException {
+        Integer rating = rs.getObject("rating") == null ? null : rs.getInt("rating");
+        Integer duration = rs.getObject("duration_seconds") == null
+                ? null
+                : rs.getInt("duration_seconds");
+        Long statusId = rs.getObject("status_id") == null ? null : rs.getLong("status_id");
+        return new LibrarySong(
+                rs.getLong("id"),
+                nullToEmpty(rs.getString("title")),
+                nullToEmpty(rs.getString("composers")),
+                blankToNull(rs.getString("transcriber")),
+                duration,
+                rs.getInt("part_count"),
+                rs.getString("parts"),
+                blankToNull(rs.getString("last_played_at")),
+                rs.getInt("total_plays"),
+                rating,
+                statusId,
+                rs.getString("status_name"),
+                rs.getString("status_color"),
+                blankToNull(rs.getString("notes")),
+                blankToNull(rs.getString("lyrics")),
+                rs.getInt("in_upcoming_set") != 0);
     }
 
     @Override

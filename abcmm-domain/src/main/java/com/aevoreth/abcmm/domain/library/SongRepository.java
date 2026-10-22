@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.domain.library;
 
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,6 +39,12 @@ public interface SongRepository extends AutoCloseable {
      * Looks up a library song by id, or empty if missing.
      */
     Optional<LibrarySong> findSongById(long songId) throws LibraryException;
+
+    /**
+     * Library rows for the given ids. Missing ids are omitted. Order is not significant.
+     * Used when a setlist or Set Play table shows columns that belong to the original song.
+     */
+    List<LibrarySong> findSongsByIds(Collection<Long> songIds) throws LibraryException;
 
     /**
      * Song detail fields for the edit dialog (Python {@code get_song_for_detail}).

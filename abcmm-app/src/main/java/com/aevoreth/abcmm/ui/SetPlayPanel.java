@@ -11,6 +11,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.Window;
@@ -37,6 +38,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 
 import javax.swing.AbstractCellEditor;
 import javax.swing.BorderFactory;
@@ -62,6 +65,7 @@ import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -69,6 +73,9 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.TableColumnModelEvent;
+import javax.swing.event.TableColumnModelListener;
 import javax.swing.table.TableColumn;
 
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
@@ -76,8 +83,10 @@ import com.aevoreth.abcmm.domain.band.BandRepository;
 import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.library.LibrarySong;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
+import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.prefs.LotroPaths;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
@@ -108,6 +117,7 @@ public final class SetPlayPanel extends JPanel {
 
     /** Extras key in preferences.json for Set Play divider sizes. */
     static final String SPLIT_PREF_KEY = "set_play_splitter_state";
+    static final String SONG_COLUMNS_PREF_KEY = "java_set_play_song_columns";
 
     private static final int COL_STATUS = 0;
     private static final int COL_SKIP = 1;
@@ -117,6 +127,8 @@ public final class SetPlayPanel extends JPanel {
     private static final int COL_ARTIST = 5;
     private static final int COL_LAYOUT = 6;
     private static final int COL_ACTIONS = 7;
+    /** Library columns appended after the session columns. */
+    private static final int COL_LINKED = 8;
 
     private static final int PARTS_COL_STATUS = 0;
     private static final int PARTS_COL_TITLE = 1;
@@ -144,6 +156,15 @@ public final class SetPlayPanel extends JPanel {
     private SetPlayRelayRepository setPlayRelayRepository;
     private SongRepository songRepository;
     private Preferences preferences;
+    private final SongFieldActions songFields = new SongFieldActions(this);
+    private final String[] linkedLabels = SongLinkedColumns.menuLabels();
+    private TableColumn[] linkedColumns = new TableColumn[0];
+    private Map<Long, LibrarySong> linkedSongs = Map.of();
+    private String linkedSongKey = "";
+    private boolean applyingSongColumns;
+    private long appliedSongColumnStamp = Long.MIN_VALUE;
+    private String songTableTip;
+    private final Timer songColumnSaveTimer = new Timer(400, e -> publishSongColumns());
     private Runnable preferencesSaver;
 
     private SetPlaySessionState session = new SetPlaySessionState(List.of());
@@ -228,6 +249,7 @@ public final class SetPlayPanel extends JPanel {
     public SetPlayPanel(boolean assistantMode) {
         super(new BorderLayout(6, 6));
         this.assistantMode = assistantMode;
+        songColumnSaveTimer.setRepeats(false);
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         relay = new SetPlayRelayClient(new SetPlayRelayClient.Listener() {
@@ -284,6 +306,7 @@ public final class SetPlayPanel extends JPanel {
         table.setRowSelectionAllowed(true);
         table.setColumnSelectionAllowed(false);
         table.setFillsViewportHeight(true);
+        table.setRowHeight(28);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
         table.getTableHeader().setReorderingAllowed(false);
         sizeColumns();
@@ -291,7 +314,8 @@ public final class SetPlayPanel extends JPanel {
             hideColumn(COL_SKIP);
             hideColumn(COL_ACTIONS);
         } else {
-            table.setToolTipText("Double-click a row to set it as Next. Right-click for more actions.");
+            songTableTip = "Double-click a row to set it as Next. Right-click for more actions.";
+            table.setToolTipText(songTableTip);
         }
         statusRenderer.setHorizontalAlignment(JLabel.CENTER);
         table.getColumnModel().getColumn(COL_STATUS).setCellRenderer(statusRenderer);
@@ -304,7 +328,7 @@ public final class SetPlayPanel extends JPanel {
             table.getColumnModel().getColumn(COL_ACTIONS).setCellRenderer(new ActionsRenderer());
             table.getColumnModel().getColumn(COL_ACTIONS).setCellEditor(new ActionsEditor());
         }
-        table.addMouseListener(new MouseAdapter() {
+        MouseAdapter songClicks = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (!SwingUtilities.isLeftMouseButton(e)) {
@@ -313,6 +337,22 @@ public final class SetPlayPanel extends JPanel {
                 int row = table.rowAtPoint(e.getPoint());
                 int col = table.columnAtPoint(e.getPoint());
                 if (row < 0 || row >= songRows.size()) {
+                    return;
+                }
+                int modelCol = table.convertColumnIndexToModel(col);
+                SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(modelCol, COL_LINKED);
+                if (kind != null) {
+                    if (e.getClickCount() == 1) {
+                        Rectangle cell = table.getCellRect(row, col, false);
+                        songFields.handle(
+                                table,
+                                kind,
+                                linkedSongs.get(songRows.get(row).songId()),
+                                e.getX() - cell.x,
+                                cell.width,
+                                e.getXOnScreen(),
+                                e.getYOnScreen());
+                    }
                     return;
                 }
                 if (col == COL_LAYOUT && e.getClickCount() == 1) {
@@ -336,7 +376,28 @@ public final class SetPlayPanel extends JPanel {
             public void mouseReleased(MouseEvent e) {
                 maybeShowContextMenu(e);
             }
-        });
+
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                int row = table.rowAtPoint(e.getPoint());
+                int col = table.columnAtPoint(e.getPoint());
+                if (row < 0 || col < 0 || row >= songRows.size()) {
+                    table.setToolTipText(songTableTip);
+                    return;
+                }
+                SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(
+                        table.convertColumnIndexToModel(col), COL_LINKED);
+                if (kind == null) {
+                    table.setToolTipText(songTableTip);
+                    return;
+                }
+                table.setToolTipText(SongLinkedColumns.cellTooltip(
+                        kind, linkedSongs.get(songRows.get(row).songId())));
+            }
+        };
+        table.addMouseListener(songClicks);
+        table.addMouseMotionListener(songClicks);
+        installLinkedSongColumns();
 
         JScrollPane tableScroll = new JScrollPane(table);
         JPanel tablePanel = new JPanel(new BorderLayout(0, 4));
@@ -718,10 +779,39 @@ public final class SetPlayPanel extends JPanel {
     public void setPreferences(Preferences preferences) {
         this.preferences = preferences;
         splitsRestored = false;
+        if (!assistantMode) {
+            appliedSongColumnStamp = Long.MIN_VALUE;
+            applySongColumnPrefs();
+        }
         refreshRelayPicker();
         if (isShowing()) {
             maybeRestoreSplits();
         }
+    }
+
+    public void setStatuses(List<StatusInfo> statuses) {
+        songFields.setStatuses(statuses);
+    }
+
+    public void setEditSongListener(Consumer<LibrarySong> editSong) {
+        songFields.setEditSong(editSong);
+    }
+
+    public void setNavigateToSetlistListener(LongConsumer navigateToSetlist) {
+        songFields.setNavigateToSetlist(navigateToSetlist);
+    }
+
+    public void setSongMetadataListener(Runnable songMetadataListener) {
+        songFields.setOnChanged(songMetadataListener);
+    }
+
+    /** Reload status, rating, last played, and the other original-song columns. */
+    public void refreshLinkedSongs() {
+        if (assistantMode) {
+            return;
+        }
+        ensureLinkedSongs(true);
+        tableModel.fireTableDataChanged();
     }
 
     public void setPreferencesSaver(Runnable savePrefs) {
@@ -729,6 +819,10 @@ public final class SetPlayPanel extends JPanel {
     }
 
     public void persistUiState(Preferences preferences) {
+        if (!assistantMode && songColumnSaveTimer.isRunning()) {
+            songColumnSaveTimer.stop();
+            publishSongColumns();
+        }
         if (preferences == null || mainSplit == null || topSplit == null || bottomSplit == null) {
             return;
         }
@@ -753,8 +847,10 @@ public final class SetPlayPanel extends JPanel {
         this.bandRepository = bandRepository;
         this.playerRepository = playerRepository;
         this.playLogRepository = playLogRepository;
+        songFields.setPlayLogRepository(playLogRepository);
         this.setPlayRelayRepository = setPlayRelayRepository;
         this.songRepository = songRepository;
+        songFields.setSongRepository(songRepository);
         if (setlistRepository != null
                 && bandRepository != null
                 && playerRepository != null
@@ -824,6 +920,9 @@ public final class SetPlayPanel extends JPanel {
     }
 
     public void onShown() {
+        if (!assistantMode) {
+            applySongColumnPrefs();
+        }
         refreshSetlistPicker();
         refreshRelayPicker();
         if (!assistantMode) {
@@ -2287,7 +2386,215 @@ public final class SetPlayPanel extends JPanel {
         }
     }
 
+    private void installLinkedSongColumns() {
+        if (assistantMode) {
+            // Published session rows only. Library columns stay on the leader's Set Play table.
+            hideLinkedSongColumns();
+            return;
+        }
+        SongLinkedColumns.Kind[] kinds = SongLinkedColumns.Kind.values();
+        linkedColumns = new TableColumn[kinds.length];
+        for (int i = 0; i < kinds.length; i++) {
+            int viewIndex = COL_LINKED + i;
+            if (viewIndex >= table.getColumnCount()) {
+                break;
+            }
+            TableColumn column = table.getColumnModel().getColumn(viewIndex);
+            linkedColumns[i] = column;
+            SongLinkedColumns.Kind kind = kinds[i];
+            SongLinkedColumns.installRenderer(table, column, kind, this::linkedSongAtViewRow);
+            SongLinkedColumns.applyDefaultWidth(table, column, kind);
+        }
+        SongLinkedColumns.attachHeaderMenu(
+                table, linkedColumns, linkedLabels, -1, this::publishSongColumns);
+        SongLinkedColumns.hideAll(table, linkedColumns);
+        table.getColumnModel().addColumnModelListener(new TableColumnModelListener() {
+            @Override
+            public void columnAdded(TableColumnModelEvent e) {
+                scheduleSongColumnSave();
+            }
+
+            @Override
+            public void columnRemoved(TableColumnModelEvent e) {
+                scheduleSongColumnSave();
+            }
+
+            @Override
+            public void columnMoved(TableColumnModelEvent e) {
+            }
+
+            @Override
+            public void columnMarginChanged(ChangeEvent e) {
+                scheduleSongColumnSave();
+            }
+
+            @Override
+            public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e) {
+            }
+        });
+    }
+
+    /** Drop library columns from the view without offering them in the header menu. */
+    private void hideLinkedSongColumns() {
+        SongLinkedColumns.Kind[] kinds = SongLinkedColumns.Kind.values();
+        TableColumn[] columns = new TableColumn[kinds.length];
+        for (int i = 0; i < kinds.length; i++) {
+            int viewIndex = COL_LINKED + i;
+            if (viewIndex >= table.getColumnCount()) {
+                break;
+            }
+            columns[i] = table.getColumnModel().getColumn(viewIndex);
+        }
+        SongLinkedColumns.hideAll(table, columns);
+    }
+
+    private LibrarySong linkedSongAtViewRow(int viewRow) {
+        if (viewRow < 0 || viewRow >= songRows.size()) {
+            return null;
+        }
+        return linkedSongs.get(songRows.get(viewRow).songId());
+    }
+
+    private void scheduleSongColumnSave() {
+        if (assistantMode || applyingSongColumns || preferences == null) {
+            return;
+        }
+        songColumnSaveTimer.restart();
+    }
+
+    private void publishSongColumns() {
+        if (assistantMode || applyingSongColumns || preferences == null || linkedColumns.length == 0) {
+            return;
+        }
+        Map<String, Object> widths = new LinkedHashMap<>();
+        for (int i = 0; i < linkedColumns.length; i++) {
+            TableColumn column = linkedColumns[i];
+            if (column == null) {
+                continue;
+            }
+            int width = table.convertColumnIndexToView(column.getModelIndex()) >= 0
+                    ? column.getWidth()
+                    : column.getPreferredWidth();
+            if (width > 0) {
+                widths.put(linkedLabels[i], width);
+            }
+        }
+        long stamp = System.nanoTime();
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("hidden", SongLinkedColumns.hiddenLabels(table, linkedColumns, linkedLabels));
+        state.put("widths", widths);
+        state.put("stamp", stamp);
+        preferences.extras().put(SONG_COLUMNS_PREF_KEY, state);
+        appliedSongColumnStamp = stamp;
+    }
+
+    private void applySongColumnPrefs() {
+        if (assistantMode || linkedColumns.length == 0) {
+            return;
+        }
+        Object raw = preferences == null ? null : preferences.extras().get(SONG_COLUMNS_PREF_KEY);
+        long stamp = 0L;
+        List<String> hidden = List.of(linkedLabels);
+        Map<String, Integer> widths = Map.of();
+        if (raw instanceof Map<?, ?> map) {
+            Object stampRaw = map.get("stamp");
+            if (stampRaw instanceof Number number) {
+                stamp = number.longValue();
+            }
+            if (stamp == appliedSongColumnStamp) {
+                return;
+            }
+            Object hiddenRaw = map.get("hidden");
+            if (hiddenRaw instanceof List<?> list) {
+                List<String> names = new ArrayList<>();
+                for (Object entry : list) {
+                    if (entry != null) {
+                        names.add(String.valueOf(entry));
+                    }
+                }
+                hidden = names;
+            } else {
+                hidden = List.of();
+            }
+            widths = widthMap(map.get("widths"));
+        } else if (appliedSongColumnStamp == 0L) {
+            return;
+        }
+        applyingSongColumns = true;
+        try {
+            SongLinkedColumns.applyHidden(table, linkedColumns, linkedLabels, hidden, -1);
+            for (int i = 0; i < linkedColumns.length; i++) {
+                Integer width = widths.get(linkedLabels[i]);
+                TableColumn column = linkedColumns[i];
+                if (width == null || width <= 0 || column == null) {
+                    continue;
+                }
+                if (table.convertColumnIndexToView(column.getModelIndex()) < 0) {
+                    column.setPreferredWidth(width);
+                    continue;
+                }
+                column.setPreferredWidth(width);
+                column.setWidth(width);
+            }
+            appliedSongColumnStamp = stamp;
+        } finally {
+            applyingSongColumns = false;
+        }
+    }
+
+    private static Map<String, Integer> widthMap(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Integer> widths = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (entry.getKey() == null || !(entry.getValue() instanceof Number number)) {
+                continue;
+            }
+            widths.put(String.valueOf(entry.getKey()), number.intValue());
+        }
+        return widths;
+    }
+
+    private void ensureLinkedSongs(boolean force) {
+        if (assistantMode) {
+            linkedSongs = Map.of();
+            linkedSongKey = "";
+            return;
+        }
+        StringBuilder key = new StringBuilder();
+        List<Long> ids = new ArrayList<>();
+        for (SetlistItemInfo row : songRows) {
+            if (key.length() > 0) {
+                key.append(',');
+            }
+            key.append(row.songId());
+            if (!ids.contains(row.songId())) {
+                ids.add(row.songId());
+            }
+        }
+        String nextKey = key.toString();
+        if (!force && nextKey.equals(linkedSongKey)) {
+            return;
+        }
+        linkedSongKey = nextKey;
+        if (songRepository == null || ids.isEmpty()) {
+            linkedSongs = Map.of();
+            return;
+        }
+        try {
+            Map<Long, LibrarySong> songs = new HashMap<>();
+            for (LibrarySong song : songRepository.findSongsByIds(ids)) {
+                songs.put(song.id(), song);
+            }
+            linkedSongs = songs;
+        } catch (LibraryException ex) {
+            linkedSongs = Map.of();
+        }
+    }
+
     private void refreshAll() {
+        ensureLinkedSongs(false);
         refreshInfo();
         checkboxGuard = true;
         tableModel.fireTableDataChanged();
@@ -2578,6 +2885,7 @@ public final class SetPlayPanel extends JPanel {
             if (row != null && songExistsLocally(row.songId())) {
                 try {
                     playLogRepository.logPlay(row.songId(), loadedSetlist.id(), null);
+                    songFields.notifyChanged();
                 } catch (LibraryException ex) {
                     statusLabel.setText(ex.getMessage() == null ? "Failed to log play." : ex.getMessage());
                 }
@@ -2632,6 +2940,9 @@ public final class SetPlayPanel extends JPanel {
                 session.setNextItemId(null);
             }
             session.bumpRevision();
+            if (logged > 0) {
+                songFields.notifyChanged();
+            }
             afterStateChange();
             statusLabel.setText("Logged " + logged + " song(s) as played.");
             JOptionPane.showMessageDialog(
@@ -2662,6 +2973,7 @@ public final class SetPlayPanel extends JPanel {
             if (row != null && songExistsLocally(row.songId())) {
                 try {
                     playLogRepository.logPlay(row.songId(), loadedSetlist.id(), null);
+                    songFields.notifyChanged();
                 } catch (LibraryException ex) {
                     statusLabel.setText(ex.getMessage() == null ? "Failed to log play." : ex.getMessage());
                 }
@@ -2694,6 +3006,7 @@ public final class SetPlayPanel extends JPanel {
                     result.get().playedAtIso(),
                     loadedSetlist.id(),
                     result.get().contextNote());
+            songFields.notifyChanged();
             if (!session.playedItemIds().contains(itemId)) {
                 SetPlaySessionRules.togglePlayed(session, itemId);
             }
@@ -3482,9 +3795,23 @@ public final class SetPlayPanel extends JPanel {
     }
 
     private final class SongTableModel extends AbstractTableModel {
-        private final String[] columns = {
-                "Status", "Skip", "Title", "Parts", "Duration", "Artist", "", "Actions"
-        };
+        private final String[] columns;
+
+        SongTableModel() {
+            SongLinkedColumns.Kind[] kinds = SongLinkedColumns.Kind.values();
+            columns = new String[COL_LINKED + kinds.length];
+            columns[COL_STATUS] = "Status";
+            columns[COL_SKIP] = "Skip";
+            columns[COL_TITLE] = "Title";
+            columns[COL_PARTS] = "Parts";
+            columns[COL_DUR] = "Duration";
+            columns[COL_ARTIST] = "Artist";
+            columns[COL_LAYOUT] = "";
+            columns[COL_ACTIONS] = "Actions";
+            for (int i = 0; i < kinds.length; i++) {
+                columns[COL_LINKED + i] = kinds[i].columnHeader(true);
+            }
+        }
 
         @Override
         public int getRowCount() {
@@ -3506,6 +3833,13 @@ public final class SetPlayPanel extends JPanel {
             if (columnIndex == COL_SKIP) {
                 return Boolean.class;
             }
+            SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(columnIndex, COL_LINKED);
+            if (kind == SongLinkedColumns.Kind.RATING) {
+                return Integer.class;
+            }
+            if (kind == SongLinkedColumns.Kind.SET) {
+                return Boolean.class;
+            }
             return String.class;
         }
 
@@ -3520,6 +3854,10 @@ public final class SetPlayPanel extends JPanel {
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             SetlistItemInfo row = songRows.get(rowIndex);
+            SongLinkedColumns.Kind kind = SongLinkedColumns.kindAt(columnIndex, COL_LINKED);
+            if (kind != null) {
+                return SongLinkedColumns.value(kind, linkedSongs.get(row.songId()));
+            }
             return switch (columnIndex) {
                 case COL_STATUS -> SetPlaySessionRules.statusBadgeText(session, row.id());
                 case COL_SKIP -> session.skippedItemIds().contains(row.id());
