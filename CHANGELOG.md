@@ -4,7 +4,11 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+- Exported ABC file names are cleaned so Windows and LOTRO can open them. Characters such as `/`, `\`, `?`, and `*` are removed, and `.` is removed everywhere except the `.abc` extension. Names that match after cleaning get a numeric suffix.
 - Set Play part-change highlighting for the song marked NEXT always compares to CURRENT. Skipping a song no longer highlights NEXT against that skipped row just because it is the previous song in the setlist. **Redeploy** the Cloudflare relay so the browser layout preview uses the same comparison.
+- Library row actions apply to every selected song when you right-click a row that is already selected: play, add to queue, rating, status, playback history, and add to setlist. **Edit** still opens only the song under the pointer. Those songs stay selected afterward, so you can run another action without selecting them again.
+- Splitter positions and table column widths are remembered for Library, Bands, Setlists, Set Play, playback, and Settings, and the Settings window size comes back next time. Cancelling Settings still keeps that dialog’s size, splitter, and column widths.
+- Library filters can be saved as named presets and recalled from the Library filters pane (**Preset**, **Save To...**) or from Settings → Library Filters. **Default** is still the startup preset. **None** matches **Clear Filters**.
 - Setlist editor and the bandleader Set Play song list can show Library columns (last played, playback history, rating, set, status, transcriber, edit). Right-click a column header and choose **Library columns**. Status, rating, playback history, and last played update the original song. Band Assistant keeps the published session list and does not show these columns.
 
 ## Version 0.4.5b
