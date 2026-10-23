@@ -2,7 +2,7 @@
 
 All notable changes to ABC Music Manager are documented here. Most recent at the top.
 
-## Unreleased
+## Version 0.5.0b
 
 - ABC playback follows current Maestro (`main`), including the updated synthesizer patch. The first play with an empty soundfont setting downloads `LotroInstruments_09c081c1.sf2` into the shared Maestro folder instead of reusing the previous soundfont file.
 - Exported ABC file names are cleaned so Windows and LOTRO can open them. Characters such as `/`, `\`, `?`, and `*` are removed, and `.` is removed everywhere except the `.abc` extension. Names that match after cleaning get a numeric suffix.
