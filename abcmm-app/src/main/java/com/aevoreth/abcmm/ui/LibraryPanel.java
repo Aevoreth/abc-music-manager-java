@@ -27,12 +27,14 @@ import java.util.function.LongConsumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -48,6 +50,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
 import javax.swing.table.TableColumn;
@@ -61,6 +65,7 @@ import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
+import com.aevoreth.abcmm.domain.prefs.LibraryFilterPreset;
 import com.aevoreth.abcmm.domain.setlist.SetlistInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 
@@ -100,10 +105,16 @@ public final class LibraryPanel extends JPanel {
     private final JTextField lastPlayedToIso = new JTextField(12);
     private final FilterMultiSelect<String> transcriberFilter = new FilterMultiSelect<>(name -> name);
     private final JToggleButton filtersButton = new JToggleButton("Filters", new FilterIcon(16));
+    private final JComboBox<String> presetCombo = new JComboBox<>();
     private final Timer debounceTimer;
 
     private List<StatusInfo> statuses = List.of();
     private DefaultFilters defaultFilters = DefaultFilters.builtins();
+    private List<LibraryFilterPreset> filterPresets = List.of();
+    private String loadedPresetName = LibraryFilterPreset.DEFAULT_NAME;
+    private DefaultFilters loadedSnapshot = DefaultFilters.builtins();
+    private boolean presetModified;
+    private boolean suppressPresetEvents;
     private Consumer<LibraryFilter> filterListener = filter -> {
     };
     private Consumer<LibrarySong> playListener = song -> {
@@ -124,6 +135,8 @@ public final class LibraryPanel extends JPanel {
     private SongRepository songRepository;
     private final SongFieldActions songFields = new SongFieldActions(this);
     private Consumer<Map<String, Object>> headerStateListener = state -> {
+    };
+    private BiConsumer<DefaultFilters, List<LibraryFilterPreset>> filterPresetsListener = (defaults, presets) -> {
     };
     private final Timer headerSaveTimer;
     private boolean suppressEvents;
@@ -354,20 +367,39 @@ public final class LibraryPanel extends JPanel {
 
     public void setTranscribers(List<String> transcribers) {
         transcriberFilter.setItems(transcribers);
+        refreshPresetModified();
     }
 
-    public void setDefaultFilters(DefaultFilters defaultFilters) {
-        this.defaultFilters = defaultFilters == null ? DefaultFilters.builtins() : defaultFilters.copy();
+    public void setFilterPresets(DefaultFilters defaults, List<LibraryFilterPreset> presets) {
+        this.defaultFilters = defaults == null ? DefaultFilters.builtins() : defaults.copy();
+        this.filterPresets = LibraryFilterPreset.sanitize(presets);
+        if (!presetStillAvailable(loadedPresetName)) {
+            loadedPresetName = LibraryFilterPreset.DEFAULT_NAME;
+        }
+        rebuildPresetCombo();
+    }
+
+    /**
+     * Replace the preset list and re-apply the current selection, or Default if that name is gone.
+     */
+    public void reloadAppliedPreset(DefaultFilters defaults, List<LibraryFilterPreset> presets) {
+        String previous = loadedPresetName;
+        setFilterPresets(defaults, presets);
+        applyPreset(presetStillAvailable(previous) ? previous : LibraryFilterPreset.DEFAULT_NAME);
+    }
+
+    public void setFilterPresetsChangedListener(
+            BiConsumer<DefaultFilters, List<LibraryFilterPreset>> filterPresetsListener) {
+        this.filterPresetsListener = Objects.requireNonNullElse(filterPresetsListener, (defaults, presets) -> {
+        });
     }
 
     public void applyDefaultFilters() {
-        applyFilterState(defaultFilters.toLibraryFilter());
-        notifyFilterChanged();
+        applyPreset(LibraryFilterPreset.DEFAULT_NAME);
     }
 
     public void clearFilters() {
-        applyFilterState(LibraryFilter.cleared());
-        notifyFilterChanged();
+        applyPreset(LibraryFilterPreset.NONE_NAME);
     }
 
     public LibraryFilter currentFilter() {
@@ -677,7 +709,7 @@ public final class LibraryPanel extends JPanel {
         JLabel message = new JLabel(
                 "<html><div style='text-align:center'>"
                         + "No songs match the current filters.<br>"
-                        + "Try <b>Clear Filters</b>, or adjust Default Filters in Settings."
+                        + "Try <b>Clear Filters</b>, choose the <b>None</b> preset, or pick another library filter preset."
                         + "</div></html>",
                 JLabel.CENTER);
         message.setFont(message.getFont().deriveFont(Font.PLAIN, 14f));
@@ -723,6 +755,55 @@ public final class LibraryPanel extends JPanel {
         c.weightx = 1;
 
         int row = 0;
+
+        presetCombo.setPrototypeDisplayValue(LibraryFilterPreset.MODIFIED_LABEL);
+        presetCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                Object shown = index < 0 && presetModified ? LibraryFilterPreset.MODIFIED_LABEL : value;
+                return super.getListCellRendererComponent(list, shown, index, isSelected, cellHasFocus);
+            }
+        });
+        presetCombo.addActionListener(e -> {
+            if (suppressPresetEvents) {
+                return;
+            }
+            Object selected = presetCombo.getSelectedItem();
+            if (selected != null) {
+                applyPreset(String.valueOf(selected));
+            }
+        });
+        presetCombo.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                if (suppressPresetEvents || !presetModified) {
+                    return;
+                }
+                Object selected = presetCombo.getSelectedItem();
+                if (selected != null && loadedPresetName.equals(String.valueOf(selected))) {
+                    applyPreset(loadedPresetName);
+                }
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {
+            }
+        });
+        rebuildPresetCombo();
+
+        c.gridy = row++;
+        c.gridx = 0;
+        JPanel presetRow = new JPanel(new BorderLayout(6, 0));
+        JButton savePreset = new JButton("Save To...");
+        savePreset.addActionListener(e -> showSavePresetDialog());
+        presetRow.add(presetCombo, BorderLayout.CENTER);
+        presetRow.add(savePreset, BorderLayout.EAST);
+        moreFiltersPanel.add(presetRow, c);
 
         c.gridy = row++;
         c.gridx = 0;
@@ -972,7 +1053,146 @@ public final class LibraryPanel extends JPanel {
         if (suppressEvents) {
             return;
         }
+        refreshPresetModified();
         filterListener.accept(currentFilter());
+    }
+
+    private void applyPreset(String name) {
+        String canonical = canonicalPresetName(name);
+        LibraryFilter filter;
+        if (LibraryFilterPreset.NONE_NAME.equals(canonical)) {
+            filter = LibraryFilter.cleared();
+        } else {
+            filter = filtersFor(canonical).toLibraryFilter();
+            filter.setTitleOrComposer(titleComposerField.getText());
+        }
+        suppressPresetEvents = true;
+        try {
+            applyFilterState(filter);
+            presetCombo.setSelectedItem(canonical);
+            loadedPresetName = canonical;
+            loadedSnapshot = DefaultFilters.fromLibraryFilter(currentFilter());
+            presetModified = false;
+        } finally {
+            suppressPresetEvents = false;
+        }
+        presetCombo.repaint();
+        notifyFilterChanged();
+    }
+
+    private void showSavePresetDialog() {
+        List<String> names = new ArrayList<>();
+        names.add(LibraryFilterPreset.DEFAULT_NAME);
+        for (LibraryFilterPreset preset : filterPresets) {
+            names.add(preset.name());
+        }
+        FilterPresetSaveDialog dialog = new FilterPresetSaveDialog(
+                SwingUtilities.getWindowAncestor(this), names);
+        dialog.setVisible(true);
+        if (dialog.wasSaved()) {
+            savePresetAs(dialog.targetName());
+        }
+    }
+
+    private void savePresetAs(String targetName) {
+        DefaultFilters captured = DefaultFilters.fromLibraryFilter(currentFilter());
+        if (LibraryFilterPreset.DEFAULT_NAME.equalsIgnoreCase(targetName)) {
+            defaultFilters = captured;
+            loadedPresetName = LibraryFilterPreset.DEFAULT_NAME;
+        } else {
+            String normalized = LibraryFilterPreset.normalize(targetName);
+            List<LibraryFilterPreset> next = new ArrayList<>(filterPresets);
+            int existingIndex = -1;
+            for (int i = 0; i < next.size(); i++) {
+                if (next.get(i).name().equalsIgnoreCase(normalized)) {
+                    existingIndex = i;
+                    break;
+                }
+            }
+            if (existingIndex < 0) {
+                next.add(new LibraryFilterPreset(normalized, captured));
+                loadedPresetName = normalized;
+            } else {
+                LibraryFilterPreset existing = next.get(existingIndex);
+                next.set(existingIndex, existing.withFilters(captured));
+                loadedPresetName = existing.name();
+            }
+            filterPresets = LibraryFilterPreset.sanitize(next);
+        }
+        loadedSnapshot = captured.copy();
+        presetModified = false;
+        rebuildPresetCombo();
+        filterPresetsListener.accept(defaultFilters.copy(), List.copyOf(filterPresets));
+    }
+
+    private void rebuildPresetCombo() {
+        suppressPresetEvents = true;
+        try {
+            presetCombo.removeAllItems();
+            presetCombo.addItem(LibraryFilterPreset.DEFAULT_NAME);
+            presetCombo.addItem(LibraryFilterPreset.NONE_NAME);
+            for (LibraryFilterPreset preset : filterPresets) {
+                presetCombo.addItem(preset.name());
+            }
+            presetCombo.setSelectedItem(loadedPresetName);
+            if (presetCombo.getSelectedItem() == null) {
+                loadedPresetName = LibraryFilterPreset.DEFAULT_NAME;
+                presetCombo.setSelectedItem(loadedPresetName);
+            }
+        } finally {
+            suppressPresetEvents = false;
+        }
+        presetCombo.repaint();
+    }
+
+    private void refreshPresetModified() {
+        boolean modified = !DefaultFilters.fromLibraryFilter(currentFilter()).equals(loadedSnapshot);
+        if (modified != presetModified) {
+            presetModified = modified;
+            presetCombo.repaint();
+        }
+    }
+
+    private boolean presetStillAvailable(String name) {
+        if (name == null) {
+            return false;
+        }
+        if (LibraryFilterPreset.DEFAULT_NAME.equalsIgnoreCase(name)
+                || LibraryFilterPreset.NONE_NAME.equalsIgnoreCase(name)) {
+            return true;
+        }
+        return findPreset(name) != null;
+    }
+
+    private String canonicalPresetName(String name) {
+        if (name != null && LibraryFilterPreset.NONE_NAME.equalsIgnoreCase(name.trim())) {
+            return LibraryFilterPreset.NONE_NAME;
+        }
+        if (name == null || LibraryFilterPreset.DEFAULT_NAME.equalsIgnoreCase(name.trim())) {
+            return LibraryFilterPreset.DEFAULT_NAME;
+        }
+        LibraryFilterPreset preset = findPreset(name);
+        return preset == null ? LibraryFilterPreset.DEFAULT_NAME : preset.name();
+    }
+
+    private DefaultFilters filtersFor(String canonicalName) {
+        if (LibraryFilterPreset.DEFAULT_NAME.equals(canonicalName)) {
+            return defaultFilters;
+        }
+        LibraryFilterPreset preset = findPreset(canonicalName);
+        return preset == null ? defaultFilters : preset.filters();
+    }
+
+    private LibraryFilterPreset findPreset(String name) {
+        if (name == null) {
+            return null;
+        }
+        for (LibraryFilterPreset preset : filterPresets) {
+            if (preset.name().equalsIgnoreCase(name.trim())) {
+                return preset;
+            }
+        }
+        return null;
     }
 
     private void applyFilterState(LibraryFilter filter) {

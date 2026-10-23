@@ -217,7 +217,12 @@ public final class MainFrame extends JFrame {
         setJMenuBar(buildMenuBar());
 
         libraryPanel.setFilterListener(this::reloadLibrary);
-        libraryPanel.setDefaultFilters(preferences.defaultFilters());
+        libraryPanel.setFilterPresets(preferences.defaultFilters(), preferences.libraryFilterPresets());
+        libraryPanel.setFilterPresetsChangedListener((defaults, presets) -> {
+            preferences.setDefaultFilters(defaults);
+            preferences.setLibraryFilterPresets(presets);
+            persistPreferencesQuietly();
+        });
         libraryPanel.setPlayListener(song -> {
             try {
                 playbackSession.playSong(PlayQueueItem.ofSong(
@@ -650,7 +655,7 @@ public final class MainFrame extends JFrame {
                         if (playerRepository != null) {
                             libraryPanel.setInstrumentNames(loadInstrumentNames());
                         }
-                        libraryPanel.applyDefaultFilters();
+                        reloadLibrary(libraryPanel.currentFilter());
                         statusBar.setMessage("Library scan finished.");
                     } catch (LibraryException ex) {
                         statusBar.setMessage(ex.getMessage());
@@ -700,7 +705,8 @@ public final class MainFrame extends JFrame {
             setlistsPanel.setStatuses(statuses);
             setPlayPanel.setStatuses(statuses);
             bandAssistantPanel.setStatuses(statuses);
-            libraryPanel.applyDefaultFilters();
+            libraryPanel.reloadAppliedPreset(
+                    preferences.defaultFilters(), preferences.libraryFilterPresets());
             if (bandsPanel != null) {
                 bandsPanel.reload();
             }
@@ -733,8 +739,8 @@ public final class MainFrame extends JFrame {
             return;
         }
         applyPreferencesToUi(true);
-        libraryPanel.setDefaultFilters(preferences.defaultFilters());
-        libraryPanel.applyDefaultFilters();
+        libraryPanel.reloadAppliedPreset(
+                preferences.defaultFilters(), preferences.libraryFilterPresets());
         setPlayPanel.refreshRelayPicker();
         bandAssistantPanel.refreshRelayPicker();
         statusBar.setMessage("Preferences saved.");

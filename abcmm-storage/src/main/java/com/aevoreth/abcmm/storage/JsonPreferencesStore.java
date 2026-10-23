@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
+import com.aevoreth.abcmm.domain.prefs.LibraryFilterPreset;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.prefs.PreferencesException;
 import com.aevoreth.abcmm.domain.prefs.PreferencesStore;
@@ -83,6 +84,7 @@ public final class JsonPreferencesStore implements PreferencesStore {
         prefs.setLotroRoot(asString(remaining.remove("lotro_root")));
         prefs.setSetExportDir(asString(remaining.remove("set_export_dir")));
         prefs.setDefaultFilters(parseDefaultFilters(remaining.remove("default_filters")));
+        prefs.setLibraryFilterPresets(parseLibraryFilterPresets(remaining.remove("library_filter_presets")));
 
         Object geometry = remaining.remove("window_geometry");
         if (geometry instanceof Map<?, ?> map) {
@@ -123,6 +125,7 @@ public final class JsonPreferencesStore implements PreferencesStore {
         map.put("lotro_root", preferences.lotroRoot());
         map.put("set_export_dir", preferences.setExportDir());
         map.put("default_filters", defaultFiltersToMap(preferences.defaultFilters()));
+        map.put("library_filter_presets", libraryFilterPresetsToList(preferences.libraryFilterPresets()));
         if (preferences.windowGeometry() != null) {
             map.put("window_geometry", preferences.windowGeometry());
         } else {
@@ -181,8 +184,12 @@ public final class JsonPreferencesStore implements PreferencesStore {
             filters.setDurationMaxSec(durationMaxSec);
         }
         filters.setLastPlayedMode(asString(map.get("last_played_mode")));
-        filters.setLastPlayedFromSecondsAgo(asInteger(map.get("last_played_from_seconds_ago")));
-        filters.setLastPlayedToSecondsAgo(asInteger(map.get("last_played_to_seconds_ago")));
+        if (map.containsKey("last_played_from_seconds_ago")) {
+            filters.setLastPlayedFromSecondsAgo(asInteger(map.get("last_played_from_seconds_ago")));
+        }
+        if (map.containsKey("last_played_to_seconds_ago")) {
+            filters.setLastPlayedToSecondsAgo(asInteger(map.get("last_played_to_seconds_ago")));
+        }
         filters.setLastPlayedFromIso(asString(map.get("last_played_from_iso")));
         filters.setLastPlayedToIso(asString(map.get("last_played_to_iso")));
         Integer partsMin = asInteger(map.get("parts_min"));
@@ -194,7 +201,39 @@ public final class JsonPreferencesStore implements PreferencesStore {
             filters.setPartsMax(partsMax);
         }
         filters.setStatusIds(asLongList(map.get("status_ids")));
+        filters.setTranscribers(asStringList(map.get("transcribers")));
         return filters;
+    }
+
+    private static List<LibraryFilterPreset> parseLibraryFilterPresets(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        List<LibraryFilterPreset> presets = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> map)) {
+                continue;
+            }
+            presets.add(new LibraryFilterPreset(asString(map.get("name")), parseDefaultFilters(map.get("filters"))));
+        }
+        return presets;
+    }
+
+    private static List<Map<String, Object>> libraryFilterPresetsToList(List<LibraryFilterPreset> presets) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (presets == null) {
+            return out;
+        }
+        for (LibraryFilterPreset preset : presets) {
+            if (preset == null) {
+                continue;
+            }
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("name", preset.name());
+            entry.put("filters", defaultFiltersToMap(preset.filters()));
+            out.add(entry);
+        }
+        return out;
     }
 
     private static Map<String, Object> defaultFiltersToMap(DefaultFilters filters) {
@@ -214,6 +253,7 @@ public final class JsonPreferencesStore implements PreferencesStore {
         map.put("parts_min", filters.partsMin());
         map.put("parts_max", filters.partsMax());
         map.put("status_ids", filters.statusIds());
+        map.put("transcribers", filters.transcribers());
         return map;
     }
 
@@ -284,6 +324,23 @@ public final class JsonPreferencesStore implements PreferencesStore {
             Integer number = asInteger(item);
             if (number != null) {
                 out.add(number);
+            }
+        }
+        return out;
+    }
+
+    private static List<String> asStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (Object item : list) {
+            if (item == null) {
+                continue;
+            }
+            String text = String.valueOf(item).trim();
+            if (!text.isEmpty()) {
+                out.add(text);
             }
         }
         return out;

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.aevoreth.abcmm.domain.prefs.AppearanceOptions;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
+import com.aevoreth.abcmm.domain.prefs.LibraryFilterPreset;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 
 class JsonPreferencesStoreTest {
@@ -67,12 +68,65 @@ class JsonPreferencesStoreTest {
         assertEquals("yes", loaded.defaultFilters().inSet());
         assertEquals(2, loaded.defaultFilters().ratingFrom());
         assertEquals(List.of(1L, 2L), loaded.defaultFilters().statusIds());
+        assertEquals(List.of(), loaded.defaultFilters().transcribers());
+        assertEquals(List.of(), loaded.libraryFilterPresets());
         assertEquals(80.0, loaded.playbackVolume());
         assertEquals("band_layout", loaded.playbackStereoMode());
         assertTrue(loaded.extras().containsKey("library_table_header_state"));
         assertEquals("$SongTitle_$SongIndex", loaded.setExport().filenamePattern());
         assertFalse(loaded.setExport().exportAbcpPlaylist());
         assertTrue(loaded.setExport().exportCsvPartSheet());
+    }
+
+    @Test
+    void roundTripsLibraryFilterPresetsAndDropsReservedDuplicates() throws Exception {
+        Path path = tempDir.resolve("preferences.json");
+        JsonPreferencesStore store = new JsonPreferencesStore(path);
+
+        DefaultFilters recent = DefaultFilters.builtins();
+        recent.setInSet("no");
+        recent.setTranscribers(List.of("Ada"));
+        recent.setLastPlayedFromSecondsAgo(null);
+        recent.setLastPlayedToSecondsAgo(null);
+        DefaultFilters duplicate = DefaultFilters.builtins();
+        duplicate.setRatingFrom(4);
+
+        Preferences prefs = new Preferences();
+        prefs.setLibraryFilterPresets(List.of(
+                new LibraryFilterPreset("None", DefaultFilters.builtins()),
+                new LibraryFilterPreset("Recent", recent),
+                new LibraryFilterPreset("recent", duplicate),
+                new LibraryFilterPreset("  ", DefaultFilters.builtins())));
+        store.save(prefs);
+
+        Preferences loaded = store.load();
+        assertEquals(1, loaded.libraryFilterPresets().size());
+        LibraryFilterPreset preset = loaded.libraryFilterPresets().get(0);
+        assertEquals("Recent", preset.name());
+        assertEquals("no", preset.filters().inSet());
+        assertEquals(List.of("Ada"), preset.filters().transcribers());
+        assertEquals(null, preset.filters().lastPlayedFromSecondsAgo());
+        assertTrue(preset.filters().toLibraryFilter().lastPlayedNever());
+    }
+
+    @Test
+    void missingPresetKeyAndMissingFromSecondsKeepDefaults() throws Exception {
+        Path path = tempDir.resolve("preferences.json");
+        Files.writeString(path, """
+                {
+                  "default_filters": {
+                    "in_set": "yes",
+                    "parts_min": 2
+                  }
+                }
+                """);
+        JsonPreferencesStore store = new JsonPreferencesStore(path);
+        Preferences loaded = store.load();
+        assertEquals(List.of(), loaded.libraryFilterPresets());
+        assertEquals("yes", loaded.defaultFilters().inSet());
+        assertEquals(2, loaded.defaultFilters().partsMin());
+        assertEquals(0, loaded.defaultFilters().lastPlayedFromSecondsAgo());
+        assertEquals(List.of(), loaded.defaultFilters().transcribers());
     }
 
     @Test

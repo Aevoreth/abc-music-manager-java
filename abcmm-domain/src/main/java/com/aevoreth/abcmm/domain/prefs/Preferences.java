@@ -23,6 +23,7 @@ public final class Preferences {
     private String lotroRoot = "";
     private String setExportDir = "";
     private DefaultFilters defaultFilters = DefaultFilters.builtins();
+    private List<LibraryFilterPreset> libraryFilterPresets = List.of();
     private Map<String, Object> windowGeometry;
     private List<Integer> splitterState;
     private String playbackSoundfontPath = "";
@@ -45,6 +46,7 @@ public final class Preferences {
         copy.lotroRoot = lotroRoot;
         copy.setExportDir = setExportDir;
         copy.defaultFilters = defaultFilters.copy();
+        copy.libraryFilterPresets = copyPresets(libraryFilterPresets);
         copy.windowGeometry = windowGeometry == null ? null : new LinkedHashMap<>(windowGeometry);
         copy.splitterState = splitterState == null ? null : List.copyOf(splitterState);
         copy.playbackSoundfontPath = playbackSoundfontPath;
@@ -107,6 +109,14 @@ public final class Preferences {
 
     public void setDefaultFilters(DefaultFilters defaultFilters) {
         this.defaultFilters = Objects.requireNonNullElseGet(defaultFilters, DefaultFilters::builtins);
+    }
+
+    public List<LibraryFilterPreset> libraryFilterPresets() {
+        return libraryFilterPresets;
+    }
+
+    public void setLibraryFilterPresets(List<LibraryFilterPreset> libraryFilterPresets) {
+        this.libraryFilterPresets = LibraryFilterPreset.sanitize(libraryFilterPresets);
     }
 
     public Map<String, Object> windowGeometry() {
@@ -265,6 +275,19 @@ public final class Preferences {
 
     public Map<String, Object> extras() {
         return extras;
+    }
+
+    private static List<LibraryFilterPreset> copyPresets(List<LibraryFilterPreset> presets) {
+        if (presets == null || presets.isEmpty()) {
+            return List.of();
+        }
+        List<LibraryFilterPreset> copy = new ArrayList<>();
+        for (LibraryFilterPreset preset : presets) {
+            if (preset != null) {
+                copy.add(new LibraryFilterPreset(preset.name(), preset.filters()));
+            }
+        }
+        return LibraryFilterPreset.sanitize(copy);
     }
 
     private static List<Map<String, Object>> copyRelays(List<Map<String, Object>> relays) {

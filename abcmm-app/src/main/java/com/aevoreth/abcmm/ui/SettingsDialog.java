@@ -28,6 +28,7 @@ import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -35,6 +36,7 @@ import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
@@ -42,9 +44,12 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.ListSelectionModel;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.UIManager;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 
 import com.aevoreth.abcmm.domain.library.AccountTargetInfo;
@@ -54,6 +59,7 @@ import com.aevoreth.abcmm.domain.library.SettingsRepository;
 import com.aevoreth.abcmm.domain.library.StatusInfo;
 import com.aevoreth.abcmm.domain.prefs.AppearanceOptions;
 import com.aevoreth.abcmm.domain.prefs.DefaultFilters;
+import com.aevoreth.abcmm.domain.prefs.LibraryFilterPreset;
 import com.aevoreth.abcmm.domain.prefs.LotroPaths;
 import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.setplay.SetPlayRelayInfo;
@@ -78,6 +84,14 @@ public final class SettingsDialog extends JDialog {
     private final JTextField setExportDirField = new JTextField();
     private final JComboBox<StatusInfo> defaultStatusCombo = new JComboBox<>();
     private final DefaultFiltersPanel defaultFiltersPanel = new DefaultFiltersPanel();
+    private final DefaultListModel<String> presetListModel = new DefaultListModel<>();
+    private final JList<String> presetList = new JList<>(presetListModel);
+    private final JButton renamePresetButton = new JButton("Rename");
+    private final JButton removePresetButton = new JButton("Remove");
+    private final List<LibraryFilterPreset> workingPresets = new ArrayList<>();
+    private DefaultFilters workingDefaultFilters = DefaultFilters.builtins();
+    private int editingPresetIndex;
+    private boolean suppressPresetSelection;
     private final JTextField soundfontField = new JTextField(28);
     private final JSpinner volumeSpinner = new JSpinner(new SpinnerNumberModel(100.0, 0.0, 100.0, 1.0));
     private final JSpinner tempoSpinner = new JSpinner(new SpinnerNumberModel(1.0, 0.5, 2.0, 0.05));
@@ -168,7 +182,7 @@ public final class SettingsDialog extends JDialog {
 
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Appearance", buildAppearanceTab());
-        tabs.addTab("Default filters", buildDefaultFiltersTab());
+        tabs.addTab("Library Filters", buildDefaultFiltersTab());
         tabs.addTab("Folder rules", buildFolderRulesTab());
         tabs.addTab("Statuses", buildStatusesTab());
         tabs.addTab("Account targets", buildAccountTargetsTab());
@@ -213,7 +227,7 @@ public final class SettingsDialog extends JDialog {
         fontSizeCombo.setSelectedItem(Integer.toString(working.baseFontSize()));
         LotroPaths.ensureDefaultLotroRoot(working);
         refreshFolderPathFields();
-        defaultFiltersPanel.setFilters(working.defaultFilters());
+        loadPresetManager();
         soundfontField.setText(working.playbackSoundfontPath());
         volumeSpinner.setValue(working.playbackVolume());
         tempoSpinner.setValue(working.playbackTempo());
@@ -258,7 +272,9 @@ public final class SettingsDialog extends JDialog {
         }
         working.setSetExportDir(setExport);
         refreshFolderPathFields();
-        working.setDefaultFilters(defaultFiltersPanel.toFilters());
+        commitPresetEditor();
+        working.setDefaultFilters(workingDefaultFilters);
+        working.setLibraryFilterPresets(workingPresets);
         StatusInfo selectedStatus = (StatusInfo) defaultStatusCombo.getSelectedItem();
         working.setDefaultStatusId(selectedStatus == null ? null : selectedStatus.id());
         working.setPlaybackSoundfontPath(soundfontField.getText());
@@ -367,6 +383,7 @@ public final class SettingsDialog extends JDialog {
                 working.setLotroRoot("");
                 working.setSetExportDir("");
                 working.setDefaultFilters(DefaultFilters.builtins());
+                working.setLibraryFilterPresets(List.of());
                 working.clearWindowGeometry();
                 working.setSplitterState(null);
                 working.setPlaybackSoundfontPath("");
@@ -384,11 +401,188 @@ public final class SettingsDialog extends JDialog {
     }
 
     private JPanel buildDefaultFiltersTab() {
-        JPanel panel = new JPanel(new BorderLayout());
+        presetList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        presetList.setVisibleRowCount(12);
+        presetList.addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting() || suppressPresetSelection) {
+                return;
+            }
+            int next = presetList.getSelectedIndex();
+            if (next < 0 || next == editingPresetIndex) {
+                return;
+            }
+            commitPresetEditor();
+            editingPresetIndex = next;
+            showPresetEditor();
+            updatePresetButtons();
+        });
+
+        JButton addPreset = new JButton("Add");
+        addPreset.addActionListener(e -> addFilterPreset());
+        renamePresetButton.addActionListener(e -> renameFilterPreset());
+        removePresetButton.addActionListener(e -> removeFilterPreset());
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        actions.add(addPreset);
+        actions.add(renamePresetButton);
+        actions.add(removePresetButton);
+
+        JPanel west = new JPanel(new BorderLayout(0, 8));
+        west.setPreferredSize(new Dimension(220, 0));
+        west.add(new JScrollPane(presetList), BorderLayout.CENTER);
+        west.add(actions, BorderLayout.SOUTH);
+
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        panel.add(new JLabel("Defaults applied when Library Reset Filters is clicked."), BorderLayout.NORTH);
+        panel.add(new JLabel(
+                "Default is applied at startup and by Reset Filters. Other names are optional presets."),
+                BorderLayout.NORTH);
+        panel.add(west, BorderLayout.WEST);
         panel.add(defaultFiltersPanel, BorderLayout.CENTER);
         return panel;
+    }
+
+    private void loadPresetManager() {
+        workingDefaultFilters = working.defaultFilters().copy();
+        workingPresets.clear();
+        for (LibraryFilterPreset preset : working.libraryFilterPresets()) {
+            workingPresets.add(new LibraryFilterPreset(preset.name(), preset.filters()));
+        }
+        rebuildPresetList(0);
+    }
+
+    private void rebuildPresetList(int selectIndex) {
+        suppressPresetSelection = true;
+        try {
+            presetListModel.clear();
+            presetListModel.addElement(LibraryFilterPreset.DEFAULT_NAME);
+            for (LibraryFilterPreset preset : workingPresets) {
+                presetListModel.addElement(preset.name());
+            }
+            int index = Math.max(0, Math.min(selectIndex, presetListModel.getSize() - 1));
+            editingPresetIndex = index;
+            presetList.setSelectedIndex(index);
+            showPresetEditor();
+            updatePresetButtons();
+        } finally {
+            suppressPresetSelection = false;
+        }
+    }
+
+    private void showPresetEditor() {
+        if (editingPresetIndex <= 0) {
+            defaultFiltersPanel.setFilters(workingDefaultFilters);
+            return;
+        }
+        defaultFiltersPanel.setFilters(workingPresets.get(editingPresetIndex - 1).filters());
+    }
+
+    private void commitPresetEditor() {
+        DefaultFilters filters = defaultFiltersPanel.toFilters();
+        if (editingPresetIndex <= 0) {
+            workingDefaultFilters = filters;
+            return;
+        }
+        int presetIndex = editingPresetIndex - 1;
+        if (presetIndex >= 0 && presetIndex < workingPresets.size()) {
+            LibraryFilterPreset current = workingPresets.get(presetIndex);
+            workingPresets.set(presetIndex, current.withFilters(filters));
+        }
+    }
+
+    private void updatePresetButtons() {
+        boolean userPreset = editingPresetIndex > 0;
+        renamePresetButton.setEnabled(userPreset);
+        removePresetButton.setEnabled(userPreset);
+    }
+
+    private void addFilterPreset() {
+        commitPresetEditor();
+        String name = promptPresetName("Add filter preset", "", null);
+        if (name == null) {
+            return;
+        }
+        DefaultFilters seed = editingPresetIndex <= 0
+                ? workingDefaultFilters.copy()
+                : workingPresets.get(editingPresetIndex - 1).filters().copy();
+        workingPresets.add(new LibraryFilterPreset(name, seed));
+        rebuildPresetList(workingPresets.size());
+    }
+
+    private void renameFilterPreset() {
+        if (editingPresetIndex <= 0) {
+            return;
+        }
+        commitPresetEditor();
+        LibraryFilterPreset current = workingPresets.get(editingPresetIndex - 1);
+        String name = promptPresetName("Rename filter preset", current.name(), current.name());
+        if (name == null) {
+            return;
+        }
+        workingPresets.set(editingPresetIndex - 1, current.withName(name));
+        rebuildPresetList(editingPresetIndex);
+    }
+
+    private void removeFilterPreset() {
+        if (editingPresetIndex <= 0) {
+            return;
+        }
+        LibraryFilterPreset current = workingPresets.get(editingPresetIndex - 1);
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Remove preset \"" + current.name() + "\"?",
+                "Remove filter preset",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        int removedIndex = editingPresetIndex;
+        workingPresets.remove(removedIndex - 1);
+        rebuildPresetList(Math.min(removedIndex, workingPresets.size()));
+    }
+
+    private String promptPresetName(String title, String initial, String ignoringName) {
+        Object entered = JOptionPane.showInputDialog(
+                this,
+                "Preset name",
+                title,
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                null,
+                initial);
+        if (entered == null) {
+            return null;
+        }
+        String name = LibraryFilterPreset.normalize(String.valueOf(entered));
+        if (name.isEmpty() || LibraryFilterPreset.isReservedName(name)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "That name is reserved or empty.",
+                    title,
+                    JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        if (presetNameTaken(name, ignoringName)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "A preset with that name already exists.",
+                    title,
+                    JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        return name;
+    }
+
+    private boolean presetNameTaken(String name, String ignoringName) {
+        for (LibraryFilterPreset preset : workingPresets) {
+            if (ignoringName != null && preset.name().equalsIgnoreCase(ignoringName)) {
+                continue;
+            }
+            if (preset.name().equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private JPanel buildFolderRulesTab() {
@@ -1636,6 +1830,11 @@ public final class SettingsDialog extends JDialog {
         private final JTextField lastFromIso = new JTextField(14);
         private final JTextField lastToIso = new JTextField(14);
         private final JTextField statusIdsField = new JTextField(20);
+        private final JTextField transcribersField = new JTextField(20);
+        private Integer loadedFromSeconds = 0;
+        private Integer loadedToSeconds;
+        private boolean lastPlayedUntouched = true;
+        private boolean suppressLastPlayedEvents;
 
         DefaultFiltersPanel() {
             super(new GridBagLayout());
@@ -1651,17 +1850,53 @@ public final class SettingsDialog extends JDialog {
             addRow(c, y++, "Last played to ago (blank = none)", lastToAgo);
             addRow(c, y++, "Last played from ISO", lastFromIso);
             addRow(c, y++, "Last played to ISO", lastToIso);
-            addRow(c, y, "Status ids (comma-separated)", statusIdsField);
+            addRow(c, y++, "Status ids (comma-separated)", statusIdsField);
+            addRow(c, y, "Transcribers (comma-separated)", transcribersField);
 
             SpinnerMouseWheel.install(ratingFrom);
             SpinnerMouseWheel.install(ratingTo);
             SpinnerMouseWheel.install(partsMin);
             SpinnerMouseWheel.install(partsMax);
             SpinnerMouseWheel.install(lastFromAgo);
+            lastFromAgo.addChangeListener(e -> markLastPlayedEdited());
+            lastToAgo.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    markLastPlayedEdited();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    markLastPlayedEdited();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    markLastPlayedEdited();
+                }
+            });
+        }
+
+        private void markLastPlayedEdited() {
+            if (!suppressLastPlayedEvents) {
+                lastPlayedUntouched = false;
+            }
         }
 
         void setFilters(DefaultFilters filters) {
             DefaultFilters source = filters == null ? DefaultFilters.builtins() : filters;
+            suppressLastPlayedEvents = true;
+            try {
+                applyFilters(source);
+                loadedFromSeconds = source.lastPlayedFromSecondsAgo();
+                loadedToSeconds = source.lastPlayedToSecondsAgo();
+                lastPlayedUntouched = true;
+            } finally {
+                suppressLastPlayedEvents = false;
+            }
+        }
+
+        private void applyFilters(DefaultFilters source) {
             inSet.setSelectedIndex(
                     "yes".equals(source.inSet()) ? 1 : "no".equals(source.inSet()) ? 2 : 0);
             ratingFrom.setValue(source.ratingFrom());
@@ -1680,6 +1915,7 @@ public final class SettingsDialog extends JDialog {
             lastFromIso.setText(source.lastPlayedFromIso() == null ? "" : source.lastPlayedFromIso());
             lastToIso.setText(source.lastPlayedToIso() == null ? "" : source.lastPlayedToIso());
             statusIdsField.setText(joinIds(source.statusIds()));
+            transcribersField.setText(joinNames(source.transcribers()));
         }
 
         DefaultFilters toFilters() {
@@ -1695,20 +1931,26 @@ public final class SettingsDialog extends JDialog {
             filters.setDurationMinSec((Integer) durationMinSec.getValue());
             filters.setDurationMaxSec((Integer) durationMaxSec.getValue());
             filters.setLastPlayedMode(String.valueOf(lastPlayedMode.getSelectedItem()));
-            filters.setLastPlayedFromSecondsAgo((Integer) lastFromAgo.getValue());
-            String toAgoText = lastToAgo.getText().trim();
-            if (toAgoText.isEmpty()) {
-                filters.setLastPlayedToSecondsAgo(null);
+            if (lastPlayedUntouched) {
+                filters.setLastPlayedFromSecondsAgo(loadedFromSeconds);
+                filters.setLastPlayedToSecondsAgo(loadedToSeconds);
             } else {
-                try {
-                    filters.setLastPlayedToSecondsAgo(Integer.parseInt(toAgoText));
-                } catch (NumberFormatException ex) {
+                filters.setLastPlayedFromSecondsAgo((Integer) lastFromAgo.getValue());
+                String toAgoText = lastToAgo.getText().trim();
+                if (toAgoText.isEmpty()) {
                     filters.setLastPlayedToSecondsAgo(null);
+                } else {
+                    try {
+                        filters.setLastPlayedToSecondsAgo(Integer.parseInt(toAgoText));
+                    } catch (NumberFormatException ex) {
+                        filters.setLastPlayedToSecondsAgo(null);
+                    }
                 }
             }
             filters.setLastPlayedFromIso(lastFromIso.getText());
             filters.setLastPlayedToIso(lastToIso.getText());
             filters.setStatusIds(parseIds(statusIdsField.getText()));
+            filters.setTranscribers(parseNames(transcribersField.getText()));
             return filters;
         }
 
@@ -1741,6 +1983,27 @@ public final class SettingsDialog extends JDialog {
                 builder.append(ids.get(i));
             }
             return builder.toString();
+        }
+
+        private static String joinNames(List<String> names) {
+            if (names == null || names.isEmpty()) {
+                return "";
+            }
+            return String.join(", ", names);
+        }
+
+        private static List<String> parseNames(String text) {
+            if (text == null || text.isBlank()) {
+                return List.of();
+            }
+            List<String> names = new ArrayList<>();
+            for (String part : text.split(",")) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    names.add(trimmed);
+                }
+            }
+            return names;
         }
 
         private static List<Long> parseIds(String text) {

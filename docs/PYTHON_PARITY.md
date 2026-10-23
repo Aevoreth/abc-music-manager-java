@@ -15,7 +15,7 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 |------|---------------|-------------|---------------------------|-------|
 | Library scanning | Complete | Complete (redesigned duplicates) | Preserve behavior where practical | Scan `.abc` under LOTRO Music roots; folder rules; primary vs set-copy. Java uses inventory-first peer `DuplicateGroup`s (exact hash + logical identity), batch review, cleanup plan, Recycle Bin trash, folder-cluster exclude — not Python’s existing-vs-new / first-scanned asymmetry. Folder-cluster review is part of Scan Library (no separate **Analyze duplicate folders…** menu) |
 | Song metadata | Complete | Complete | Preserve Maestro metadata | Library table + Song detail (Basic Info / Parts / Notes & Lyrics / Raw ABC); Save writes title/composer/parts to ABC as needed (ahead of Python’s user guide, which still marks ABC write-back as unimplemented); inline rating/status; Playback History / PlayLog; scan writes Maestro-compatible %%/header fields via `AbcMetadataParser` |
-| Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted; empty-state **Open User Guide** + **Help → User Guide** |
+| Filters and search | Complete | Complete | Preserve behavior | Title/composer, status, in-set, rating, parts, duration, last-played (incl. Never), transcriber; `default_filters` in prefs remains the shared Default preset; Java-only `library_filter_presets` holds extra named presets; sorting + empty state; Status/In-set/Rating stay in Filters pane (Java layout); `library_table_header_state` persisted; empty-state **Open User Guide** + **Help → User Guide** |
 | Setlists | Complete | Complete (builder + set export + ABCP import) | Preserve stored data | Folders, tree drag reorder/move between folders, song order, timing, per-set band layout / part overrides; set package export (folder/zip + optional CSV/ABCP); standalone ABCP export/import; ABCP import shows a local-only notice (Java) |
 | ABCP support | Complete | Complete | Preserve interchange | XML playlist read/write compatible with ABC Player; import matches exact `SongFile.file_path` values (Python parity); Java prompts that import is for locally created playlists, not shared setlists |
 | Songbook export | Complete | Complete | Preserve PluginData format | Manual File → Write PluginData…; UTF-8 Lua `SongbookData.plugindata` to enabled AccountTargets (Python `plugindata_writer`; HTA is format reference only) |
@@ -26,7 +26,7 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 | ABC audition (audio engine + transport) | Complete (custom TinySoundFont path) | Complete | Use Maestro Java engine | Audible ABC sampling only (not Set Play). `LotroAbcPlaybackEngine`; library/setlist → queue; mute/solo; queue reorder; save queue as setlist; tempo/stereo/volume; MIDI panic (double-click Stop). See [playback gaps](#playback-transport) |
 | Set Play (live set session) | Complete | Complete | Java-only v13+ | In-game bandleader set guidance — not audio. NOW/NEXT/Played/Skip; advance song; play logging; up-next band grid; named sessions + Parts tab |
 | Relay / group playback | Complete | Complete | Java `set_play_state_v2` | Cloudflare Worker (D1 + R2 + Durable Object); Band Assistant tab / `--assistant`; browser `/playback`. Old workers and Python clients are out of scope |
-| Settings | Complete (CRUD) | Complete (CRUD) | Preserve prefs where practical | Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD; Set Play relays in SQLite (token + retention) + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
+| Settings | Complete (CRUD) | Complete (CRUD) | Preserve prefs where practical | Appearance, Library Filters (Default plus named presets), roots, Status/FolderRule/AccountTarget CRUD; Set Play relays in SQLite (token + retention) + Wrangler deploy/redeploy wizard; LOTRO Documents auto-detect + Scan Account Targets |
 | Help / About | Complete | Complete | Own identity | **Help → User Guide** in both. **Help → About** shows version, MIT license, and third-party credits (Java: FlatLaf, Maestro, soundfont, SQLite JDBC, Jackson, commonmark). Unpackaged runs show version `development`; packaged builds use Maven `Implementation-Version` |
 | Themes | Complete (LOTRO-inspired Qt) | Complete (Maestro FlatLaf) | Own visual identity | Java targets Maestro/ABC Player Flat Dark / Flat Light via FlatLaf (Appearance); not a port of Python’s LOTRO Qt theme. Future theme revisit possible |
 | Packaging | Complete (PyInstaller, Win/macOS/Linux) | Complete (Windows zip + MSI) | Own installer | Tag-push GitHub Actions (`jpackage` + trimmed jlink runtime); `ABC-Music-Manager-<version>.zip` / `.msi`. Must not package Python app or Maestro/ABC Player/ABC Tools launchers. macOS/Linux installers and code signing are not in this edition |
@@ -40,6 +40,7 @@ Inspected against local Python v0.2.9b and this Java tree (changelog through
 - **Stereo width:** Java **0 = mono, 100 = full stereo**; Python **0 = wide L/R, 100 = centered**.
 - **Themes and packaging:** own visual identity and Windows jpackage, not a Qt/PyInstaller clone.
 - **Song-layout editing:** Java assigns parts on the library song **Layouts** tab (canonical per band) and on Setlists (independent per-item copies). Python’s library Layout editor exists but is documented as not fully working.
+- **Library filter presets:** Java stores extra named presets in `library_filter_presets`. `default_filters` is still the shared Default preset Python reads.
 
 ## Remaining gaps and suggested requirements
 
@@ -102,7 +103,7 @@ Completed bandleader library + management slice (this edition):
 
 1. Open or create SQLite v14 (writable; migrate older DBs; Python v12 will not round-trip)
 2. List primary-library songs in the Library table with filters
-3. Settings dialog: Appearance, Default filters, roots, Status/FolderRule/AccountTarget CRUD
+3. Settings dialog: Appearance, Library Filters, roots, Status/FolderRule/AccountTarget CRUD
 4. Shared `preferences.json` load/save (including Java `theme`)
 5. Library scanning with progress + duplicate resolution
 6. Navigation: Library | Setlists | Bands | Set Play | Band Assistant (top tabs; Players under Bands)

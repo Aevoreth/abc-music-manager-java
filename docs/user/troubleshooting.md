@@ -82,7 +82,7 @@ If **Redeploy worker on Cloudflare…** reports that the zip bucket is not empty
 
 ## Filters hiding all songs
 
-Use **Clear Filters** (show everything) or **Reset Filters** (restore defaults from [Default filters](settings/default-filters.md)).
+Use **Clear Filters** or the **None** preset (show everything), or **Reset Filters** (restore the [Default preset](settings/default-filters.md)).
 
 ---
 

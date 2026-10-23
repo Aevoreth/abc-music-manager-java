@@ -77,7 +77,7 @@ class AppArchitectureAndSmokeTest {
         panel.setSongs(List.of(new LibrarySong(
                 1, "Song", "Composer", "Ada", 120, 2, "[{\"part_number\":1}]",
                 null, 0, 3, 1L, "New", "#00F", null, null, false)));
-        panel.setDefaultFilters(DefaultFilters.builtins());
+        panel.setFilterPresets(DefaultFilters.builtins(), List.of());
         panel.applyDefaultFilters();
         assertNotNull(panel.currentFilter());
         panel.clearFilters();

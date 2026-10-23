@@ -46,7 +46,7 @@ ABC Music Manager helps *Lord of the Rings Online* player musicians organize ABC
 ## Settings topics
 
 - [Appearance](settings/appearance.md)
-- [Default filters](settings/default-filters.md)
+- [Library Filters](settings/default-filters.md)
 - [Folder rules](settings/folder-rules.md)
 - [Statuses](settings/statuses.md)
 - [Account targets](settings/account-targets.md)

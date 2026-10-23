@@ -27,6 +27,7 @@ public final class DefaultFilters {
     private int partsMin = 1;
     private int partsMax = 24;
     private List<Long> statusIds = List.of();
+    private List<String> transcribers = List.of();
 
     public static DefaultFilters builtins() {
         return new DefaultFilters();
@@ -49,7 +50,53 @@ public final class DefaultFilters {
         copy.partsMin = partsMin;
         copy.partsMax = partsMax;
         copy.statusIds = List.copyOf(statusIds);
+        copy.transcribers = List.copyOf(transcribers);
         return copy;
+    }
+
+    /**
+     * Capture filters-pane fields from a runtime filter. Title search is ignored.
+     * Null ranges become the same display defaults the library controls use.
+     */
+    public static DefaultFilters fromLibraryFilter(LibraryFilter filter) {
+        DefaultFilters captured = builtins();
+        if (filter == null) {
+            return captured;
+        }
+        if (filter.inSet() == LibraryFilter.InSet.YES) {
+            captured.setInSet("yes");
+        } else if (filter.inSet() == LibraryFilter.InSet.NO) {
+            captured.setInSet("no");
+        } else {
+            captured.setInSet(null);
+        }
+        captured.setRatingFrom(filter.ratingFrom() == null ? 0 : filter.ratingFrom());
+        captured.setRatingTo(filter.ratingTo() == null ? 5 : filter.ratingTo());
+        captured.setPartsMin(filter.partsMin() == null ? 1 : filter.partsMin());
+        captured.setPartsMax(filter.partsMax() == null ? 24 : filter.partsMax());
+        captured.setDurationMinNone(filter.durationMinNone());
+        captured.setDurationMaxNone(filter.durationMaxNone());
+        captured.setDurationMinSec(filter.durationMinSec() == null ? 0 : filter.durationMinSec());
+        captured.setDurationMaxSec(filter.durationMaxSec() == null ? 1200 : filter.durationMaxSec());
+        if (filter.lastPlayedMode() == LibraryFilter.LastPlayedMode.DATE) {
+            captured.setLastPlayedMode("date");
+            captured.setLastPlayedFromIso(filter.lastPlayedFromIso());
+            captured.setLastPlayedToIso(filter.lastPlayedToIso());
+        } else {
+            captured.setLastPlayedMode("time");
+            if (filter.lastPlayedNever()) {
+                captured.setLastPlayedFromSecondsAgo(null);
+                captured.setLastPlayedToSecondsAgo(null);
+            } else {
+                captured.setLastPlayedFromSecondsAgo(filter.lastPlayedFromSecondsAgo() == null
+                        ? 0
+                        : filter.lastPlayedFromSecondsAgo());
+                captured.setLastPlayedToSecondsAgo(filter.lastPlayedToSecondsAgo());
+            }
+        }
+        captured.setStatusIds(filter.statusIds());
+        captured.setTranscribers(filter.transcribers());
+        return captured;
     }
 
     /**
@@ -72,8 +119,10 @@ public final class DefaultFilters {
         filter.setDurationMaxSec(durationMaxSec);
         if ("date".equalsIgnoreCase(lastPlayedMode)) {
             filter.setLastPlayedMode(LibraryFilter.LastPlayedMode.DATE);
+            filter.setLastPlayedNever(false);
         } else {
             filter.setLastPlayedMode(LibraryFilter.LastPlayedMode.TIME);
+            filter.setLastPlayedNever(lastPlayedFromSecondsAgo == null && lastPlayedToSecondsAgo == null);
         }
         filter.setLastPlayedFromSecondsAgo(lastPlayedFromSecondsAgo);
         filter.setLastPlayedToSecondsAgo(lastPlayedToSecondsAgo);
@@ -82,6 +131,7 @@ public final class DefaultFilters {
         filter.setPartsMin(partsMin);
         filter.setPartsMax(partsMax);
         filter.setStatusIds(statusIds);
+        filter.setTranscribers(transcribers);
         filter.setTitleOrComposer("");
         return filter;
     }
@@ -213,6 +263,25 @@ public final class DefaultFilters {
                 : List.copyOf(new ArrayList<>(statusIds));
     }
 
+    public List<String> transcribers() {
+        return transcribers;
+    }
+
+    public void setTranscribers(List<String> transcribers) {
+        if (transcribers == null || transcribers.isEmpty()) {
+            this.transcribers = List.of();
+            return;
+        }
+        List<String> copy = new ArrayList<>();
+        for (String name : transcribers) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            copy.add(name.trim());
+        }
+        this.transcribers = copy.isEmpty() ? List.of() : List.copyOf(copy);
+    }
+
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
     }
@@ -246,7 +315,8 @@ public final class DefaultFilters {
                 && Objects.equals(lastPlayedToSecondsAgo, that.lastPlayedToSecondsAgo)
                 && Objects.equals(lastPlayedFromIso, that.lastPlayedFromIso)
                 && Objects.equals(lastPlayedToIso, that.lastPlayedToIso)
-                && Objects.equals(statusIds, that.statusIds);
+                && Objects.equals(statusIds, that.statusIds)
+                && Objects.equals(transcribers, that.transcribers);
     }
 
     @Override
@@ -254,6 +324,7 @@ public final class DefaultFilters {
         return Objects.hash(
                 inSet, ratingFrom, ratingTo, durationMinNone, durationMaxNone,
                 durationMinSec, durationMaxSec, lastPlayedMode, lastPlayedFromSecondsAgo,
-                lastPlayedToSecondsAgo, lastPlayedFromIso, lastPlayedToIso, partsMin, partsMax, statusIds);
+                lastPlayedToSecondsAgo, lastPlayedFromIso, lastPlayedToIso, partsMin, partsMax,
+                statusIds, transcribers);
     }
 }

@@ -33,13 +33,15 @@ The same Library columns can be turned on in the [setlist editor](setlists.md#ti
 
 - **Title / Composer** — text search across both fields
 - **More Filters** — shows or hides the side filter panel
-- **Reset Filters** — restore defaults from [Default filters settings](settings/default-filters.md)
-- **Clear Filters** — show everything (most permissive)
+- **Reset Filters** — select and apply the **Default** preset from [Library Filters](settings/default-filters.md)
+- **Clear Filters** — select **None** and show everything (most permissive)
 
 ### Filters panel (Status / In set / Rating and more)
 
 When **More Filters** is open, the side panel includes:
 
+- **Preset** — **Default**, **None**, then any presets you have saved. After you change filters, the box shows `<- Modified ->` until you load a preset again
+- **Save To...** — overwrite **Default** or a named preset, or type a new preset name
 - **Status** — one or more statuses
 - **In set** — Yes / No / Either
 - **Rating** — from / to range
@@ -48,7 +50,9 @@ When **More Filters** is open, the side panel includes:
 - **Parts** — min/max part count
 - **Transcriber** — multi-select
 
-If the table looks empty, try **Clear Filters** before assuming the library has no songs. You may also need to adjust [Default Filters](settings/default-filters.md).
+**None** matches **Clear Filters**, including clearing Title / Composer. Other presets do not change that search box. Manage preset names and values in [Library Filters](settings/default-filters.md).
+
+If the table looks empty, try **Clear Filters** or the **None** preset before assuming the library has no songs.
 
 ---
 
