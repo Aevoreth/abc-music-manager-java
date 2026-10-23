@@ -104,6 +104,7 @@ public final class SetlistsPanel extends JPanel {
     static final String COLUMN_WIDTHS_PREF_KEY = "java_setlist_song_column_widths";
     /** Shared with Python edition preferences key. */
     static final String META_SPLIT_PREF_KEY = "setlists_top_split_state";
+    static final String MAIN_SPLIT_PREF_KEY = "setlists_main_split_state";
     /** #, Play, Warning stay fixed; Title / Parts / Duration / Composer are flexible. */
     private static final int FIXED_COLUMN_COUNT = 3;
     private static final int COL_INDEX = 0;
@@ -249,7 +250,7 @@ public final class SetlistsPanel extends JPanel {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
                 if (!mainSplitInitialized && mainSplit.getWidth() > 0) {
-                    mainSplit.setDividerLocation(MAIN_SPLIT_INITIAL);
+                    restoreMainSplit();
                     mainSplitInitialized = true;
                 }
                 if (!metaSplitRestored && topSplit != null && topSplit.getWidth() > 0) {
@@ -287,6 +288,8 @@ public final class SetlistsPanel extends JPanel {
             columnWidthsRestored = true;
             restoreMetaSplit();
             metaSplitRestored = true;
+            restoreMainSplit();
+            mainSplitInitialized = true;
         }
     }
 
@@ -326,6 +329,13 @@ public final class SetlistsPanel extends JPanel {
             return;
         }
         preferences.extras().put(COLUMN_WIDTHS_PREF_KEY, captureColumnState());
+        if (mainSplit != null && mainSplit.getWidth() > 0) {
+            int left = mainSplit.getDividerLocation();
+            int right = Math.max(0, mainSplit.getWidth() - left - mainSplit.getDividerSize());
+            if (left >= MAIN_SPLIT_MIN_LEFT && right >= 200) {
+                preferences.extras().put(MAIN_SPLIT_PREF_KEY, List.of(left, right));
+            }
+        }
         if (topSplit != null) {
             int left = topSplit.getDividerLocation();
             int right = Math.max(0, topSplit.getWidth() - left - topSplit.getDividerSize());
@@ -1417,6 +1427,22 @@ public final class SetlistsPanel extends JPanel {
             wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, tableHeight + 14));
             wrap.revalidate();
         }
+    }
+
+    private void restoreMainSplit() {
+        if (mainSplit == null || mainSplit.getWidth() <= 0) {
+            return;
+        }
+        int divider = MAIN_SPLIT_INITIAL;
+        if (preferences != null) {
+            List<Integer> saved = asIntegerList(preferences.extras().get(MAIN_SPLIT_PREF_KEY));
+            if (saved != null && !saved.isEmpty() && saved.get(0) != null
+                    && saved.get(0) >= MAIN_SPLIT_MIN_LEFT) {
+                divider = saved.get(0);
+            }
+        }
+        int max = Math.max(MAIN_SPLIT_MIN_LEFT, mainSplit.getWidth() - mainSplit.getDividerSize() - 200);
+        mainSplit.setDividerLocation(Math.min(divider, max));
     }
 
     private void restoreMetaSplit() {

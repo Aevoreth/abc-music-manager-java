@@ -161,6 +161,7 @@ public final class MainFrame extends JFrame {
         setlistsPanel.setPreferences(preferences);
         setlistsPanel.setPreferencesStore(preferencesStore);
         bandsPanel = new BandsPanel();
+        bandsPanel.applyUiState(preferences);
         setPlayPanel = new SetPlayPanel(false);
         setPlayPanel.setPreferences(preferences);
         setPlayPanel.setPreferencesSaver(this::persistPreferencesQuietly);
@@ -265,6 +266,11 @@ public final class MainFrame extends JFrame {
             persistPreferencesQuietly();
         });
         libraryPanel.applyHeaderState(preferences.extras().get("library_table_header_state"));
+        libraryPanel.applyFilterSplit(preferences.extras().get("library_filters_split"));
+        libraryPanel.setFilterSplitListener(divider -> {
+            preferences.extras().put("library_filters_split", divider);
+            persistPreferencesQuietly();
+        });
         setlistsPanel.setPlaybackSession(playbackSession, msg -> statusBar.setMessage(msg));
         playbackPanel.bind(
                 playbackSession,
@@ -695,6 +701,10 @@ public final class MainFrame extends JFrame {
                 },
                 this::applySavedPreferences,
                 this::onSettingsEntitiesChanged);
+        dialog.setChromeListener(chrome -> {
+            preferences.extras().putAll(chrome);
+            persistPreferencesQuietly();
+        });
         dialog.setVisible(true);
     }
 
@@ -791,7 +801,9 @@ public final class MainFrame extends JFrame {
         preferences.extras().put("java_nav_section", navTabs.getSelectedIndex());
         preferences.extras().remove("java_nav_splitter");
         preferences.extras().put("library_table_header_state", libraryPanel.captureHeaderState());
+        preferences.extras().put("library_filters_split", libraryPanel.filterSplitDivider());
         setlistsPanel.persistUiState(preferences);
+        bandsPanel.persistUiState(preferences);
         setPlayPanel.persistUiState(preferences);
         bandAssistantPanel.persistUiState(preferences);
         playbackPanel.persistUiState(preferences);

@@ -41,6 +41,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
@@ -92,6 +93,10 @@ public final class LibraryPanel extends JPanel {
     private final JSpinner partsTo = new JSpinner(new SpinnerNumberModel(24, 1, 24, 1));
     private final JPanel moreFiltersPanel = new JPanel(new GridBagLayout());
     private final JScrollPane moreFiltersScroll = new JScrollPane(moreFiltersPanel);
+    private JSplitPane filterSplit;
+    private int filterDividerSize = 8;
+    private int filterSplitPreferred = 320;
+    private boolean suppressFilterSplitEvents;
     private final JCheckBox durationMinNone = new JCheckBox("None", true);
     private final JCheckBox durationMaxNone = new JCheckBox("None", true);
     private final JSpinner durationMinSec = DurationSpinners.create(0, 0, 7200, 1);
@@ -138,6 +143,9 @@ public final class LibraryPanel extends JPanel {
     };
     private BiConsumer<DefaultFilters, List<LibraryFilterPreset>> filterPresetsListener = (defaults, presets) -> {
     };
+    private Consumer<Integer> filterSplitListener = divider -> {
+    };
+    private final Timer filterSplitSaveTimer;
     private final Timer headerSaveTimer;
     private boolean suppressEvents;
     private boolean suppressHeaderEvents;
@@ -154,6 +162,8 @@ public final class LibraryPanel extends JPanel {
         debounceTimer.setRepeats(false);
         headerSaveTimer = new Timer(400, e -> notifyHeaderStateChanged());
         headerSaveTimer.setRepeats(false);
+        filterSplitSaveTimer = new Timer(400, e -> filterSplitListener.accept(filterSplitPreferred));
+        filterSplitSaveTimer.setRepeats(false);
 
         for (LastPlayedTimeOptions.Option option : LastPlayedTimeOptions.all()) {
             lastPlayedFromCombo.addItem(option);
@@ -183,15 +193,30 @@ public final class LibraryPanel extends JPanel {
         add(heading, BorderLayout.NORTH);
         JPanel center = new JPanel(new BorderLayout(0, 8));
         center.add(buildFilterBar(), BorderLayout.NORTH);
-        JPanel tableArea = new JPanel(new BorderLayout(8, 0));
         buildMoreFiltersPanel();
         moreFiltersScroll.setVisible(false);
-        moreFiltersScroll.setPreferredSize(new Dimension(300, 0));
+        moreFiltersScroll.setMinimumSize(new Dimension(240, 0));
+        moreFiltersScroll.setPreferredSize(new Dimension(filterSplitPreferred, 0));
         moreFiltersScroll.setBorder(BorderFactory.createEmptyBorder());
         moreFiltersScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        tableArea.add(moreFiltersScroll, BorderLayout.WEST);
-        tableArea.add(libraryStack, BorderLayout.CENTER);
-        center.add(tableArea, BorderLayout.CENTER);
+        libraryStack.setMinimumSize(new Dimension(240, 0));
+        filterSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, moreFiltersScroll, libraryStack);
+        filterSplit.setContinuousLayout(true);
+        filterSplit.setResizeWeight(0);
+        filterDividerSize = Math.max(4, filterSplit.getDividerSize());
+        filterSplit.setDividerSize(0);
+        filterSplit.setDividerLocation(0);
+        filterSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (suppressFilterSplitEvents || filterSplit.getDividerSize() <= 0) {
+                return;
+            }
+            int location = filterSplit.getDividerLocation();
+            if (location >= 180) {
+                filterSplitPreferred = location;
+                filterSplitSaveTimer.restart();
+            }
+        });
+        center.add(filterSplit, BorderLayout.CENTER);
         add(center, BorderLayout.CENTER);
 
         wireFilterEvents();
@@ -259,6 +284,21 @@ public final class LibraryPanel extends JPanel {
         songFields.setPlayLogRepository(playLogRepository);
     }
 
+    public void setFilterSplitListener(Consumer<Integer> filterSplitListener) {
+        this.filterSplitListener = Objects.requireNonNullElse(filterSplitListener, divider -> {
+        });
+    }
+
+    public void applyFilterSplit(Object raw) {
+        if (raw instanceof Number number && number.intValue() >= 180) {
+            filterSplitPreferred = number.intValue();
+        }
+    }
+
+    public int filterSplitDivider() {
+        return filterSplitPreferred;
+    }
+
     public void setHeaderStateListener(Consumer<Map<String, Object>> headerStateListener) {
         this.headerStateListener = Objects.requireNonNullElse(headerStateListener, state -> {
         });
@@ -280,7 +320,7 @@ public final class LibraryPanel extends JPanel {
                 for (int i = 0; i < count; i++) {
                     Object size = sizes.get(i);
                     if (size instanceof Number number) {
-                        columns.getColumn(i).setPreferredWidth(Math.max(24, number.intValue()));
+                        applyColumnWidth(columns.getColumn(i), number.intValue());
                     }
                 }
             }
@@ -326,7 +366,8 @@ public final class LibraryPanel extends JPanel {
         List<String> visible = new ArrayList<>();
         for (int i = 0; i < columns.getColumnCount(); i++) {
             TableColumn column = columns.getColumn(i);
-            sizes.add(column.getPreferredWidth());
+            int width = column.getWidth();
+            sizes.add(width > 0 ? width : column.getPreferredWidth());
             Object header = column.getHeaderValue();
             visible.add(header == null ? "" : String.valueOf(header));
         }
@@ -357,6 +398,52 @@ public final class LibraryPanel extends JPanel {
 
     private void notifyHeaderStateChanged() {
         headerStateListener.accept(captureHeaderState());
+    }
+
+    private void setFiltersPaneVisible(boolean visible) {
+        moreFiltersScroll.setVisible(visible);
+        if (filterSplit == null) {
+            revalidate();
+            return;
+        }
+        suppressFilterSplitEvents = true;
+        try {
+            if (visible) {
+                moreFiltersScroll.setMinimumSize(new Dimension(240, 0));
+                filterSplit.setDividerSize(filterDividerSize);
+                int width = filterSplit.getWidth();
+                int divider = filterSplitPreferred;
+                if (width > 0) {
+                    int max = Math.max(240, width - filterSplit.getDividerSize() - 240);
+                    divider = Math.min(divider, max);
+                }
+                filterSplit.setDividerLocation(Math.max(240, divider));
+            } else {
+                if (filterSplit.getDividerSize() > 0 && filterSplit.getDividerLocation() >= 180) {
+                    filterSplitPreferred = filterSplit.getDividerLocation();
+                    filterSplitSaveTimer.restart();
+                }
+                moreFiltersScroll.setMinimumSize(new Dimension(0, 0));
+                filterSplit.setDividerLocation(0);
+                filterSplit.setDividerSize(0);
+            }
+        } finally {
+            suppressFilterSplitEvents = false;
+        }
+        revalidate();
+    }
+
+    private static void applyColumnWidth(TableColumn column, int width) {
+        if (column.getMaxWidth() == 0) {
+            return;
+        }
+        int safe = Math.max(column.getMinWidth(), width);
+        int max = column.getMaxWidth();
+        if (max > 0) {
+            safe = Math.min(safe, max);
+        }
+        column.setPreferredWidth(safe);
+        column.setWidth(safe);
     }
 
     public void setStatuses(List<StatusInfo> statuses) {
@@ -729,10 +816,7 @@ public final class LibraryPanel extends JPanel {
         filtersButton.setHorizontalTextPosition(SwingConstants.RIGHT);
         filtersButton.setIconTextGap(6);
         filtersButton.setMargin(new Insets(4, 10, 4, 12));
-        filtersButton.addActionListener(e -> {
-            moreFiltersScroll.setVisible(filtersButton.isSelected());
-            revalidate();
-        });
+        filtersButton.addActionListener(e -> setFiltersPaneVisible(filtersButton.isSelected()));
         mainRow.add(filtersButton);
         mainRow.add(new JLabel("Title / Composer"));
         TextFieldClearButton.install(titleComposerField);

@@ -2483,6 +2483,7 @@ public final class SetPlayPanel extends JPanel {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("hidden", SongLinkedColumns.hiddenLabels(table, linkedColumns, linkedLabels));
         state.put("widths", widths);
+        state.put("base_widths", captureBaseColumnWidths());
         state.put("stamp", stamp);
         preferences.extras().put(SONG_COLUMNS_PREF_KEY, state);
         appliedSongColumnStamp = stamp;
@@ -2523,6 +2524,9 @@ public final class SetPlayPanel extends JPanel {
         applyingSongColumns = true;
         try {
             SongLinkedColumns.applyHidden(table, linkedColumns, linkedLabels, hidden, -1);
+            if (raw instanceof Map<?, ?> saved) {
+                applyBaseColumnWidths(saved.get("base_widths"));
+            }
             for (int i = 0; i < linkedColumns.length; i++) {
                 Integer width = widths.get(linkedLabels[i]);
                 TableColumn column = linkedColumns[i];
@@ -2539,6 +2543,49 @@ public final class SetPlayPanel extends JPanel {
             appliedSongColumnStamp = stamp;
         } finally {
             applyingSongColumns = false;
+        }
+    }
+
+    private List<Integer> captureBaseColumnWidths() {
+        List<Integer> widths = new ArrayList<>();
+        for (int modelIndex = 0; modelIndex < COL_LINKED; modelIndex++) {
+            int view = table.convertColumnIndexToView(modelIndex);
+            if (view < 0) {
+                widths.add(0);
+                continue;
+            }
+            TableColumn column = table.getColumnModel().getColumn(view);
+            if (column.getMaxWidth() == 0) {
+                widths.add(0);
+                continue;
+            }
+            int width = column.getWidth();
+            widths.add(width > 0 ? width : column.getPreferredWidth());
+        }
+        return widths;
+    }
+
+    private void applyBaseColumnWidths(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return;
+        }
+        int count = Math.min(COL_LINKED, list.size());
+        for (int modelIndex = 0; modelIndex < count; modelIndex++) {
+            if (!(list.get(modelIndex) instanceof Number number) || number.intValue() <= 0) {
+                continue;
+            }
+            int view = table.convertColumnIndexToView(modelIndex);
+            if (view < 0) {
+                continue;
+            }
+            TableColumn column = table.getColumnModel().getColumn(view);
+            if (column.getMaxWidth() == 0) {
+                continue;
+            }
+            int width = number.intValue();
+            column.setMaxWidth(Math.max(column.getMaxWidth(), width));
+            column.setPreferredWidth(width);
+            column.setWidth(width);
         }
     }
 

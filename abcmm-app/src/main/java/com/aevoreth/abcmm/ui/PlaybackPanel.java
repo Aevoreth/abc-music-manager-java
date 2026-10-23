@@ -601,9 +601,8 @@ public final class PlaybackPanel extends JPanel {
         int width = DEFAULT_LIST_WIDTH;
         int height = DEFAULT_LIST_HEIGHT;
         int divider = DEFAULT_PARTS_DIVIDER;
-        if (preferences != null) {
-            Object raw = preferences.extras().get(LIST_SIZE_PREF_KEY);
-            if (raw instanceof Map<?, ?> map) {
+        Object raw = preferences == null ? null : preferences.extras().get(LIST_SIZE_PREF_KEY);
+        if (raw instanceof Map<?, ?> map) {
                 Integer w = asInt(map.get("width"));
                 Integer h = asInt(map.get("height"));
                 Integer d = asInt(map.get("divider"));
@@ -617,11 +616,26 @@ public final class PlaybackPanel extends JPanel {
                     divider = Math.max(80, d);
                 }
             }
-        }
         suppressListSizePersist = true;
         try {
             listDialog.setSize(width, height);
             listSplit.setDividerLocation(Math.min(divider, Math.max(80, width - 120)));
+            Object columns = raw instanceof Map<?, ?> map ? map.get("columns") : null;
+            if (columns instanceof List<?> list) {
+                int count = Math.min(list.size(), playlistTable.getColumnModel().getColumnCount());
+                for (int i = 0; i < count; i++) {
+                    if (!(list.get(i) instanceof Number number) || number.intValue() < 24) {
+                        continue;
+                    }
+                    var column = playlistTable.getColumnModel().getColumn(i);
+                    int columnWidth = Math.min(number.intValue(), Math.max(column.getMaxWidth(), 24));
+                    if (column.getMaxWidth() == 0) {
+                        continue;
+                    }
+                    column.setPreferredWidth(columnWidth);
+                    column.setWidth(columnWidth);
+                }
+            }
         } finally {
             suppressListSizePersist = false;
         }
@@ -640,6 +654,15 @@ public final class PlaybackPanel extends JPanel {
         size.put("width", width);
         size.put("height", height);
         size.put("divider", listSplit.getDividerLocation());
+        List<Integer> columns = new ArrayList<>();
+        for (int i = 0; i < playlistTable.getColumnModel().getColumnCount(); i++) {
+            int columnWidth = playlistTable.getColumnModel().getColumn(i).getWidth();
+            if (columnWidth <= 0) {
+                columnWidth = playlistTable.getColumnModel().getColumn(i).getPreferredWidth();
+            }
+            columns.add(columnWidth);
+        }
+        size.put("columns", columns);
         preferences.extras().put(LIST_SIZE_PREF_KEY, size);
         prefsPersister.run();
     }

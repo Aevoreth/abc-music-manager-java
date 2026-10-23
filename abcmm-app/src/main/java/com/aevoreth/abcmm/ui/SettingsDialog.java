@@ -5,10 +5,17 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionListener;
 import java.io.File;
@@ -41,6 +48,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
 import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
@@ -48,9 +56,14 @@ import javax.swing.ListSelectionModel;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.UIManager;
+import javax.swing.event.ChangeEvent;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.event.TableColumnModelEvent;
+import javax.swing.event.TableColumnModelListener;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 
 import com.aevoreth.abcmm.domain.library.AccountTargetInfo;
 import com.aevoreth.abcmm.domain.library.FolderRuleInfo;
@@ -114,6 +127,19 @@ public final class SettingsDialog extends JDialog {
     private JTable statusesTable;
     private JTable accountTargetsTable;
     private JTable setPlayRelaysTable;
+    private JSplitPane filterSplit;
+    private boolean filterSplitApplied;
+    private boolean chromePublished;
+    private Consumer<Map<String, Object>> chromeListener = state -> {
+    };
+
+    static final int DEFAULT_WIDTH = 1000;
+    static final int DEFAULT_HEIGHT = 640;
+    private static final String GEOMETRY_KEY = "settings_window_geometry";
+    private static final String FILTER_SPLIT_KEY = "settings_library_filters_split";
+    private static final String COLUMNS_KEY = "settings_table_columns";
+    private static final int FILTER_SPLIT_DEFAULT = 280;
+    private static final int FILTER_SPLIT_MIN = 200;
 
     public SettingsDialog(
             JFrame owner,
@@ -168,8 +194,8 @@ public final class SettingsDialog extends JDialog {
         });
 
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setMinimumSize(new Dimension(720, 520));
-        setPreferredSize(new Dimension(820, 600));
+        setMinimumSize(new Dimension(780, 520));
+        setPreferredSize(new Dimension(DEFAULT_WIDTH, DEFAULT_HEIGHT));
 
         LotroPaths.ensureDefaultLotroRoot(working);
 
@@ -198,6 +224,7 @@ public final class SettingsDialog extends JDialog {
         JButton cancel = new JButton("Cancel");
         JButton save = new JButton("Save");
         cancel.addActionListener(e -> {
+            publishChrome();
             if (entitiesChanged) {
                 onEntitiesChanged.run();
             }
@@ -215,7 +242,22 @@ public final class SettingsDialog extends JDialog {
 
         loadWorkingIntoControls();
         pack();
-        setLocationRelativeTo(owner);
+        applySavedWindowBounds();
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                publishChrome();
+            }
+        });
+    }
+
+    /**
+     * Persist window size, the Library Filters splitter, and settings table column widths
+     * even when the dialog is cancelled.
+     */
+    public void setChromeListener(Consumer<Map<String, Object>> chromeListener) {
+        this.chromeListener = Objects.requireNonNullElse(chromeListener, state -> {
+        });
     }
 
     public boolean wasSaved() {
@@ -289,6 +331,7 @@ public final class SettingsDialog extends JDialog {
         if (!confirmSetExportDir()) {
             return;
         }
+        publishChrome();
         onSaved.accept(working.copy());
         saved = true;
         if (entitiesChanged) {
@@ -427,18 +470,240 @@ public final class SettingsDialog extends JDialog {
         actions.add(removePresetButton);
 
         JPanel west = new JPanel(new BorderLayout(0, 8));
-        west.setPreferredSize(new Dimension(220, 0));
+        west.setMinimumSize(new Dimension(FILTER_SPLIT_MIN, 120));
         west.add(new JScrollPane(presetList), BorderLayout.CENTER);
         west.add(actions, BorderLayout.SOUTH);
+
+        JScrollPane editorScroll = new JScrollPane(defaultFiltersPanel);
+        editorScroll.setBorder(BorderFactory.createEmptyBorder());
+        editorScroll.setMinimumSize(new Dimension(420, 120));
+        filterSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, west, editorScroll);
+        filterSplit.setContinuousLayout(true);
+        filterSplit.setResizeWeight(0);
+        filterSplit.setDividerLocation(FILTER_SPLIT_DEFAULT);
+        filterSplit.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (filterSplitApplied || filterSplit.getWidth() < FILTER_SPLIT_MIN + 420) {
+                    return;
+                }
+                filterSplit.setDividerLocation(savedFilterSplit());
+                filterSplitApplied = true;
+            }
+        });
+        filterSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!filterSplitApplied || filterSplit.getWidth() <= 0) {
+                return;
+            }
+            int location = filterSplit.getDividerLocation();
+            if (location >= FILTER_SPLIT_MIN) {
+                working.extras().put(FILTER_SPLIT_KEY, location);
+            }
+        });
 
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         panel.add(new JLabel(
                 "Default is applied at startup and by Reset Filters. Other names are optional presets."),
                 BorderLayout.NORTH);
-        panel.add(west, BorderLayout.WEST);
-        panel.add(defaultFiltersPanel, BorderLayout.CENTER);
+        panel.add(filterSplit, BorderLayout.CENTER);
         return panel;
+    }
+
+    private void applySavedWindowBounds() {
+        Object raw = working.extras().get(GEOMETRY_KEY);
+        int width = DEFAULT_WIDTH;
+        int height = DEFAULT_HEIGHT;
+        Integer x = null;
+        Integer y = null;
+        if (raw instanceof Map<?, ?> map) {
+            Integer savedWidth = asInt(map.get("width"));
+            Integer savedHeight = asInt(map.get("height"));
+            if (savedWidth != null && savedWidth >= 640) {
+                width = savedWidth;
+            }
+            if (savedHeight != null && savedHeight >= 420) {
+                height = savedHeight;
+            }
+            x = asInt(map.get("x"));
+            y = asInt(map.get("y"));
+        }
+        setSize(width, height);
+        if (x != null && y != null && isOnScreen(x, y, width, height)) {
+            setLocation(x, y);
+        } else {
+            setLocationRelativeTo(getOwner());
+        }
+    }
+
+    private int savedFilterSplit() {
+        int saved = FILTER_SPLIT_DEFAULT;
+        Integer value = asInt(working.extras().get(FILTER_SPLIT_KEY));
+        if (value != null && value >= FILTER_SPLIT_MIN) {
+            saved = value;
+        }
+        int max = filterSplit.getWidth() - filterSplit.getDividerSize() - 360;
+        if (max >= FILTER_SPLIT_MIN) {
+            saved = Math.min(saved, max);
+        }
+        return Math.max(FILTER_SPLIT_MIN, saved);
+    }
+
+    private void publishChrome() {
+        if (chromePublished || !isDisplayable()) {
+            return;
+        }
+        chromePublished = true;
+        Map<String, Object> chrome = captureChrome();
+        working.extras().putAll(chrome);
+        chromeListener.accept(chrome);
+    }
+
+    private Map<String, Object> captureChrome() {
+        Map<String, Object> chrome = new LinkedHashMap<>();
+        Map<String, Object> geometry = new LinkedHashMap<>();
+        geometry.put("x", getX());
+        geometry.put("y", getY());
+        geometry.put("width", getWidth());
+        geometry.put("height", getHeight());
+        chrome.put(GEOMETRY_KEY, geometry);
+        if (filterSplit != null && filterSplitApplied && filterSplit.getWidth() > 0) {
+            int location = filterSplit.getDividerLocation();
+            if (location >= FILTER_SPLIT_MIN) {
+                chrome.put(FILTER_SPLIT_KEY, location);
+            }
+        } else {
+            Object existing = working.extras().get(FILTER_SPLIT_KEY);
+            if (existing != null) {
+                chrome.put(FILTER_SPLIT_KEY, existing);
+            }
+        }
+        Object columns = working.extras().get(COLUMNS_KEY);
+        if (columns instanceof Map<?, ?> map && !map.isEmpty()) {
+            chrome.put(COLUMNS_KEY, new LinkedHashMap<>(map));
+        }
+        return chrome;
+    }
+
+    private void rememberTableColumns(String name, JTable table) {
+        applySavedColumnWidths(name, table);
+        table.getColumnModel().addColumnModelListener(new TableColumnModelListener() {
+            @Override
+            public void columnAdded(TableColumnModelEvent e) {
+            }
+
+            @Override
+            public void columnRemoved(TableColumnModelEvent e) {
+            }
+
+            @Override
+            public void columnMoved(TableColumnModelEvent e) {
+            }
+
+            @Override
+            public void columnMarginChanged(ChangeEvent e) {
+                storeColumnWidths(name, table);
+            }
+
+            @Override
+            public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e) {
+            }
+        });
+    }
+
+    private void applySavedColumnWidths(String name, JTable table) {
+        List<Integer> widths = savedColumnWidths(name);
+        if (widths == null) {
+            return;
+        }
+        TableColumnModel columns = table.getColumnModel();
+        int count = Math.min(columns.getColumnCount(), widths.size());
+        for (int i = 0; i < count; i++) {
+            Integer width = widths.get(i);
+            if (width != null && width >= 24) {
+                TableColumn column = columns.getColumn(i);
+                column.setPreferredWidth(width);
+                column.setWidth(width);
+            }
+        }
+    }
+
+    private void storeColumnWidths(String name, JTable table) {
+        TableColumnModel columns = table.getColumnModel();
+        List<Integer> widths = new ArrayList<>();
+        boolean measured = false;
+        for (int i = 0; i < columns.getColumnCount(); i++) {
+            TableColumn column = columns.getColumn(i);
+            int width = column.getWidth();
+            if (width <= 0) {
+                width = column.getPreferredWidth();
+            } else {
+                measured = true;
+            }
+            widths.add(Math.max(24, width));
+        }
+        if (!measured) {
+            return;
+        }
+        Map<String, Object> all = new LinkedHashMap<>();
+        Object existing = working.extras().get(COLUMNS_KEY);
+        if (existing instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() != null) {
+                    all.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+        }
+        all.put(name, widths);
+        working.extras().put(COLUMNS_KEY, all);
+    }
+
+    private List<Integer> savedColumnWidths(String name) {
+        Object existing = working.extras().get(COLUMNS_KEY);
+        if (!(existing instanceof Map<?, ?> map)) {
+            return null;
+        }
+        return asIntList(map.get(name));
+    }
+
+    private static List<Integer> asIntList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return null;
+        }
+        List<Integer> widths = new ArrayList<>();
+        for (Object entry : list) {
+            Integer width = asInt(entry);
+            if (width == null) {
+                return null;
+            }
+            widths.add(width);
+        }
+        return widths;
+    }
+
+    private static Integer asInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text) {
+            try {
+                return Integer.parseInt(text.trim());
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isOnScreen(int x, int y, int width, int height) {
+        Rectangle window = new Rectangle(x, y, Math.max(width, 1), Math.max(height, 1));
+        for (GraphicsDevice device : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+            Rectangle visible = window.intersection(device.getDefaultConfiguration().getBounds());
+            if (visible.width >= 80 && visible.height >= 80) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void loadPresetManager() {
@@ -660,6 +925,7 @@ public final class SettingsDialog extends JDialog {
         };
         refillFolderRulesTable();
         folderRulesTable = new JTable(folderRulesModel);
+        rememberTableColumns("folder_rules", folderRulesTable);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton add = new JButton("Add Excluded Directory");
@@ -794,6 +1060,7 @@ public final class SettingsDialog extends JDialog {
         };
         refillStatusesTable();
         statusesTable = new JTable(statusesModel);
+        rememberTableColumns("statuses", statusesTable);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton add = new JButton("Add");
@@ -841,6 +1108,7 @@ public final class SettingsDialog extends JDialog {
         };
         refillAccountTargetsTable();
         accountTargetsTable = new JTable(accountTargetsModel);
+        rememberTableColumns("account_targets", accountTargetsTable);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton scan = new JButton("Scan Account Targets");
@@ -933,6 +1201,7 @@ public final class SettingsDialog extends JDialog {
             }
         };
         setPlayRelaysTable = new JTable(setPlayRelaysModel);
+        rememberTableColumns("set_play_relays", setPlayRelaysTable);
         setPlayRelaysTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         setPlayRelaysTable.getColumnModel().getColumn(0).setPreferredWidth(140);
         setPlayRelaysTable.getColumnModel().getColumn(1).setPreferredWidth(360);

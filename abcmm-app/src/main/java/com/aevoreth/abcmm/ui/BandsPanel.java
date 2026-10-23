@@ -11,6 +11,8 @@ import java.awt.Insets;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -41,6 +43,9 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.TableColumnModelEvent;
+import javax.swing.event.TableColumnModelListener;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
@@ -56,6 +61,7 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 
 import com.aevoreth.abcmm.domain.band.BandInfo;
+import com.aevoreth.abcmm.domain.prefs.Preferences;
 import com.aevoreth.abcmm.domain.band.BandLayoutInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
 import com.aevoreth.abcmm.domain.band.InstrumentInfo;
@@ -70,6 +76,11 @@ import com.aevoreth.abcmm.domain.library.LibraryException;
  * Bands and Players management. A band is exactly one layout; members come from grid cards.
  */
 public final class BandsPanel extends JPanel {
+
+    private static final String BAND_SPLIT_KEY = "bands_split_state";
+    private static final String PLAYER_COLUMNS_KEY = "bands_player_column_widths";
+    private static final int BAND_SPLIT_DEFAULT = 240;
+    private static final int BAND_SPLIT_MIN = 160;
 
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
@@ -92,6 +103,10 @@ public final class BandsPanel extends JPanel {
     private boolean suppressPlayerFilterEvents;
 
     private boolean suppressBandSelection;
+    private JSplitPane bandSplit;
+    private boolean bandSplitRestored;
+    private int pendingBandSplit = BAND_SPLIT_DEFAULT;
+    private int[] playerColumnWidths;
     private String loadedBandName = "";
     private String loadedBandNotes = "";
     private Long loadedBandId;
@@ -111,6 +126,14 @@ public final class BandsPanel extends JPanel {
         tabs.addTab("Bands", buildBandsTab());
         tabs.addTab("Players", buildPlayersTab());
         add(tabs, BorderLayout.CENTER);
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (!bandSplitRestored && bandSplit != null && bandSplit.getWidth() > 0) {
+                    restoreBandSplit();
+                }
+            }
+        });
 
         bandList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && !suppressBandSelection) {
@@ -162,6 +185,28 @@ public final class BandsPanel extends JPanel {
         playersTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         playersTable.getTableHeader().setReorderingAllowed(false);
         playersTable.setDefaultRenderer(Boolean.class, new ReadOnlyCheckRenderer());
+        playersTable.getColumnModel().addColumnModelListener(new TableColumnModelListener() {
+            @Override
+            public void columnAdded(TableColumnModelEvent e) {
+            }
+
+            @Override
+            public void columnRemoved(TableColumnModelEvent e) {
+            }
+
+            @Override
+            public void columnMoved(TableColumnModelEvent e) {
+            }
+
+            @Override
+            public void columnMarginChanged(ChangeEvent e) {
+                capturePlayerColumnWidths();
+            }
+
+            @Override
+            public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e) {
+            }
+        });
         playersTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -279,6 +324,7 @@ public final class BandsPanel extends JPanel {
             instrumentCol.setPreferredWidth(28);
             instrumentCol.setResizable(false);
         }
+        applyPlayerColumnWidths();
         playersTable.getTableHeader().revalidate();
         playersTable.getTableHeader().repaint();
     }
@@ -329,10 +375,118 @@ public final class BandsPanel extends JPanel {
         editor.add(meta, BorderLayout.NORTH);
         editor.add(layoutGrid, BorderLayout.CENTER);
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, editor);
-        split.setResizeWeight(0.25);
-        panel.add(split, BorderLayout.CENTER);
+        bandSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, editor);
+        bandSplit.setResizeWeight(0.25);
+        bandSplit.setContinuousLayout(true);
+        bandSplit.setDividerLocation(pendingBandSplit);
+        left.setMinimumSize(new Dimension(BAND_SPLIT_MIN, 0));
+        panel.add(bandSplit, BorderLayout.CENTER);
         return panel;
+    }
+
+    public void applyUiState(Preferences preferences) {
+        pendingBandSplit = BAND_SPLIT_DEFAULT;
+        playerColumnWidths = null;
+        if (preferences != null) {
+            Object split = preferences.extras().get(BAND_SPLIT_KEY);
+            if (split instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Number number
+                    && number.intValue() >= BAND_SPLIT_MIN) {
+                pendingBandSplit = number.intValue();
+            }
+            Object columns = preferences.extras().get(PLAYER_COLUMNS_KEY);
+            if (columns instanceof List<?> list && list.size() >= 3) {
+                int[] widths = new int[3];
+                boolean ok = true;
+                for (int i = 0; i < 3; i++) {
+                    if (!(list.get(i) instanceof Number number) || number.intValue() < 24) {
+                        ok = false;
+                        break;
+                    }
+                    widths[i] = number.intValue();
+                }
+                if (ok) {
+                    playerColumnWidths = widths;
+                }
+            }
+        }
+        bandSplitRestored = false;
+        if (bandSplit != null && bandSplit.getWidth() > 0) {
+            restoreBandSplit();
+        }
+        if (playersTable.getColumnModel().getColumnCount() > PlayersTableModel.COL_CLASS) {
+            applyPlayerColumnWidths();
+        }
+    }
+
+    public void persistUiState(Preferences preferences) {
+        if (preferences == null) {
+            return;
+        }
+        if (bandSplit != null && bandSplit.getWidth() > 0) {
+            int left = bandSplit.getDividerLocation();
+            int right = Math.max(0, bandSplit.getWidth() - left - bandSplit.getDividerSize());
+            if (left >= BAND_SPLIT_MIN && right >= 200) {
+                preferences.extras().put(BAND_SPLIT_KEY, List.of(left, right));
+            }
+        }
+        capturePlayerColumnWidths();
+        if (playerColumnWidths != null) {
+            preferences.extras().put(PLAYER_COLUMNS_KEY, List.of(
+                    playerColumnWidths[0], playerColumnWidths[1], playerColumnWidths[2]));
+        }
+    }
+
+    private void restoreBandSplit() {
+        if (bandSplit == null || bandSplit.getWidth() <= 0) {
+            return;
+        }
+        int max = Math.max(BAND_SPLIT_MIN, bandSplit.getWidth() - bandSplit.getDividerSize() - 240);
+        bandSplit.setDividerLocation(Math.min(pendingBandSplit, max));
+        bandSplitRestored = true;
+    }
+
+    private void capturePlayerColumnWidths() {
+        if (playersTable.getColumnModel().getColumnCount() <= PlayersTableModel.COL_CLASS) {
+            return;
+        }
+        int[] models = {
+                PlayersTableModel.COL_NAME,
+                PlayersTableModel.COL_LEVEL,
+                PlayersTableModel.COL_CLASS
+        };
+        int[] widths = new int[models.length];
+        boolean measured = false;
+        for (int i = 0; i < models.length; i++) {
+            TableColumn column = playersTable.getColumnModel().getColumn(models[i]);
+            int width = column.getWidth();
+            if (width <= 0) {
+                width = column.getPreferredWidth();
+            } else {
+                measured = true;
+            }
+            widths[i] = Math.max(24, width);
+        }
+        if (measured) {
+            playerColumnWidths = widths;
+        }
+    }
+
+    private void applyPlayerColumnWidths() {
+        if (playerColumnWidths == null
+                || playersTable.getColumnModel().getColumnCount() <= PlayersTableModel.COL_CLASS) {
+            return;
+        }
+        int[] models = {
+                PlayersTableModel.COL_NAME,
+                PlayersTableModel.COL_LEVEL,
+                PlayersTableModel.COL_CLASS
+        };
+        for (int i = 0; i < models.length; i++) {
+            TableColumn column = playersTable.getColumnModel().getColumn(models[i]);
+            int width = Math.max(24, playerColumnWidths[i]);
+            column.setPreferredWidth(width);
+            column.setWidth(width);
+        }
     }
 
     private void reloadPlayers() {
