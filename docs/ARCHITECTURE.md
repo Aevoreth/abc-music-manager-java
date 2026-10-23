@@ -42,7 +42,7 @@ into Java; reimplement behavior with Java-appropriate designs.
 
 ## Maestro as read-only upstream
 
-Maestro (`third_party/maestro`, branch `java24`) provides maintained ABC parsing
+Maestro (`third_party/maestro`, branch `main`) provides maintained ABC parsing
 and playback implementation. Rules:
 
 - Do not edit files under `third_party/maestro/`
@@ -115,7 +115,7 @@ hosts named sessions (D1 registry, R2 zips, Durable Object snapshot) and the
 
 ## Maestro updates
 
-1. Review `java24` changelog / commits
+1. Review `main` changelog / commits
 2. Update submodule pointer to a new SHA
 3. Rebuild `abcmm-maestro-adapter` and run `mvn verify`
 4. Smoke-test ABC load / play
@@ -141,10 +141,14 @@ Maestro uses internal Java Sound APIs (`com.sun.media.sound`). Required JVM flag
 ```text
 --add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED
 --add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED
+--patch-module java.desktop=java.midi.patch.jar
 ```
 
-These flags are preserved in compiler, Surefire, `.mvn/jvm.config`, and `exec:exec@run-app` configuration.
-Do not remove them to “clean up” the build.
+The exports are preserved in the compiler, Surefire, `.mvn/jvm.config`, and `exec:exec@run-app`.
+`--patch-module` is a runtime flag only. The adapter builds `java.midi.patch.jar` from Maestro's
+`patches/java.desktop` sources; Surefire (adapter and app), `exec:exec@run-app`, and Windows packaging
+pass it. It is not in `.mvn/jvm.config`, because that file is read before the JAR exists.
+Do not remove these flags to “clean up” the build.
 
 Soundfont loading follows Maestro’s established behavior (`SynthesizerFactory`,
 `SoundFontDownloader`, shared `MaestroCommon` data directory). Do not redesign

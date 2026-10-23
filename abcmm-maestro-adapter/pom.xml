@@ -14,13 +14,19 @@
   <name>ABCMM Maestro Adapter</name>
   <description>Sole module that compiles against and wraps Maestro (com.digero.*) code</description>
 
+  <properties>
+    <!-- Playback tests in this module need the patch. Domain/storage tests run before this JAR exists. -->
+    <midi.patch.arg>--patch-module=java.desktop=${midi.patch.jar}</midi.patch.arg>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.aevoreth.abcmm</groupId>
       <artifactId>abcmm-domain</artifactId>
     </dependency>
 
-    <!-- Mirrored from Maestro java24 pom (LotroMaestro 0.0.2-SNAPSHOT) -->
+    <!-- Mirrored from Maestro main pom (LotroMaestro 0.0.2-SNAPSHOT).
+         commons-codec stays: HashGenerator still imports it, even though upstream comments that dependency out. -->
     <dependency>
       <groupId>commons-codec</groupId>
       <artifactId>commons-codec</artifactId>
@@ -117,6 +123,41 @@
                   </excludes>
                 </resource>
               </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Mirrors Maestro distribute/build.xml CompilePatches. Classes patch java.desktop; they are not app sources. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>compile-midi-patch</id>
+            <phase>generate-test-resources</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <delete dir="${project.build.directory}/classes_patch"/>
+                <mkdir dir="${project.build.directory}/classes_patch"/>
+                <javac srcdir="${midi.patch.src}"
+                       destdir="${project.build.directory}/classes_patch"
+                       fork="true"
+                       executable="${java.home}/bin/javac"
+                       includeantruntime="false"
+                       failonerror="true"
+                       source="21"
+                       target="21"
+                       encoding="UTF-8">
+                  <compilerarg value="-Xlint:-options"/>
+                  <compilerarg value="--patch-module"/>
+                  <compilerarg value="java.desktop=${midi.patch.src}"/>
+                </javac>
+                <jar destfile="${midi.patch.jar}" basedir="${project.build.directory}/classes_patch"/>
+              </target>
             </configuration>
           </execution>
         </executions>

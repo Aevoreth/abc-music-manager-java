@@ -32,6 +32,8 @@ import com.aevoreth.abcmm.domain.playback.PlaybackPosition;
 import com.aevoreth.abcmm.domain.playback.PlaybackState;
 import com.digero.common.abctomidi.AbcInfo;
 import com.digero.common.abctomidi.AbcToMidi;
+import com.digero.common.i18n.LocaleManager;
+import com.digero.common.i18n.UIText;
 import com.digero.common.midi.LotroSequencerWrapper;
 import com.digero.common.midi.LotroShortMessage;
 import com.digero.common.midi.MidiConstants;
@@ -65,6 +67,10 @@ public final class LotroAbcPlaybackEngine implements AbcPlaybackEngine {
     private boolean closed;
 
     public LotroAbcPlaybackEngine() throws MidiUnavailableException {
+        // AbcInfo's static initializer reads UIText. Maestro apps init this before playback.
+        LocaleManager.init();
+        UIText.init();
+
         // Mirror AbcPlayer: resolve shared SF2, then point SynthesizerFactory at it
         // before LotroSequencerWrapper's static synth init runs.
         File sf2 = SoundFontDownloader.ensureSoundFontExists();

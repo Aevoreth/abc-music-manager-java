@@ -4,6 +4,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+- ABC playback follows current Maestro (`main`), including the updated synthesizer patch. The first play with an empty soundfont setting downloads `LotroInstruments_09c081c1.sf2` into the shared Maestro folder instead of reusing the previous soundfont file.
 - Exported ABC file names are cleaned so Windows and LOTRO can open them. Characters such as `/`, `\`, `?`, and `*` are removed, and `.` is removed everywhere except the `.abc` extension. Names that match after cleaning get a numeric suffix.
 - Set Play part-change highlighting for the song marked NEXT always compares to CURRENT. Skipping a song no longer highlights NEXT against that skipped row just because it is the previous song in the setlist. **Redeploy** the Cloudflare relay so the browser layout preview uses the same comparison.
 - Library row actions apply to every selected song when you right-click a row that is already selected: play, add to queue, rating, status, playback history, and add to setlist. **Edit** still opens only the song under the pointer. Those songs stay selected afterward, so you can run another action without selecting them again.

@@ -30,6 +30,10 @@
     <sqlite.version>3.49.1.0</sqlite.version>
     <jackson.version>2.19.0</jackson.version>
     <commonmark.version>0.24.0</commonmark.version>
+    <midi.patch.src>${maven.multiModuleProjectDirectory}/third_party/maestro/patches/java.desktop</midi.patch.src>
+    <midi.patch.jar>${maven.multiModuleProjectDirectory}/abcmm-maestro-adapter/target/java.midi.patch.jar</midi.patch.jar>
+    <!-- Set by abcmm-maestro-adapter and abcmm-app. Empty until the patch JAR has been built. -->
+    <midi.patch.arg></midi.patch.arg>
   </properties>
 
   <dependencyManagement>
@@ -115,6 +119,7 @@
             <argLine>
               --add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED
               --add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED
+              ${midi.patch.arg}
             </argLine>
           </configuration>
         </plugin>

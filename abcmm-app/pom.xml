@@ -14,6 +14,10 @@
   <name>ABCMM Application</name>
   <description>Standalone Swing ABC Music Manager application</description>
 
+  <properties>
+    <midi.patch.arg>--patch-module=java.desktop=${midi.patch.jar}</midi.patch.arg>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.aevoreth.abcmm</groupId>
@@ -93,10 +97,13 @@
               <!-- Fresh JVM with the same module exports (for exec:exec@run-app) -->
               <executable>java</executable>
               <arguments>
+                <argument>--enable-native-access=ALL-UNNAMED</argument>
                 <argument>--add-exports</argument>
                 <argument>java.desktop/com.sun.media.sound=ALL-UNNAMED</argument>
                 <argument>--add-exports</argument>
                 <argument>java.desktop/sun.awt.shell=ALL-UNNAMED</argument>
+                <argument>--patch-module</argument>
+                <argument>java.desktop=${midi.patch.jar}</argument>
                 <argument>-classpath</argument>
                 <classpath/>
                 <argument>com.aevoreth.abcmm.AbcMusicManagerMain</argument>

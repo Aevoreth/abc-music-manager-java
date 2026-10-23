@@ -15,7 +15,7 @@ Capability inventory and remaining gaps: [docs/PYTHON_PARITY.md](docs/PYTHON_PAR
 ABC Music Manager uses open-source ABC parsing and playback implementation from the maintained Maestro project:
 
 - Repository: [NikolaiVChr/maestro](https://github.com/NikolaiVChr/maestro)
-- Required branch: `java24`
+- Required branch: `main`
 - Vendored as a read-only Git submodule at `third_party/maestro`
 
 ABC Music Manager is a **companion** to Maestro, not a replacement. Users should continue to use [NikolaiVChr’s Maestro](https://github.com/NikolaiVChr/maestro) for MIDI-to-ABC conversion and advanced ABC editing.
@@ -53,7 +53,7 @@ ABC Music Manager Development/
     ├── abcmm-storage/
     ├── abcmm-maestro-adapter/
     ├── docs/
-    └── third_party/maestro/    # Maestro java24 submodule
+    └── third_party/maestro/    # Maestro main submodule
 ```
 
 ## Initialize the Maestro submodule
@@ -62,7 +62,7 @@ ABC Music Manager Development/
 git submodule update --init --recursive
 ```
 
-The submodule tracks branch `java24` and is pinned to a specific commit. See [docs/MAESTRO_INTEGRATION.md](docs/MAESTRO_INTEGRATION.md).
+The submodule tracks branch `main` and is pinned to a specific commit. See [docs/MAESTRO_INTEGRATION.md](docs/MAESTRO_INTEGRATION.md).
 
 ## Build
 
@@ -73,25 +73,22 @@ mvn verify
 ## Run
 
 ```bash
-# Build modules, then launch (exports come from .mvn/jvm.config)
-mvn -pl abcmm-app -am package -DskipTests
-mvn -pl abcmm-app exec:java
-```
-
-Alternatively, spawn a dedicated JVM:
-
-```bash
+# Install modules so exec uses this tree, then launch a fresh JVM.
+mvn -pl abcmm-app -am install -DskipTests
 mvn -pl abcmm-app exec:exec@run-app
 ```
 
-Required JVM module exports (configured in `.mvn/jvm.config`, Surefire, and `exec:exec@run-app`):
+`exec:java` reuses the Maven JVM. That JVM only has the exports in `.mvn/jvm.config`, so the MIDI patch is not applied. Use `exec:exec@run-app` when you need playback that matches Maestro. Run the install first; a later `exec:exec` on `abcmm-app` alone reads the adapter from the local repository.
+
+Required JVM flags:
 
 ```text
 --add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED
 --add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED
+--patch-module java.desktop=abcmm-maestro-adapter/target/java.midi.patch.jar
 ```
 
-Do not remove these flags; Maestro’s synthesizer uses internal Java Sound APIs.
+The exports live in `.mvn/jvm.config`, Surefire, and `exec:exec@run-app`. The patch module is passed by Surefire (adapter and app tests) and `exec:exec@run-app`, and the Windows package copies the JAR to `app/java.midi.patch.jar`. Do not remove these flags; Maestro’s synthesizer uses internal Java Sound APIs, and the patch is what makes the newer render options take effect.
 
 ## Releases
 

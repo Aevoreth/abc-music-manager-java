@@ -5,10 +5,10 @@
 | Item | Value |
 |------|--------|
 | Repository | https://github.com/NikolaiVChr/maestro |
-| Branch | `java24` |
+| Branch | `main` |
 | Submodule path | `third_party/maestro` |
-| Pinned commit | `2b172ecd11b9e47fe611f31215fd30311b75ff14` |
-| Commit subject | Better logging in MidiDrumExtended. |
+| Pinned commit | `7aea828578a113f6c90ec4968f59871554a9e23f` |
+| Commit subject | Added comment. |
 
 Update this document whenever the submodule pointer moves.
 
@@ -58,11 +58,25 @@ maestro and abcplayer packages), not only `common`.
 ```text
 --add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED
 --add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED
+--patch-module java.desktop=<path>/java.midi.patch.jar
 ```
 
-Used by `SynthesizerFactory` (`com.sun.media.sound.AudioSynthesizer` /
-`SoftSynthesizer`) for 24-channel LOTRO playback settings (latency, reverb off,
-polyphony, etc.). **Do not remove these flags.**
+`--add-exports` is required to compile and run `SynthesizerFactory`
+(`com.sun.media.sound.AudioSynthesizer` / `SoftSynthesizer`): 24-channel LOTRO
+playback settings (latency, reverb off, polyphony, and the patched `linear release`
+/ interpolation options). **Do not remove these flags.**
+
+`--patch-module` is required at runtime for those synth options to take effect.
+`abcmm-maestro-adapter` builds `target/java.midi.patch.jar` from
+`third_party/maestro/patches/java.desktop` (same source/target 21 as Maestro's
+`CompilePatches` target) during `generate-test-resources`. The JAR is not committed.
+Surefire for the adapter and app, and `exec:exec@run-app`, pass
+`--patch-module java.desktop=<path>/java.midi.patch.jar`. Windows `jpackage`
+copies the JAR to `app/java.midi.patch.jar` and passes
+`java.desktop=$APPDIR/java.midi.patch.jar`. `.mvn/jvm.config` stays exports-only:
+Maven reads it before the JAR exists. `exec:java` reuses that Maven JVM, so
+playback launches should install first (`mvn -pl abcmm-app -am install -DskipTests`)
+and then use `mvn -pl abcmm-app exec:exec@run-app`.
 
 ## Required resources
 
@@ -81,9 +95,12 @@ Maestro behavior (reuse; do not redesign):
    - Windows: `%LOCALAPPDATA%\MaestroCommon`
    - macOS: `~/Library/Application Support/MaestroCommon`
    - Linux: `~/.local/share/maestro-common` (or `$XDG_DATA_HOME/maestro-common`)
-3. Download URL / SHA-256 are hardcoded in `SoundFontDownloader` at the pinned commit
+3. Download URL and SHA-256 are hardcoded in `SoundFontDownloader` at the pinned commit:
+   - URL: `https://github.com/NikolaiVChr/mver/releases/download/v4.6.24/LotroInstruments.sf2`
+   - SHA-256: `09c081c183227615937377dd97cca8a2fa1f7b9a60e4909491ebe402caded535`
+   - Cached file: `LotroInstruments_09c081c1.sf2` (hash prefix, so an older soundfont file is left in place)
 
-This edition does **not** bundle the ~200MB soundfont.
+`LotroAbcPlaybackEngine` calls `SoundFontDownloader.ensureSoundFontExists()` and does not hardcode a second URL. This edition does **not** bundle the ~200MB soundfont.
 
 ## How ABC Music Manager uses Maestro code
 
@@ -114,13 +131,13 @@ unavailable). UI controls live in `PlaybackPanel` and talk to the domain
 1. Can upstream eventually publish a library JAR (no app Main-Class, default jar enabled) to simplify consumption?
 2. Can `ExportTrackInfo` / status-feed coupling be reduced upstream so `common` compiles without `maestro`/`abcplayer` UI?
 3. Should ABCMM share Maestro’s `MaestroCommon` soundfont cache as-is, or prefer an ABCMM-owned data directory while still calling Maestro loaders?
-4. ~~Exact minimal include/exclude set of Maestro sources if full-tree compile proves too heavy or fragile~~ — **Resolved for bootstrap:** full-tree compile of 210 sources succeeded; revisit excludes only if upstream coupling or build time becomes painful
+4. ~~Exact minimal include/exclude set of Maestro sources if full-tree compile proves too heavy or fragile~~ — **Resolved:** full-tree compile of 231 sources on `main` succeeded; revisit excludes only if upstream coupling or build time becomes painful
 5. Headless CI strategy for playback tests without an audio device (deferred)
 6. ~~When to replace `StubAbcPlaybackEngine` with a real `LotroSequencerWrapper`-backed implementation (next playback milestone)~~ — **Done:** `LotroAbcPlaybackEngine` is the default from `MaestroPlaybackEngines.create()`.
 
 ## Evaluating future upstream updates
 
-1. Diff `java24` from the pinned SHA
+1. Diff `main` from the pinned SHA
 2. Check changes to synthesizer flags, soundfont URL/hash, sequencer seek behavior, and package coupling
 3. Update submodule, rebuild, run `mvn verify`, then playback smoke tests
 4. Record the new SHA in this document
@@ -128,11 +145,15 @@ unavailable). UI controls live in `PlaybackPanel` and talk to the domain
 ## First-task adapter status
 
 **Maestro source compilation:** Succeeded via `build-helper-maven-plugin`
-(210 upstream `.java` files + resources into `abcmm-maestro-adapter`). Required
-`--add-exports` flags are configured on compiler, Surefire, `.mvn/jvm.config` (for `exec:java`), and `exec:exec@run-app`.
+(231 upstream `.java` files + resources into `abcmm-maestro-adapter`). Required
+`--add-exports` flags are configured on the compiler, Surefire, `.mvn/jvm.config`
+(for `exec:java`), and `exec:exec@run-app`. The MIDI patch JAR is built beside
+that and passed to Surefire (adapter and app) and `exec:exec@run-app`.
 
 **Playback wiring:** `LotroAbcPlaybackEngine` wraps `AbcToMidi` /
-`LotroSequencerWrapper` / `VolumeTransceiver`. The stub remains available via
+`LotroSequencerWrapper` / `VolumeTransceiver`. It calls `LocaleManager.init()` and
+`UIText.init()` before loading ABC, because `AbcInfo` reads `UIText` from its
+static initializer. The stub remains available via
 `MaestroPlaybackEngines.createStub()` for tests and MIDI-unavailable fallback.
 
 **Packaging:** ABCMM does not run Maestro assembly descriptors. Only

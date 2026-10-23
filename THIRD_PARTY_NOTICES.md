@@ -19,7 +19,7 @@ parsing and playback-related implementation.
 |------|--------|
 | Original project | Created by Digero — https://github.com/digero/maestro |
 | Maintained fork | Developed in NikolaiVChr’s repository — https://github.com/NikolaiVChr/maestro |
-| Branch used | `java24` |
+| Branch used | `main` |
 | License | MIT License (see `third_party/maestro/LICENSE.TXT`) |
 | Upstream copyright | Copyright (c) 2013 Ben Howell |
 
@@ -33,6 +33,14 @@ contributors.
 ABC Music Manager packages only its own application entry point. It must not
 distribute Maestro, ABC Player, or ABC Tools as separate applications, shortcuts,
 or file associations, even when shared classes are compiled for playback support.
+
+Playback also ships `java.midi.patch.jar`, built at package time from Maestro's
+`patches/java.desktop` sources. Those files are Maestro's modifications of OpenJDK
+`java.desktop` classes (`SoftSynthesizer`, `RealTimeSequencer`, `SF2Instrument`,
+`SoftEnvelopeGenerator`) and are loaded with `--patch-module java.desktop=...`.
+The JAR is not a separate application and is not maintained as a fork in this
+repository. OpenJDK's own license for those classes is GPL-2.0 with the Classpath
+exception.
 
 ---
 
@@ -49,8 +57,10 @@ Look-and-feel library used by the Swing UI.
 
 Maestro’s playback path expects a LOTRO soundfont (`LotroInstruments.sf2`), typically
 resolved beside the application or via Maestro’s shared data directory download
-flow. Soundfont distribution and licensing are governed by the soundfont’s own
-source project (commonly referenced from https://github.com/NikolaiVChr/mver).
+flow. The pinned Maestro commit downloads
+`https://github.com/NikolaiVChr/mver/releases/download/v4.6.24/LotroInstruments.sf2`.
+Soundfont distribution and licensing are governed by the soundfont’s own
+source project (https://github.com/NikolaiVChr/mver).
 
 This edition does not bundle the soundfont binary.
 

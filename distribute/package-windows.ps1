@@ -68,6 +68,12 @@ New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
 Copy-Item -LiteralPath $JarPath -Destination (Join-Path $InputDir $MainJarName) -Force
 
+$PatchJar = Join-Path $RepoRoot 'abcmm-maestro-adapter\target\java.midi.patch.jar'
+if (-not (Test-Path -LiteralPath $PatchJar)) {
+    throw "MIDI patch JAR not found: $PatchJar (build abcmm-maestro-adapter first)"
+}
+Copy-Item -LiteralPath $PatchJar -Destination (Join-Path $InputDir 'java.midi.patch.jar') -Force
+
 # Bundle Set Play Cloudflare Worker template for the in-app deploy wizard.
 # Lands under app/workers/set-play-relay/ in the jpackage image (see SetPlayWorkerPaths).
 $WorkerSrc = Join-Path $RepoRoot 'workers\set-play-relay'
@@ -146,7 +152,9 @@ $commonArgs = @(
     '--add-modules', $addModules,
     '--java-options', '--enable-native-access=ALL-UNNAMED',
     '--java-options', '--add-exports=java.desktop/com.sun.media.sound=ALL-UNNAMED',
-    '--java-options', '--add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED'
+    '--java-options', '--add-exports=java.desktop/sun.awt.shell=ALL-UNNAMED',
+    '--java-options', '--patch-module',
+    '--java-options', 'java.desktop=$APPDIR/java.midi.patch.jar'
 )
 
 Write-Host "Building app-image..."
@@ -165,6 +173,20 @@ if (-not (Test-Path -LiteralPath $bundledWorker)) {
     throw "Packaged app-image is missing Set Play worker template at app\workers\set-play-relay\"
 }
 Write-Host "Verified worker template in app-image: app\workers\set-play-relay\"
+
+$bundledPatch = Join-Path $appImageDir 'app\java.midi.patch.jar'
+if (-not (Test-Path -LiteralPath $bundledPatch)) {
+    throw "Packaged app-image is missing app\java.midi.patch.jar"
+}
+$appCfg = Get-ChildItem -LiteralPath (Join-Path $appImageDir 'app') -Filter '*.cfg' | Select-Object -First 1
+if (-not $appCfg) {
+    throw "Packaged app-image is missing its .cfg under app\"
+}
+$cfgText = Get-Content -LiteralPath $appCfg.FullName -Raw
+if ($cfgText -notmatch 'java\.desktop=\$APPDIR/java\.midi\.patch\.jar') {
+    throw "Packaged app cfg is missing --patch-module java.desktop=`$APPDIR/java.midi.patch.jar ($($appCfg.Name))"
+}
+Write-Host "Verified MIDI patch JAR and java-options in app-image."
 
 # Clear read-only flags that some JDKs set on packaged files (breaks zip/cleanup).
 Get-ChildItem -LiteralPath $appImageDir -Recurse -Force | ForEach-Object {
