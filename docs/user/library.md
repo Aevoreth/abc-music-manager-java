@@ -71,12 +71,18 @@ If the table looks empty, try **Clear Filters** or the **None** preset before as
 
 ## Context menu
 
-Right-click a row:
+Right-click a row. If that row is already part of a multi-selection, the menu keeps the selection and the actions below apply to every selected song, from the top of the table downward. Right-click a row that is not selected to act on that song alone. **Edit** always opens the song under the pointer.
 
-- **Play** — start playback with this song
-- **Add to queue** — append without stopping current play. Open **Parts / Playlist** on the [playback bar](playback.md#playlist) to rearrange the queue or save it as a setlist.
-- **Edit** — open Song detail
-- **Add to setlist** — add to an unlocked setlist
+- **Play** — start playback with the first selected song and append the rest to the queue
+- **Add to queue** — append the selected songs without replacing the current playlist. Open **Parts / Playlist** on the [playback bar](playback.md#playlist) to rearrange the queue or save it as a setlist.
+- **Edit** — open Song detail for the song under the pointer
+- **Rating** — set 1–5 stars, or **Clear**. Choosing the rating those songs already share clears it.
+- **Status** — set the status on every selected song
+- **Playback History**
+  - **Played Now** — log a play at the current time
+  - **Set Last Played Time...** — log a play at one chosen time for every selected song
+  - **History** — open the playback history dialog when one song is selected
+- **Add to setlist** — add the selected songs to an unlocked setlist. **New Set...** at the bottom (under a divider) creates a set and adds them.
 
 ---
 

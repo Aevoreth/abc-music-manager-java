@@ -28,12 +28,24 @@ final class AddToSetlistMenu {
             SetlistRepository setlistRepository,
             Long excludeSetlistId,
             Consumer<SetlistInfo> onChoose) {
+        return build(setlistRepository, excludeSetlistId, onChoose, null);
+    }
+
+    /**
+     * @param onNewSet when non-null, appends a divider and "New Set..."
+     */
+    static JMenu build(
+            SetlistRepository setlistRepository,
+            Long excludeSetlistId,
+            Consumer<SetlistInfo> onChoose,
+            Runnable onNewSet) {
         Objects.requireNonNull(onChoose, "onChoose");
         JMenu addToSetlist = new JMenu("Add to setlist");
         if (setlistRepository == null) {
             JMenuItem unavailable = new JMenuItem("Unavailable");
             unavailable.setEnabled(false);
             addToSetlist.add(unavailable);
+            addNewSetItem(addToSetlist, onNewSet);
             return addToSetlist;
         }
         try {
@@ -71,6 +83,17 @@ final class AddToSetlistMenu {
             error.setEnabled(false);
             addToSetlist.add(error);
         }
+        addNewSetItem(addToSetlist, onNewSet);
         return addToSetlist;
+    }
+
+    private static void addNewSetItem(JMenu menu, Runnable onNewSet) {
+        if (onNewSet == null) {
+            return;
+        }
+        menu.addSeparator();
+        JMenuItem create = new JMenuItem("New Set...");
+        create.addActionListener(ev -> onNewSet.run());
+        menu.add(create);
     }
 }

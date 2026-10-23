@@ -70,6 +70,7 @@ import com.aevoreth.abcmm.ui.PlaybackPanel;
 import com.aevoreth.abcmm.ui.PluginDataExportDialog;
 import com.aevoreth.abcmm.ui.ScanLibraryDialog;
 import com.aevoreth.abcmm.ui.SetPlayPanel;
+import com.aevoreth.abcmm.ui.SetlistDetailsDialog;
 import com.aevoreth.abcmm.ui.SetlistsPanel;
 import com.aevoreth.abcmm.ui.SettingsDialog;
 import com.aevoreth.abcmm.ui.SongDetailDialog;
@@ -224,33 +225,12 @@ public final class MainFrame extends JFrame {
             preferences.setLibraryFilterPresets(presets);
             persistPreferencesQuietly();
         });
-        libraryPanel.setPlayListener(song -> {
-            try {
-                playbackSession.playSong(PlayQueueItem.ofSong(
-                        song.id(),
-                        song.title(),
-                        song.composers(),
-                        song.durationSeconds(),
-                        song.partCount()));
-                statusBar.setMessage("Playing: " + song.title());
-            } catch (PlaybackException ex) {
-                statusBar.setMessage(ex.getMessage());
-            }
-        });
-        libraryPanel.setEnqueueListener(song -> {
-            try {
-                playbackSession.enqueue(PlayQueueItem.ofSong(
-                        song.id(),
-                        song.title(),
-                        song.composers(),
-                        song.durationSeconds(),
-                        song.partCount()));
-                statusBar.setMessage("Queued: " + song.title());
-            } catch (PlaybackException ex) {
-                statusBar.setMessage(ex.getMessage());
-            }
-        });
-        libraryPanel.setAddToSetlistListener(this::addLibrarySongToSetlist);
+        libraryPanel.setPlayListener(song -> playLibrarySongs(List.of(song)));
+        libraryPanel.setEnqueueListener(song -> enqueueLibrarySongs(List.of(song)));
+        libraryPanel.setPlaySelectionListener(this::playLibrarySongs);
+        libraryPanel.setEnqueueSelectionListener(this::enqueueLibrarySongs);
+        libraryPanel.setAddToSetlistListener(this::addLibrarySongsToSetlist);
+        libraryPanel.setNewSetlistListener(this::createSetlistWithLibrarySongs);
         libraryPanel.setEditSongListener(this::openSongDetail);
         libraryPanel.setNavigateToSetlistListener(this::showSetlist);
         libraryPanel.setLibraryChangedListener(this::onSongMetadataChanged);
@@ -610,21 +590,156 @@ public final class MainFrame extends JFrame {
         }
     }
 
-    private void addLibrarySongToSetlist(LibrarySong song, SetlistInfo setlist) {
-        if (song == null || setlist == null || setlistRepository == null) {
+    private void playLibrarySongs(List<LibrarySong> songs) {
+        if (songs == null || songs.isEmpty()) {
+            return;
+        }
+        try {
+            LibrarySong first = songs.get(0);
+            playbackSession.playSong(libraryQueueItem(first));
+            for (int i = 1; i < songs.size(); i++) {
+                LibrarySong song = songs.get(i);
+                if (song != null) {
+                    playbackSession.enqueue(libraryQueueItem(song));
+                }
+            }
+            int queued = songs.size() - 1;
+            if (queued <= 0) {
+                statusBar.setMessage("Playing: " + first.title());
+            } else if (queued == 1) {
+                statusBar.setMessage("Playing: " + first.title() + " — 1 more added to the queue");
+            } else {
+                statusBar.setMessage(
+                        "Playing: " + first.title() + " — " + queued + " more added to the queue");
+            }
+        } catch (PlaybackException ex) {
+            statusBar.setMessage(ex.getMessage());
+        }
+    }
+
+    private void enqueueLibrarySongs(List<LibrarySong> songs) {
+        if (songs == null || songs.isEmpty()) {
+            return;
+        }
+        int queued = 0;
+        LibrarySong first = null;
+        try {
+            for (LibrarySong song : songs) {
+                if (song == null) {
+                    continue;
+                }
+                if (first == null) {
+                    first = song;
+                }
+                playbackSession.enqueue(libraryQueueItem(song));
+                queued++;
+            }
+        } catch (PlaybackException ex) {
+            statusBar.setMessage(ex.getMessage());
+            return;
+        }
+        if (queued == 1 && first != null) {
+            statusBar.setMessage("Queued: " + first.title());
+        } else if (queued > 1) {
+            statusBar.setMessage("Queued " + queued + " songs");
+        }
+    }
+
+    private static PlayQueueItem libraryQueueItem(LibrarySong song) {
+        return PlayQueueItem.ofSong(
+                song.id(),
+                song.title(),
+                song.composers(),
+                song.durationSeconds(),
+                song.partCount());
+    }
+
+    private void addLibrarySongsToSetlist(List<LibrarySong> songs, SetlistInfo setlist) {
+        if (songs == null || songs.isEmpty() || setlist == null || setlistRepository == null) {
             return;
         }
         try {
             int position = setlistRepository.listItems(setlist.id()).size();
-            setlistRepository.addItem(setlist.id(), song.id(), position, null, null);
+            int added = 0;
+            String singleTitle = null;
+            for (LibrarySong song : songs) {
+                if (song == null) {
+                    continue;
+                }
+                setlistRepository.addItem(setlist.id(), song.id(), position, null, null);
+                position++;
+                added++;
+                singleTitle = song.title();
+            }
             setlistsPanel.reload();
             setPlayPanel.refreshSetlistPicker();
             reloadLibrary(libraryPanel.currentFilter());
-            statusBar.setMessage("Added \"" + song.title() + "\" to " + setlist.name());
+            if (added == 1) {
+                statusBar.setMessage("Added \"" + singleTitle + "\" to " + setlist.name());
+            } else {
+                statusBar.setMessage("Added " + added + " songs to " + setlist.name());
+            }
         } catch (LibraryException ex) {
+            setlistsPanel.reload();
+            setPlayPanel.refreshSetlistPicker();
+            reloadLibrary(libraryPanel.currentFilter());
             JOptionPane.showMessageDialog(
                     this, ex.getMessage(), "Add to setlist", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void createSetlistWithLibrarySongs(List<LibrarySong> songs) {
+        if (songs == null || songs.isEmpty()) {
+            return;
+        }
+        if (setlistRepository == null) {
+            JOptionPane.showMessageDialog(
+                    this, "Database is not available.", "New Set", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        SetlistDetailsDialog.showCreate(this, bandRepository).ifPresent(details -> {
+            try {
+                long id = setlistRepository.addSetlist(details.name(), null);
+                setlistRepository.updateSetlist(
+                        id,
+                        details.name(),
+                        details.bandLayoutId(),
+                        null,
+                        0,
+                        details.locked(),
+                        details.switchDelaySeconds(),
+                        details.notes(),
+                        details.setCode(),
+                        details.setDate(),
+                        details.setTime(),
+                        details.targetDurationSeconds());
+                int position = 0;
+                String singleTitle = null;
+                for (LibrarySong song : songs) {
+                    if (song == null) {
+                        continue;
+                    }
+                    setlistRepository.addItem(id, song.id(), position, null, null);
+                    position++;
+                    singleTitle = song.title();
+                }
+                setlistsPanel.reload();
+                setPlayPanel.refreshSetlistPicker();
+                reloadLibrary(libraryPanel.currentFilter());
+                if (position == 1) {
+                    statusBar.setMessage(
+                            "Created \"" + details.name() + "\" and added \"" + singleTitle + "\".");
+                } else {
+                    statusBar.setMessage(
+                            "Created \"" + details.name() + "\" and added " + position + " songs.");
+                }
+            } catch (LibraryException ex) {
+                setlistsPanel.reload();
+                setPlayPanel.refreshSetlistPicker();
+                JOptionPane.showMessageDialog(
+                        this, ex.getMessage(), "New Set", JOptionPane.ERROR_MESSAGE);
+            }
+        });
     }
 
     private void runLibraryScan() {

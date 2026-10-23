@@ -14,6 +14,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.event.MouseEvent;
 import java.awt.geom.Path2D;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,7 +80,43 @@ public final class LibraryPanel extends JPanel {
     private static final String CARD_EMPTY = "empty";
 
     private final LibraryTableModel tableModel = new LibraryTableModel();
-    private final JTable table = new JTable(tableModel);
+    /**
+     * Right-click on a row that is already selected must not collapse a multi-selection.
+     * The table UI replaces the selection on mouse press, which happens before the
+     * popup trigger on Windows.
+     */
+    private boolean keepRightClickSelection;
+    private final JTable table = new JTable(tableModel) {
+        @Override
+        protected void processMouseEvent(MouseEvent e) {
+            if (SwingUtilities.isRightMouseButton(e)) {
+                int id = e.getID();
+                if (id == MouseEvent.MOUSE_PRESSED) {
+                    int row = rowAtPoint(e.getPoint());
+                    keepRightClickSelection = row >= 0 && isRowSelected(row);
+                }
+                if (keepRightClickSelection && isRightClickSequence(id)) {
+                    if (id == MouseEvent.MOUSE_PRESSED && !hasFocus() && isRequestFocusEnabled()) {
+                        requestFocusInWindow();
+                    }
+                    if (e.isPopupTrigger()) {
+                        showRowPopup(e);
+                    }
+                    if (id == MouseEvent.MOUSE_CLICKED) {
+                        keepRightClickSelection = false;
+                    }
+                    return;
+                }
+            }
+            super.processMouseEvent(e);
+        }
+
+        private boolean isRightClickSequence(int id) {
+            return id == MouseEvent.MOUSE_PRESSED
+                    || id == MouseEvent.MOUSE_RELEASED
+                    || id == MouseEvent.MOUSE_CLICKED;
+        }
+    };
     private final CardLayout libraryCards = new CardLayout();
     private final JPanel libraryStack = new JPanel(libraryCards);
 
@@ -126,7 +163,11 @@ public final class LibraryPanel extends JPanel {
     };
     private Consumer<LibrarySong> enqueueListener = song -> {
     };
-    private BiConsumer<LibrarySong, SetlistInfo> addToSetlistListener = (song, setlist) -> {
+    private Consumer<List<LibrarySong>> playSelectionListener;
+    private Consumer<List<LibrarySong>> enqueueSelectionListener;
+    private BiConsumer<List<LibrarySong>, SetlistInfo> addToSetlistListener = (songs, setlist) -> {
+    };
+    private Consumer<List<LibrarySong>> newSetlistListener = songs -> {
     };
     private Consumer<LibrarySong> editSongListener = song -> {
     };
@@ -239,8 +280,24 @@ public final class LibraryPanel extends JPanel {
         });
     }
 
-    public void setAddToSetlistListener(BiConsumer<LibrarySong, SetlistInfo> addToSetlistListener) {
-        this.addToSetlistListener = Objects.requireNonNullElse(addToSetlistListener, (song, setlist) -> {
+    /** Play the first song and append the rest. Used by the row context menu. */
+    public void setPlaySelectionListener(Consumer<List<LibrarySong>> playSelectionListener) {
+        this.playSelectionListener = playSelectionListener;
+    }
+
+    /** Append every song. Used by the row context menu. */
+    public void setEnqueueSelectionListener(Consumer<List<LibrarySong>> enqueueSelectionListener) {
+        this.enqueueSelectionListener = enqueueSelectionListener;
+    }
+
+    public void setAddToSetlistListener(BiConsumer<List<LibrarySong>, SetlistInfo> addToSetlistListener) {
+        this.addToSetlistListener = Objects.requireNonNullElse(addToSetlistListener, (songs, setlist) -> {
+        });
+    }
+
+    /** Create a setlist and add the given songs. Invoked from Add to setlist → New Set... */
+    public void setNewSetlistListener(Consumer<List<LibrarySong>> newSetlistListener) {
+        this.newSetlistListener = Objects.requireNonNullElse(newSetlistListener, songs -> {
         });
     }
 
@@ -620,12 +677,12 @@ public final class LibraryPanel extends JPanel {
 
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
-                maybeShowRowPopup(e);
+                showRowPopup(e);
             }
 
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) {
-                maybeShowRowPopup(e);
+                showRowPopup(e);
             }
         });
         configureHeaderColumnMenu();
@@ -697,7 +754,7 @@ public final class LibraryPanel extends JPanel {
         column.setMaxWidth(safe);
     }
 
-    private void maybeShowRowPopup(java.awt.event.MouseEvent e) {
+    private void showRowPopup(java.awt.event.MouseEvent e) {
         if (!e.isPopupTrigger()) {
             return;
         }
@@ -709,24 +766,110 @@ public final class LibraryPanel extends JPanel {
             table.setRowSelectionInterval(viewRow, viewRow);
         }
         int modelRow = table.convertRowIndexToModel(viewRow);
-        LibrarySong song = tableModel.songAt(modelRow);
-        if (song == null) {
+        LibrarySong clicked = tableModel.songAt(modelRow);
+        if (clicked == null) {
             return;
         }
+        List<LibrarySong> songs = selectedSongsInViewOrder();
+        if (songs.isEmpty()) {
+            songs = List.of(clicked);
+        }
+        rowPopup(songs, clicked).show(table, e.getX(), e.getY());
+    }
+
+    /** Selected rows from top to bottom in the current sort. */
+    List<LibrarySong> selectedSongsInViewOrder() {
+        int[] viewRows = table.getSelectedRows();
+        Arrays.sort(viewRows);
+        List<LibrarySong> songs = new ArrayList<>();
+        for (int viewRow : viewRows) {
+            int modelRow = table.convertRowIndexToModel(viewRow);
+            LibrarySong song = tableModel.songAt(modelRow);
+            if (song != null) {
+                songs.add(song);
+            }
+        }
+        return songs;
+    }
+
+    JTable libraryTable() {
+        return table;
+    }
+
+    /**
+     * Row context menu. {@code songs} is the selection in view order; {@code clicked}
+     * is the row under the pointer (used by Edit).
+     */
+    JPopupMenu rowPopup(List<LibrarySong> songs, LibrarySong clicked) {
+        List<LibrarySong> selected = nonNullSongs(songs);
         JPopupMenu menu = new JPopupMenu();
         JMenuItem play = new JMenuItem("Play");
-        play.addActionListener(ev -> playListener.accept(song));
+        play.addActionListener(ev -> playSongs(selected));
         JMenuItem enqueue = new JMenuItem("Add to queue");
-        enqueue.addActionListener(ev -> enqueueListener.accept(song));
+        enqueue.addActionListener(ev -> enqueueSongs(selected));
         menu.add(play);
         menu.add(enqueue);
         JMenuItem edit = new JMenuItem("Edit");
-        edit.addActionListener(ev -> editSongListener.accept(song));
+        edit.setEnabled(clicked != null);
+        edit.addActionListener(ev -> {
+            if (clicked != null) {
+                editSongListener.accept(clicked);
+            }
+        });
         menu.add(edit);
         menu.addSeparator();
+        menu.add(songFields.ratingMenu(selected));
+        menu.add(songFields.statusMenu(selected));
+        menu.add(songFields.historyMenu(selected));
+        menu.addSeparator();
         menu.add(AddToSetlistMenu.build(
-                setlistRepository, null, setlist -> addToSetlistListener.accept(song, setlist)));
-        menu.show(table, e.getX(), e.getY());
+                setlistRepository,
+                null,
+                setlist -> addToSetlistListener.accept(selected, setlist),
+                () -> newSetlistListener.accept(selected)));
+        return menu;
+    }
+
+    void playSongs(List<LibrarySong> songs) {
+        List<LibrarySong> selected = nonNullSongs(songs);
+        if (selected.isEmpty()) {
+            return;
+        }
+        if (playSelectionListener != null) {
+            playSelectionListener.accept(selected);
+            return;
+        }
+        playListener.accept(selected.get(0));
+        for (int i = 1; i < selected.size(); i++) {
+            enqueueListener.accept(selected.get(i));
+        }
+    }
+
+    void enqueueSongs(List<LibrarySong> songs) {
+        List<LibrarySong> selected = nonNullSongs(songs);
+        if (selected.isEmpty()) {
+            return;
+        }
+        if (enqueueSelectionListener != null) {
+            enqueueSelectionListener.accept(selected);
+            return;
+        }
+        for (LibrarySong song : selected) {
+            enqueueListener.accept(song);
+        }
+    }
+
+    private static List<LibrarySong> nonNullSongs(List<LibrarySong> songs) {
+        if (songs == null || songs.isEmpty()) {
+            return List.of();
+        }
+        List<LibrarySong> copy = new ArrayList<>();
+        for (LibrarySong song : songs) {
+            if (song != null) {
+                copy.add(song);
+            }
+        }
+        return List.copyOf(copy);
     }
 
     private void handleCellClick(
