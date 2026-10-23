@@ -275,6 +275,29 @@ class SetPlaySyncTest {
     }
 
     @Test
+    void liveGridCardsDoesNotHighlightNextAgainstSkippedPredecessor() {
+        SetPlayLayoutCard current = card(5L, "Alice", "1", "Melody", "Lute", "", "", false);
+        SetPlayLayoutCard skippedSong = card(5L, "Alice", "2", "Harmony", "Harp", "", "", false);
+        // Baked flag is the old "previous row" comparison (Harp → Lute).
+        SetPlayLayoutCard next = card(5L, "Alice", "1", "Melody", "Lute", "2", "", true);
+        Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(
+                10L, List.of(current),
+                11L, List.of(skippedSong),
+                12L, List.of(next));
+        SetPlaySessionState st = new SetPlaySessionState(List.of(10L, 11L, 12L));
+        st.setCurrentItemId(10L);
+        st.setNextItemId(12L);
+        st.skippedItemIds().add(11L);
+        List<SetPlayLayoutCard> live = SetPlaySync.liveGridCards(st, byItem, List.of());
+        assertEquals("1", live.get(0).neighborPrevPartLabel());
+        assertFalse(live.get(0).instrumentChangedFromPriorInSet());
+
+        List<SetPlayLayoutCard> preview = SetPlaySync.previewGridCards(st, 12L, byItem);
+        assertEquals("1", preview.get(0).neighborPrevPartLabel());
+        assertFalse(preview.get(0).instrumentChangedFromPriorInSet());
+    }
+
+    @Test
     void liveGridCardsClearsPartsWhenFocusUnset() {
         SetPlayLayoutCard songA = card(5L, "Alice", "1", "Melody", "Lute", "9", "8", true);
         Map<Long, List<SetPlayLayoutCard>> byItem = Map.of(10L, List.of(songA));

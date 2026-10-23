@@ -4,6 +4,7 @@ All notable changes to ABC Music Manager are documented here. Most recent at the
 
 ## Unreleased
 
+- Set Play part-change highlighting for the song marked NEXT always compares to CURRENT. Skipping a song no longer highlights NEXT against that skipped row just because it is the previous song in the setlist. **Redeploy** the Cloudflare relay so the browser layout preview uses the same comparison.
 - Setlist editor and the bandleader Set Play song list can show Library columns (last played, playback history, rating, set, status, transcriber, edit). Right-click a column header and choose **Library columns**. Status, rating, playback history, and last played update the original song. Band Assistant keeps the published session list and does not show these columns.
 
 ## Version 0.4.5b

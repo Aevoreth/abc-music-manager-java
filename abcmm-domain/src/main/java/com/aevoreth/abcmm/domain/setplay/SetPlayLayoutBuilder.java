@@ -46,7 +46,11 @@ public final class SetPlayLayoutBuilder {
     }
 
     /**
-     * Cards show {@code nextRow} assignments; gutters: current (left), row after next (right).
+     * Cards show {@code nextRow} assignments; gutters: {@code currentRow} (left),
+     * {@code rightRow} (right). Instrument-change highlighting compares only to
+     * {@code currentRow}. A null current row does not scan earlier setlist songs
+     * — that previous row may be the one just skipped. Callers showing NEXT must
+     * pass CURRENT.
      * When {@code nextRow} is missing, paints player positions with placeholder
      * part/instrument labels so the formation is visible before NEXT/NOW is chosen.
      * Setlist overrides are used even when the item has no song layout.
@@ -166,19 +170,6 @@ public final class SetPlayLayoutBuilder {
                     if (prior != null) {
                         priorIid = prior.instrumentId();
                         priorName = instrumentDisplayName(prior, instrumentNames);
-                    }
-                }
-            } else if (setlistIdx > 0) {
-                for (int j = setlistIdx - 1; j >= 0; j--) {
-                    SetlistItemInfo back = rows.get(j);
-                    Integer bpn = effectiveFor(back, slot.playerId(), bulkOverrides, layoutCache);
-                    if (bpn != null) {
-                        ExportPartMeta prior = partMeta(back.partsJson(), bpn);
-                        if (prior != null) {
-                            priorIid = prior.instrumentId();
-                            priorName = instrumentDisplayName(prior, instrumentNames);
-                        }
-                        break;
                     }
                 }
             }

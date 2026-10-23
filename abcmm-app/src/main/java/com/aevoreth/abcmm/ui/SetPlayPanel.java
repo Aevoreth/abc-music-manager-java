@@ -2754,17 +2754,17 @@ public final class SetPlayPanel extends JPanel {
         try {
             Long focusId = SetPlaySessionRules.layoutFocusItemId(session);
             SetlistItemInfo nextRow = rowForItem(focusId);
-            SetlistItemInfo curRow = null;
+            // NEXT always compares to CURRENT. Do not substitute the previous
+            // setlist row — after a skip that row is the song that was skipped.
+            SetlistItemInfo curRow = rowForItem(
+                    SetPlaySessionRules.instrumentReferenceItemId(session, focusId));
             Long rightId = null;
             if (session.nextItemId() != null) {
-                curRow = rowForItem(session.currentItemId());
                 int ni = session.orderItemIds().indexOf(session.nextItemId());
                 if (ni >= 0) {
                     rightId = SetPlaySessionRules.scanNextItemId(
                             session.orderItemIds(), session.skippedItemIds(), ni);
                 }
-            } else if (focusId != null) {
-                curRow = rowForItem(SetPlaySessionRules.previousUnskippedItemId(session, focusId));
             }
             SetlistItemInfo rightRow = rowForItem(rightId);
             layoutCards = layoutBuilder.build(
@@ -3145,26 +3145,39 @@ public final class SetPlayPanel extends JPanel {
                 return List.of();
             }
             try {
-                return layoutCardsForSong(row);
+                return layoutCardsForSong(row, true);
             } catch (LibraryException ex) {
                 return List.of();
             }
         }
-        List<SetPlayLayoutCard> cards = layoutCardsByItemId.get(itemId);
-        return cards == null ? List.of() : cards;
+        return SetPlaySync.previewGridCards(session, itemId, layoutCardsByItemId);
     }
 
-    private List<SetPlayLayoutCard> layoutCardsForSong(SetlistItemInfo row) throws LibraryException {
-        int idx = session.orderItemIds().indexOf(row.id());
-        Long rightId = idx >= 0
-                ? SetPlaySessionRules.scanNextItemId(
-                        session.orderItemIds(), session.skippedItemIds(), idx)
-                : null;
+    /**
+     * @param liveReference when true, gutters and instrument-change highlighting
+     *                       use CURRENT for the NEXT song (never the skipped
+     *                       predecessor). The per-song cache passes false so
+     *                       published cards stay assignment data; clients apply
+     *                       the live comparison at display time.
+     */
+    private List<SetPlayLayoutCard> layoutCardsForSong(SetlistItemInfo row, boolean liveReference)
+            throws LibraryException {
+        SetlistItemInfo reference = null;
+        SetlistItemInfo right = null;
+        if (liveReference) {
+            reference = rowForItem(SetPlaySessionRules.instrumentReferenceItemId(session, row.id()));
+            int idx = session.orderItemIds().indexOf(row.id());
+            Long rightId = idx >= 0
+                    ? SetPlaySessionRules.scanNextItemId(
+                            session.orderItemIds(), session.skippedItemIds(), idx)
+                    : null;
+            right = rowForItem(rightId);
+        }
         return layoutBuilder.build(
                 loadedSetlist.bandLayoutId(),
                 row,
-                null,
-                rowForItem(rightId),
+                reference,
+                right,
                 songRows);
     }
 
@@ -3185,7 +3198,7 @@ public final class SetPlayPanel extends JPanel {
         Map<Long, List<SetPlayLayoutCard>> out = new LinkedHashMap<>();
         for (SetlistItemInfo row : songRows) {
             try {
-                out.put(row.id(), layoutCardsForSong(row));
+                out.put(row.id(), layoutCardsForSong(row, false));
             } catch (LibraryException ex) {
                 out.put(row.id(), List.of());
             }

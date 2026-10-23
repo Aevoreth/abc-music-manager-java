@@ -216,6 +216,24 @@ public final class SetPlaySync {
     }
 
     /**
+     * Band cards for one song, with gutters and instrument-change highlighting
+     * applied the same way as the live grid. NEXT compares to CURRENT only.
+     */
+    public static List<SetPlayLayoutCard> previewGridCards(
+            SetPlaySessionState session,
+            long itemId,
+            Map<Long, List<SetPlayLayoutCard>> byItemId) {
+        Objects.requireNonNull(session, "session");
+        Long referenceId = SetPlaySessionRules.instrumentReferenceItemId(session, itemId);
+        int idx = session.orderItemIds().indexOf(itemId);
+        Long afterId = idx >= 0
+                ? SetPlaySessionRules.scanNextItemId(
+                        session.orderItemIds(), session.skippedItemIds(), idx)
+                : null;
+        return liveGridCards(itemId, referenceId, afterId, byItemId, List.of());
+    }
+
+    /**
      * Band cards for the NEXT-focused live grid. Per-song cards are assignment
      * data only; orange flags and neighbor gutters are derived from CURRENT vs
      * NEXT at display time. When NEXT is unset, strips part labels so Clear
@@ -242,10 +260,11 @@ public final class SetPlaySync {
                 afterNextId = SetPlaySessionRules.scanNextItemId(
                         session.orderItemIds(), session.skippedItemIds(), ni);
             }
-            return liveGridCards(nextId, currentId, afterNextId, byItemId, fallback);
+            Long referenceId = SetPlaySessionRules.instrumentReferenceItemId(session, nextId);
+            return liveGridCards(nextId, referenceId, afterNextId, byItemId, fallback);
         }
         if (currentId != null) {
-            Long priorId = SetPlaySessionRules.previousUnskippedItemId(session, currentId);
+            Long priorId = SetPlaySessionRules.instrumentReferenceItemId(session, currentId);
             return liveGridCards(currentId, priorId, null, byItemId, fallback);
         }
         return liveGridCards(null, null, null, byItemId, fallback);

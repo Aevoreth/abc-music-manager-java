@@ -615,8 +615,9 @@
   }
 
   /**
-   * Per-song cards are assignment data only. Orange flags and gutters are
-   * derived from CURRENT vs NEXT so they stay correct after skip/jump.
+   * Per-song cards are assignment data only. Orange flags and gutters for the
+   * song marked NEXT are derived from CURRENT only — never the previous setlist
+   * row, which may be the song that was just skipped.
    */
   function layoutCardsFromSnapshot(data) {
     const nextId = data.next_item_id != null ? Number(data.next_item_id) : null;
@@ -694,9 +695,60 @@
     return `<td class="layout-cell"><button type="button" class="layout-preview-btn"${disabled} data-layout-item="${itemId}" data-layout-title="${safeTitle}" title="Preview layout" aria-label="Preview layout for ${safeTitle}"></button></td>`;
   }
 
+  /**
+   * Layout preview uses the same comparison as the live grid. The song marked
+   * NEXT is compared to CURRENT, not to the previous setlist row (that row may
+   * be the song that was just skipped).
+   */
+  function previewCards(itemId) {
+    const id = Number(itemId);
+    const data = lastSnapshot || {};
+    const nextId = data.next_item_id != null ? Number(data.next_item_id) : null;
+    const currentId = data.current_item_id != null ? Number(data.current_item_id) : null;
+    const skipped = new Set((data.skipped_item_ids || []).map(Number));
+    const order = Array.isArray(data.order_item_ids) ? data.order_item_ids.map(Number) : [];
+    const byItem =
+      data.layout_cards_by_item_id && typeof data.layout_cards_by_item_id === "object"
+        ? data.layout_cards_by_item_id
+        : {};
+    const focusCards = cardsForItemFrom(byItem, id);
+    if (!focusCards.length) return [];
+    let refId = null;
+    if (nextId != null && id === nextId) {
+      refId = currentId != null && currentId !== id && !skipped.has(currentId) ? currentId : null;
+    } else {
+      const ci = order.indexOf(id);
+      if (ci > 0) {
+        for (let i = ci - 1; i >= 0; i--) {
+          const prev = Number(order[i]);
+          if (!skipped.has(prev)) {
+            refId = prev;
+            break;
+          }
+        }
+      }
+    }
+    const idx = order.indexOf(id);
+    const afterId = idx >= 0 ? scanNextItemId(order, skipped, idx) : null;
+    const refByPlayer = cardsByPlayer(cardsForItemFrom(byItem, refId));
+    const afterByPlayer = cardsByPlayer(cardsForItemFrom(byItem, afterId));
+    return focusCards.map((card) => {
+      const ref = refByPlayer.get(Number(card.player_id));
+      const after = afterByPlayer.get(Number(card.player_id));
+      const instChanged =
+        !card.part_duplicate &&
+        hasRealPart(card) &&
+        hasRealInstrument(card) &&
+        ref &&
+        hasRealInstrument(ref) &&
+        !instrumentsEquivalent(card.instrument_name, ref.instrument_name);
+      return withLiveHints(card, partGutterLabel(ref), partGutterLabel(after), instChanged);
+    });
+  }
+
   function openLayoutPreview(itemId, title) {
     if (!layoutPreviewDialog) return;
-    const cards = cardsForItem(itemId);
+    const cards = previewCards(itemId);
     if (layoutPreviewTitle) {
       layoutPreviewTitle.textContent = title ? `Layout — ${title}` : "Band layout";
     }

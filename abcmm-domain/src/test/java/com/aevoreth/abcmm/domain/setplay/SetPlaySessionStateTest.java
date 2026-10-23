@@ -246,4 +246,29 @@ class SetPlaySessionStateTest {
         assertEquals(1L, SetPlaySessionRules.previousUnskippedItemId(st, 3L));
         assertNull(SetPlaySessionRules.previousUnskippedItemId(st, 1L));
     }
+
+    @Test
+    void nextInstrumentReferenceIsCurrentNotSkippedPredecessor() {
+        SetPlaySessionState st = state(ids(10, 11, 12));
+        st.setCurrentItemId(10L);
+        st.setNextItemId(12L);
+        st.skippedItemIds().add(11L);
+        assertEquals(10L, SetPlaySessionRules.instrumentReferenceItemId(st, 12L));
+    }
+
+    @Test
+    void nextInstrumentReferenceDoesNotUsePreviousRowWhenCurrentUnset() {
+        SetPlaySessionState st = state(ids(10, 11, 12));
+        st.setNextItemId(12L);
+        st.skippedItemIds().add(11L);
+        assertNull(SetPlaySessionRules.instrumentReferenceItemId(st, 12L));
+    }
+
+    @Test
+    void nowAtEndReferencesPreviousUnskipped() {
+        SetPlaySessionState st = state(ids(10, 11, 12));
+        st.setCurrentItemId(12L);
+        st.skippedItemIds().add(11L);
+        assertEquals(10L, SetPlaySessionRules.instrumentReferenceItemId(st, 12L));
+    }
 }

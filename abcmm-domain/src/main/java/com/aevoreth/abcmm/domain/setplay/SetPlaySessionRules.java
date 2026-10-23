@@ -14,6 +14,32 @@ public final class SetPlaySessionRules {
     }
 
     /**
+     * Song that instrument-change highlighting (and the left part gutter) for
+     * {@code focusItemId} must compare against.
+     * <p>
+     * When the grid is showing NEXT, the reference is always CURRENT. A skipped
+     * row between them is not a substitute, even though it is the previous song
+     * in setlist order. If nothing is current, there is no reference — do not
+     * scan backward onto that skipped row.
+     * When NEXT is unset and the grid is showing NOW (end of the set), the
+     * reference is the nearest earlier song that was not skipped.
+     */
+    public static Long instrumentReferenceItemId(SetPlaySessionState state, Long focusItemId) {
+        Objects.requireNonNull(state, "state");
+        if (focusItemId == null) {
+            return null;
+        }
+        if (state.nextItemId() != null && focusItemId.equals(state.nextItemId())) {
+            Long current = state.currentItemId();
+            if (current == null || current.equals(focusItemId) || state.skippedItemIds().contains(current)) {
+                return null;
+            }
+            return current;
+        }
+        return previousUnskippedItemId(state, focusItemId);
+    }
+
+    /**
      * Item whose parts/instruments the band grid should show.
      * Prefers NEXT (prepare for the upcoming song). When NEXT is unset but NOW
      * is set (last song after Advance), shows CURRENT so cards are not blanked.
