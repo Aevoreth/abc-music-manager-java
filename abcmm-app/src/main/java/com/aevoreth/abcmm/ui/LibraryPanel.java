@@ -13,14 +13,17 @@ import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Path2D;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -44,6 +47,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
+import javax.swing.ListSelectionModel;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SpinnerNumberModel;
@@ -108,7 +112,56 @@ public final class LibraryPanel extends JPanel {
                     return;
                 }
             }
+            int[] keepRows = actionClickSelection(e);
             super.processMouseEvent(e);
+            if (keepRows != null) {
+                restoreViewSelection(keepRows);
+            }
+        }
+
+        /**
+         * A left click on an action cell of an already selected row would otherwise
+         * replace a multi-selection with that one row before the action runs.
+         */
+        private int[] actionClickSelection(MouseEvent e) {
+            if (e.getID() != MouseEvent.MOUSE_PRESSED || !SwingUtilities.isLeftMouseButton(e)) {
+                return null;
+            }
+            if (e.isShiftDown() || e.isControlDown() || e.isMetaDown() || e.isAltDown()) {
+                return null;
+            }
+            int row = rowAtPoint(e.getPoint());
+            int column = columnAtPoint(e.getPoint());
+            if (row < 0 || column < 0 || !isRowSelected(row) || !isActionColumn(column)) {
+                return null;
+            }
+            int[] selected = getSelectedRows();
+            return selected.length > 1 ? selected.clone() : null;
+        }
+
+        private boolean isActionColumn(int viewColumn) {
+            int modelColumn = convertColumnIndexToModel(viewColumn);
+            return modelColumn == LibraryTableModel.COL_ACTIONS
+                    || modelColumn == LibraryTableModel.COL_HISTORY
+                    || modelColumn == LibraryTableModel.COL_RATING
+                    || modelColumn == LibraryTableModel.COL_SET
+                    || modelColumn == LibraryTableModel.COL_STATUS
+                    || modelColumn == LibraryTableModel.COL_EDIT;
+        }
+
+        private void restoreViewSelection(int[] viewRows) {
+            ListSelectionModel selection = getSelectionModel();
+            selection.setValueIsAdjusting(true);
+            try {
+                selection.clearSelection();
+                for (int viewRow : viewRows) {
+                    if (viewRow >= 0 && viewRow < getRowCount()) {
+                        selection.addSelectionInterval(viewRow, viewRow);
+                    }
+                }
+            } finally {
+                selection.setValueIsAdjusting(false);
+            }
         }
 
         private boolean isRightClickSequence(int id) {
@@ -591,7 +644,13 @@ public final class LibraryPanel extends JPanel {
     }
 
     public void setSongs(List<LibrarySong> songs) {
+        Set<Long> selectedIds = new HashSet<>();
+        for (LibrarySong song : selectedSongsInViewOrder()) {
+            selectedIds.add(song.id());
+        }
+        Long leadId = leadSongId();
         tableModel.setSongs(songs);
+        restoreSelection(selectedIds, leadId);
         if (songs == null || songs.isEmpty()) {
             libraryCards.show(libraryStack, CARD_EMPTY);
         } else {
@@ -775,6 +834,73 @@ public final class LibraryPanel extends JPanel {
             songs = List.of(clicked);
         }
         rowPopup(songs, clicked).show(table, e.getX(), e.getY());
+    }
+
+    private Long leadSongId() {
+        int leadView = table.getSelectionModel().getLeadSelectionIndex();
+        if (leadView < 0 || leadView >= table.getRowCount()) {
+            return null;
+        }
+        int modelRow = table.convertRowIndexToModel(leadView);
+        LibrarySong song = tableModel.songAt(modelRow);
+        return song == null ? null : song.id();
+    }
+
+    /**
+     * Put the previous song selection back after {@code fireTableDataChanged}
+     * clears it. Songs that are no longer in the table are dropped.
+     */
+    private void restoreSelection(Set<Long> selectedIds, Long leadId) {
+        if (selectedIds == null || selectedIds.isEmpty()) {
+            return;
+        }
+        List<Integer> viewRows = new ArrayList<>();
+        int leadView = -1;
+        int count = tableModel.getRowCount();
+        for (int modelRow = 0; modelRow < count; modelRow++) {
+            LibrarySong song = tableModel.songAt(modelRow);
+            if (song == null || !selectedIds.contains(song.id())) {
+                continue;
+            }
+            int viewRow = table.convertRowIndexToView(modelRow);
+            if (viewRow < 0) {
+                continue;
+            }
+            viewRows.add(viewRow);
+            if (leadId != null && song.id() == leadId) {
+                leadView = viewRow;
+            }
+        }
+        if (viewRows.isEmpty()) {
+            return;
+        }
+        viewRows.sort(Integer::compareTo);
+        ListSelectionModel selection = table.getSelectionModel();
+        selection.setValueIsAdjusting(true);
+        try {
+            selection.clearSelection();
+            for (int viewRow : viewRows) {
+                if (viewRow != leadView) {
+                    selection.addSelectionInterval(viewRow, viewRow);
+                }
+            }
+            int lead = leadView >= 0 ? leadView : viewRows.get(0);
+            selection.addSelectionInterval(lead, lead);
+            revealRow(lead);
+        } finally {
+            selection.setValueIsAdjusting(false);
+        }
+    }
+
+    private void revealRow(int viewRow) {
+        if (viewRow < 0) {
+            return;
+        }
+        Rectangle cell = table.getCellRect(viewRow, 0, true);
+        Rectangle visible = table.getVisibleRect();
+        if (visible.height > 0 && !visible.intersects(cell)) {
+            table.scrollRectToVisible(cell);
+        }
     }
 
     /** Selected rows from top to bottom in the current sort. */

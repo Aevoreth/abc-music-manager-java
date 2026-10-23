@@ -21,6 +21,8 @@ import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JTable;
+import javax.swing.RowSorter;
+import javax.swing.SortOrder;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -195,6 +197,62 @@ class LibraryContextMenuTest {
         int middleY = table.getRowHeight() + 4;
         table.dispatchEvent(rightClick(table, MouseEvent.MOUSE_PRESSED, middleY, false));
         assertEquals(1, presses.get());
+    }
+
+    @Test
+    void reloadKeepsTheSelectedSongsAndLeadRow() {
+        LibraryPanel panel = new LibraryPanel();
+        panel.setSongs(List.of(song(1, "A", 1, null), song(2, "B", 5, null), song(3, "C", 2, null)));
+        JTable table = panel.libraryTable();
+        table.getSelectionModel().addSelectionInterval(0, 0);
+        table.getSelectionModel().addSelectionInterval(2, 2);
+
+        panel.setSongs(List.of(song(1, "A", 4, null), song(3, "C", 4, null), song(2, "B", 4, null)));
+
+        assertEquals(List.of(1L, 3L), ids(panel.selectedSongsInViewOrder()));
+        assertEquals(1, table.getSelectionModel().getLeadSelectionIndex());
+    }
+
+    @Test
+    void reloadDropsSongsThatAreNoLongerListed() {
+        LibraryPanel panel = new LibraryPanel();
+        panel.setSongs(List.of(song(1, "A", 1, null), song(2, "B", 1, null), song(3, "C", 1, null)));
+        JTable table = panel.libraryTable();
+        table.getSelectionModel().addSelectionInterval(0, 0);
+        table.getSelectionModel().addSelectionInterval(2, 2);
+
+        panel.setSongs(List.of(song(2, "B", 1, null)));
+
+        assertEquals(List.of(), ids(panel.selectedSongsInViewOrder()));
+    }
+
+    @Test
+    void reloadKeepsSelectionWhenTheSortOrderChanges() {
+        LibraryPanel panel = new LibraryPanel();
+        LibrarySong low = song(1, "A", 1, null);
+        LibrarySong high = song(2, "B", 5, null);
+        LibrarySong mid = song(3, "C", 2, null);
+        panel.setSongs(List.of(low, high, mid));
+        JTable table = panel.libraryTable();
+        table.getRowSorter().setSortKeys(List.of(
+                new RowSorter.SortKey(LibraryTableModel.COL_RATING, SortOrder.ASCENDING)));
+        int viewLow = table.convertRowIndexToView(0);
+        int viewHigh = table.convertRowIndexToView(1);
+        table.getSelectionModel().setSelectionInterval(viewLow, viewLow);
+        table.getSelectionModel().addSelectionInterval(viewHigh, viewHigh);
+
+        panel.setSongs(List.of(song(2, "B", 1, null), song(3, "C", 3, null), song(1, "A", 5, null)));
+
+        assertEquals(List.of(2L, 1L), ids(panel.selectedSongsInViewOrder()));
+        assertEquals(table.convertRowIndexToView(0), table.getSelectionModel().getLeadSelectionIndex());
+    }
+
+    private static List<Long> ids(List<LibrarySong> songs) {
+        List<Long> ids = new ArrayList<>();
+        for (LibrarySong song : songs) {
+            ids.add(song.id());
+        }
+        return ids;
     }
 
     private static MouseEvent rightClick(Component source, int id, int y, boolean popupTrigger) {

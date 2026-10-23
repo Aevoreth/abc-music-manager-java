@@ -73,6 +73,8 @@ If the table looks empty, try **Clear Filters** or the **None** preset before as
 
 Right-click a row. If that row is already part of a multi-selection, the menu keeps the selection and the actions below apply to every selected song, from the top of the table downward. Right-click a row that is not selected to act on that song alone. **Edit** always opens the song under the pointer.
 
+The selected rows stay selected after rating, status, playback history, edit, and add-to-setlist, so you can run another action or extend the selection. A click on **Actions**, **Playback History**, **Rating**, **Set**, **Status**, or **Edit** in a row that is already selected does not drop the other selected rows. Songs that no longer match the filters leave the selection.
+
 - **Play** — start playback with the first selected song and append the rest to the queue
 - **Add to queue** — append the selected songs without replacing the current playlist. Open **Parts / Playlist** on the [playback bar](playback.md#playlist) to rearrange the queue or save it as a setlist.
 - **Edit** — open Song detail for the song under the pointer
