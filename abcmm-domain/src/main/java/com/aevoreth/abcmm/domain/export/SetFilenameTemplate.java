@@ -22,6 +22,13 @@ public final class SetFilenameTemplate {
 
     private static final Pattern VARIABLE = Pattern.compile("\\$[A-Za-z]+");
 
+    /**
+     * Characters Windows rejects in a file name, plus {@code .}. LOTRO rejects {@code .}
+     * anywhere in an ABC name except the {@code .abc} extension.
+     */
+    private static final Pattern UNSAFE_ABC_STEM_CHARS =
+            Pattern.compile("[<>:\"/\\\\|?*\\x00-\\x1F.]");
+
     private SetFilenameTemplate() {
     }
 
@@ -134,11 +141,25 @@ public final class SetFilenameTemplate {
                 "_",
                 SongLengthPad.BOTH,
                 setCode);
-        String result = substitute(pattern, variables, whitespaceReplace);
-        if (!result.toLowerCase(Locale.ROOT).endsWith(".abc")) {
-            result += ".abc";
+        return sanitizeAbcFileName(substitute(pattern, variables, whitespaceReplace));
+    }
+
+    /**
+     * Make an ABC export file name safe for Windows and LOTRO.
+     * Strips {@code < > : " / \ | ? *}, control characters, and every {@code .}
+     * except a single trailing {@code .abc} extension.
+     */
+    public static String sanitizeAbcFileName(String fileName) {
+        String raw = fileName == null ? "" : fileName.strip();
+        String stem = raw;
+        if (raw.length() >= 4 && raw.toLowerCase(Locale.ROOT).endsWith(".abc")) {
+            stem = raw.substring(0, raw.length() - 4);
         }
-        return result;
+        stem = UNSAFE_ABC_STEM_CHARS.matcher(stem).replaceAll("").strip();
+        if (stem.isEmpty()) {
+            stem = "untitled";
+        }
+        return stem + ".abc";
     }
 
     public static String formatPartName(

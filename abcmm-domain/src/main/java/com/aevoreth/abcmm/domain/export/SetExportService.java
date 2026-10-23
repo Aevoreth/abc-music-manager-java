@@ -203,6 +203,7 @@ public final class SetExportService {
                     Path name = src.getFileName();
                     base = name == null ? "song.abc" : name.toString();
                 }
+                base = SetFilenameTemplate.sanitizeAbcFileName(base);
                 if (usedNames.containsKey(base)) {
                     int n = usedNames.get(base) + 1;
                     usedNames.put(base, n);

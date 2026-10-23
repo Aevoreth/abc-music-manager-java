@@ -205,6 +205,108 @@ class SetExportServiceTest {
     }
 
     @Test
+    void exportStripsUnsafeCharactersFromAbcFileNames() throws Exception {
+        Path src = tempDir.resolve("src");
+        Files.createDirectories(src);
+        Path dotted = src.resolve("my.song.abc");
+        Path plain = src.resolve("mysong.abc");
+        Files.writeString(dotted, "X:1\nT:dotted\n", StandardCharsets.UTF_8);
+        Files.writeString(plain, "X:1\nT:plain\n", StandardCharsets.UTF_8);
+
+        Path outParent = tempDir.resolve("out-safe");
+        Files.createDirectories(outParent);
+
+        Path dbPath = tempDir.resolve("safe-names.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(dbPath)) {
+            seedSong(database, 1, "Dotted", dotted.toString(), "[]");
+            seedSong(database, 2, "Plain", plain.toString(), "[]");
+
+            SqliteSetlistRepository setlists = new SqliteSetlistRepository(database);
+            long setlistId = setlists.addSetlist("Test Set", null);
+            setlists.addItem(setlistId, 1, 0, null, null);
+            setlists.addItem(setlistId, 2, 1, null, null);
+
+            SetExportSettings settings = new SetExportSettings();
+            settings.setOutputDirectory(outParent);
+            settings.setSetName("MySet");
+            settings.setExportAsFolder(true);
+            settings.setExportAsZip(false);
+            settings.setRenameAbcFiles(false);
+            settings.setExportCsvPartSheet(false);
+            settings.setExportAbcpPlaylist(true);
+
+            SetExportService service = new SetExportService(
+                    setlists,
+                    new SqliteSongRepository(database),
+                    new SqliteBandRepository(database),
+                    new SqlitePlayerRepository(database));
+            service.exportSet(
+                    setlistId,
+                    "Test Set",
+                    null,
+                    setlists.listItemsForExport(setlistId),
+                    settings,
+                    null,
+                    null);
+
+            Path folder = outParent.resolve("MySet");
+            assertEquals("X:1\nT:dotted\n", Files.readString(folder.resolve("mysong.abc"), StandardCharsets.UTF_8));
+            assertEquals("X:1\nT:plain\n", Files.readString(folder.resolve("mysong_2.abc"), StandardCharsets.UTF_8));
+            assertFalse(Files.exists(folder.resolve("my.song.abc")));
+            String playlist = Files.readString(folder.resolve("MySet.abcp"), StandardCharsets.UTF_8);
+            assertTrue(playlist.contains("<location>mysong.abc</location>"));
+            assertTrue(playlist.contains("<location>mysong_2.abc</location>"));
+        }
+    }
+
+    @Test
+    void exportRenameDropsIllegalCharactersFromAbcFileNames() throws Exception {
+        Path src = tempDir.resolve("src");
+        Files.createDirectories(src);
+        Path aPath = src.resolve("source.abc");
+        Files.writeString(aPath, "X:1\nT:test\n", StandardCharsets.UTF_8);
+
+        Path outParent = tempDir.resolve("out-rename");
+        Files.createDirectories(outParent);
+
+        Path dbPath = tempDir.resolve("rename-safe.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(dbPath)) {
+            seedSong(database, 1, "Hello? World.", aPath.toString(), "[]");
+
+            SqliteSetlistRepository setlists = new SqliteSetlistRepository(database);
+            long setlistId = setlists.addSetlist("Test Set", null);
+            setlists.addItem(setlistId, 1, 0, null, null);
+
+            SetExportSettings settings = new SetExportSettings();
+            settings.setOutputDirectory(outParent);
+            settings.setSetName("MySet");
+            settings.setExportAsFolder(true);
+            settings.setExportAsZip(false);
+            settings.setRenameAbcFiles(true);
+            settings.setFilenamePattern("$SongTitle");
+            settings.setWhitespaceReplace(" ");
+            settings.setExportCsvPartSheet(false);
+            settings.setExportAbcpPlaylist(false);
+
+            SetExportService service = new SetExportService(
+                    setlists,
+                    new SqliteSongRepository(database),
+                    new SqliteBandRepository(database),
+                    new SqlitePlayerRepository(database));
+            service.exportSet(
+                    setlistId,
+                    "Test Set",
+                    null,
+                    setlists.listItemsForExport(setlistId),
+                    settings,
+                    null,
+                    null);
+
+            assertTrue(Files.isRegularFile(outParent.resolve("MySet").resolve("Hello World.abc")));
+        }
+    }
+
+    @Test
     void refusesExistingFolder() throws Exception {
         Path src = tempDir.resolve("src");
         Files.createDirectories(src);

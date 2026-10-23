@@ -34,6 +34,35 @@ class SetExportHelpersTest {
     }
 
     @Test
+    void formatFilenameStripsCharactersWindowsAndLotroReject() {
+        String name = SetFilenameTemplate.formatFilename(
+                "$SongIndex_$FileName_$SongTitle",
+                "C:/music/my.song.abc",
+                0,
+                "What? A/B\\C*D:\"E<F>G|H",
+                null,
+                null,
+                null,
+                1,
+                " ",
+                true,
+                null);
+        assertEquals("001_mysong_What ABCDEFGH.abc", name);
+    }
+
+    @Test
+    void sanitizeAbcFileNameKeepsOnlyTheAbcExtensionDot() {
+        assertEquals("mysongv2.abc", SetFilenameTemplate.sanitizeAbcFileName("my.song.v2.abc"));
+        assertEquals("Song.abc", SetFilenameTemplate.sanitizeAbcFileName("Song.ABC"));
+        assertEquals("song.abc", SetFilenameTemplate.sanitizeAbcFileName("song"));
+        assertEquals("Dr Who.abc", SetFilenameTemplate.sanitizeAbcFileName("Dr. Who.abc"));
+        assertEquals("untitled.abc", SetFilenameTemplate.sanitizeAbcFileName("???.abc"));
+        assertEquals("untitled.abc", SetFilenameTemplate.sanitizeAbcFileName("..."));
+        assertEquals("untitled.abc", SetFilenameTemplate.sanitizeAbcFileName(null));
+        assertEquals("AB.abc", SetFilenameTemplate.sanitizeAbcFileName("A\u0000B?.abc"));
+    }
+
+    @Test
     void formatFilenamePadsSongLengthWithUnderscore() {
         Map<String, String> vars = SetFilenameTemplate.buildSongVariableMap(
                 "a.abc",
