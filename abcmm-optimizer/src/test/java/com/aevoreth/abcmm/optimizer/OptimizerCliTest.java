@@ -63,6 +63,12 @@ class OptimizerCliTest {
         assertTrue(out.contains("requested_players: 2"));
         assertTrue(out.contains("integrity: ok"));
         assertTrue(out.contains("baseline: ok"));
+        assertTrue(out.contains("changes: 2"));
+        assertTrue(out.contains("worst_transition: 2"));
+        assertTrue(out.contains("overload: 0"));
+        assertTrue(out.contains("weighted_score: 2.0"));
+        assertTrue(out.contains("histogram: 2=1"));
+        assertTrue(out.contains("transition: 0 changes=2"));
         assertTrue(out.contains("out_of_layout_assignment"));
         assertFalse(out.contains("Alice"));
         assertFalse(out.contains("Fixture Tune"));

@@ -1,6 +1,6 @@
 # abcmm-optimizer
 
-Read-only proof-of-concept loader for setlist instrument assignment. It snapshots one setlist into an immutable problem and reports whether that snapshot and its current assignments are feasible. It does not score transitions, search, change the database, or modify the Swing application.
+Read-only proof-of-concept for setlist instrument assignment. It snapshots one setlist into an immutable problem, checks hard constraints, and scores the baseline with adjacent-song rules. It does not search, change the database, or modify the Swing application.
 
 The module stays on the `setlist-optimizer` branch until a later benchmark review.
 
@@ -18,6 +18,33 @@ Effective parts follow the setlist editor:
 Intentional doubling is not supported. Each required part must be covered by exactly one layout performer, and each performer plays at most one part in a song. Duplicate part numbers, two performers on one part, or two parts for one performer are infeasible. The loader does not drop or copy a part to hide that.
 
 Pins can be supplied on an in-memory problem as `(setlist item id, part number, player id)`. The SQLite loader leaves them empty. There is no pin table in this stage.
+
+## Scoring
+
+A player adds one to a transition only when that player has a part in both adjacent songs and the physical instruments differ. Idle in either song adds nothing. The first song has no incoming cost. The scorer does not look back across an idle song: fiddle, then idle, then harp is two transitions of zero.
+
+`AssignmentScorer` returns an accepted breakdown or a rejection. A rejection has diagnostics and no numeric score. Hard constraints stay hard: they are not rewritten as large finite penalties. The same assignment and the same rules always produce the same breakdown.
+
+Displayed counts stay integers. The weighted score is the sum of four contributions, in this order:
+
+- Smooth weight times overload. Overload is the sum of squared counts above the target. The default target is 2. One unit is one transition at target + 1.
+- Total weight times switch burden. Each penalized switch adds that player's multiplier, or the band default of 1. The displayed change count stays unweighted.
+- Role weight times role deviation. An assigned part pays at most one penalty. An occurrence part preference replaces instrument affinity for that part. With no part preference, a player who has affinities pays 0 on an equivalent preferred instrument and otherwise pays the highest miss penalty. Idle rows add no role cost.
+- Keep weight times keep deviation. One unit per player whose part on an item differs from the baseline, times the part multiplier, else the item multiplier, else 1. The part used for that lookup is the baseline part, or the new part when the baseline was idle.
+
+Each weight is finite and may be 0. A weight of 0 removes that term, including the soft preferences inside it. The defaults are all 1. These are raw units, not percentages: equal weights are not equal shares, because overload is squared. The worst transition and the histogram are reported and are not a fifth weight.
+
+A per-player switch multiplier replaces the band default. A part keep multiplier replaces the item multiplier. Two part preferences for the same item and part, or two affinities for the same player and instrument, are invalid. Alias instruments on one player are the same affinity and are rejected when the rules are applied. Unknown ids are rejected the same way.
+
+A pin is not a weight. A part preference that names a different player can still add role cost while the pin stays in place. Preferences and pins use the setlist item id, so two occurrences of one song do not share them.
+
+The CLI scores the loaded baseline with those default rules. It prints the breakdown only when that baseline is accepted, using the breakdown's own fields. It does not take weight flags.
+
+## Reference check
+
+The private October 2026 reference setlist, id 24, is 34 songs and 33 transitions. The adjacent-song baseline is 148 penalized switches, worst transition 6, histogram `2=2,3=4,4=9,5=12,6=6`. The older lookback total of 156 is not the expected score.
+
+That database is not in the repository. A test reads it only when `ABCMM_REFERENCE_DB` or the `abcmm.referenceDatabase` system property names a local file, and otherwise skips. Do not commit the database.
 
 ## CLI
 
@@ -37,6 +64,6 @@ mvn -pl abcmm-optimizer -DskipTests exec:java --% -Dexec.args="--database C:\pat
 
 Optional flags: `--seed <n>`, `--budget-seconds <n>`, `--players <n>`. Seed and budget are echoed for later search and do not run a solver. `--players` checks that the active layout roster has that many performers. It does not invent extra players.
 
-Exit 0 means the snapshot and the baseline assignment are feasible. Exit 1 means the problem is not well-defined or the arguments are invalid. Exit 2 means the snapshot loaded, but the current assignment breaks a hard constraint.
+Exit 0 means the snapshot and the baseline assignment are feasible, and the report includes the default score. Exit 1 means the problem is not well-defined or the arguments are invalid. Exit 2 means the snapshot loaded, but the current assignment breaks a hard constraint. Exit 1 and exit 2 do not print a weighted score when the baseline itself is rejected. A roster-size mismatch can still print a score when the assignment is otherwise accepted.
 
 Do not commit a private library database. Tests build a synthetic database in a temporary directory.

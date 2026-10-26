@@ -34,6 +34,13 @@ public final class ProblemReport {
         for (Diagnostic diagnostic : report.diagnostics()) {
             text.append(diagnostic.format()).append('\n');
         }
+        if (problem != null) {
+            ScoreOutcome scored = AssignmentScorer.score(
+                    problem, Assignment.fromBaseline(problem), OptimizationRules.defaults());
+            if (scored instanceof ScoreOutcome.Accepted accepted) {
+                text.append(accepted.breakdown().format());
+            }
+        }
         return text.toString();
     }
 

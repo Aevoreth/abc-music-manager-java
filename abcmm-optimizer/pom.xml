@@ -12,7 +12,7 @@
 
   <artifactId>abcmm-optimizer</artifactId>
   <name>ABCMM Optimizer</name>
-  <description>Read-only setlist instrument-assignment snapshot and feasibility checks</description>
+  <description>Read-only setlist instrument-assignment snapshot, feasibility checks, and adjacent-song scoring</description>
 
   <dependencies>
     <dependency>
