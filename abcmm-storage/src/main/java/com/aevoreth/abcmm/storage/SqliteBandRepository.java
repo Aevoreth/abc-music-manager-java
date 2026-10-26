@@ -121,6 +121,7 @@ public final class SqliteBandRepository implements BandRepository {
             }
             executeDelete("DELETE FROM BandLayout WHERE band_id = ?", id);
             executeDelete("DELETE FROM BandMember WHERE band_id = ?", id);
+            new SqliteOptimizationProfileRepository(database).deleteBandScoped(id);
             executeDelete("DELETE FROM Band WHERE id = ?", id);
         } catch (SQLException ex) {
             throw new LibraryException("Failed to delete band", ex);
@@ -180,6 +181,7 @@ public final class SqliteBandRepository implements BandRepository {
                         slot.heightUnits());
             }
             syncMembersFromPrimaryLayout(newBandId);
+            new SqliteOptimizationProfileRepository(database).copyBandProfile(bandId, newBandId);
             return newBandId;
         } catch (SQLException ex) {
             throw new LibraryException("Failed to duplicate band", ex);
@@ -539,6 +541,8 @@ public final class SqliteBandRepository implements BandRepository {
                 member.setLong(2, newPlayerId);
                 member.executeUpdate();
             }
+            new SqliteOptimizationProfileRepository(database)
+                    .transferPlayer(bandId, bandLayoutId, oldPlayerId, newPlayerId);
 
             connection.commit();
         } catch (Exception ex) {

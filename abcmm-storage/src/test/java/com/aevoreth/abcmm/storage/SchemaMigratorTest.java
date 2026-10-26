@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import com.aevoreth.abcmm.domain.band.SongLayoutInfo;
 
 class SchemaMigratorTest {
 
@@ -17,14 +20,14 @@ class SchemaMigratorTest {
     Path tempDir;
 
     @Test
-    void openOrCreateBuildsSchemaVersionFourteenWithSeeds() throws Exception {
+    void openOrCreateBuildsSchemaVersionFifteenWithSeeds() throws Exception {
         Path db = tempDir.resolve("new.sqlite");
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement()) {
             try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
                 assertTrue(version.next());
-                assertEquals(14, version.getInt(1));
+                assertEquals(15, version.getInt(1));
             }
             try (ResultSet statuses = statement.executeQuery("SELECT COUNT(*) FROM Status")) {
                 assertTrue(statuses.next());
@@ -42,18 +45,25 @@ class SchemaMigratorTest {
                 assertTrue(tables.next());
                 assertEquals(11, tables.getInt(1));
             }
+            try (ResultSet profiles = statement.executeQuery(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ("
+                            + "'BandOptimizationProfile','BandPlayerSwitchWeight','BandInstrumentAffinity',"
+                            + "'SetlistPartPreference','SetlistItemKeepWeight','SetlistPartKeepWeight')")) {
+                assertTrue(profiles.next());
+                assertEquals(6, profiles.getInt(1));
+            }
         }
     }
 
     @Test
-    void openOrCreateMigratesOlderVersionToFourteen() throws Exception {
+    void openOrCreateMigratesOlderVersionToFifteen() throws Exception {
         Path db = FixtureDatabases.createWrongVersionFixture(tempDir.resolve("v11.sqlite"));
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement();
              ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
             assertTrue(version.next());
-            assertEquals(14, version.getInt(1));
+            assertEquals(15, version.getInt(1));
         }
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
@@ -71,7 +81,103 @@ class SchemaMigratorTest {
     }
 
     @Test
-    void openOrCreateIsIdempotentOnExistingV14() throws Exception {
+    void openOrCreateMigratesV14WithoutChangingAssignments() throws Exception {
+        Path db = tempDir.resolve("v14-assignments.sqlite");
+        long setlistId;
+        long songLayoutId;
+        int assignmentCount;
+        int songLayoutAssignmentCount;
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db)) {
+            SqliteBandRepository bands = new SqliteBandRepository(database);
+            SqlitePlayerRepository players = new SqlitePlayerRepository(database);
+            SqliteSetlistRepository setlists = new SqliteSetlistRepository(database);
+            SqliteSongLayoutRepository layouts = new SqliteSongLayoutRepository(database);
+            long bandId = bands.addBand("Band", null);
+            long layoutId = bands.getOrCreatePrimaryLayout(bandId).id();
+            long playerId = players.addPlayer("Ada", null, null);
+            long songId = insertSong(database);
+            SongLayoutInfo songLayout = layouts.getOrCreateSongLayout(songId, layoutId, "Default");
+            songLayoutId = songLayout.id();
+            layouts.setAssignment(songLayoutId, playerId, 1);
+            setlistId = setlists.addSetlist("Gig", null);
+            setlists.updateSetlist(
+                    setlistId, "Gig", layoutId, null, 0, false, null, null, null, null, null, null);
+            long itemId = setlists.addItem(setlistId, songId, 0, null, songLayoutId);
+            setlists.upsertBandAssignment(itemId, playerId, 1);
+            assignmentCount = count(database, "SetlistBandAssignment");
+            songLayoutAssignmentCount = count(database, "SongLayoutAssignment");
+            try (Statement statement = database.connection().createStatement()) {
+                statement.execute("DROP TABLE BandPlayerSwitchWeight");
+                statement.execute("DROP TABLE BandInstrumentAffinity");
+                statement.execute("DROP TABLE BandOptimizationProfile");
+                statement.execute("DROP TABLE SetlistPartPreference");
+                statement.execute("DROP TABLE SetlistItemKeepWeight");
+                statement.execute("DROP TABLE SetlistPartKeepWeight");
+                statement.execute("UPDATE schema_version SET version = 14");
+            }
+        }
+
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
+             Connection connection = database.connection();
+             Statement statement = connection.createStatement()) {
+            try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
+                assertTrue(version.next());
+                assertEquals(15, version.getInt(1));
+            }
+            for (String table : new String[] {
+                    "BandOptimizationProfile",
+                    "BandPlayerSwitchWeight",
+                    "BandInstrumentAffinity",
+                    "SetlistPartPreference",
+                    "SetlistItemKeepWeight",
+                    "SetlistPartKeepWeight"
+            }) {
+                try (ResultSet rows = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+                    assertTrue(rows.next());
+                    assertEquals(0, rows.getInt(1), table);
+                }
+            }
+            try (ResultSet setlist = statement.executeQuery("SELECT name FROM Setlist WHERE id = " + setlistId)) {
+                assertTrue(setlist.next());
+                assertEquals("Gig", setlist.getString(1));
+            }
+            try (ResultSet layout = statement.executeQuery(
+                    "SELECT id FROM SongLayout WHERE id = " + songLayoutId)) {
+                assertTrue(layout.next());
+            }
+            assertEquals(assignmentCount, count(database, "SetlistBandAssignment"));
+            assertEquals(songLayoutAssignmentCount, count(database, "SongLayoutAssignment"));
+        }
+    }
+
+    private static int count(SqliteDatabase database, String table) throws Exception {
+        try (Statement statement = database.connection().createStatement();
+             ResultSet rs = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+            assertTrue(rs.next());
+            return rs.getInt(1);
+        }
+    }
+
+    private static long insertSong(SqliteDatabase database) throws Exception {
+        String now = SqliteTimestamps.now();
+        try (PreparedStatement statement = database.connection().prepareStatement(
+                """
+                INSERT INTO Song (title, composers, total_plays, parts, created_at, updated_at)
+                VALUES ('Song', 'Composer', 0, '[]', ?, ?)
+                """,
+                Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, now);
+            statement.setString(2, now);
+            statement.executeUpdate();
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                assertTrue(keys.next());
+                return keys.getLong(1);
+            }
+        }
+    }
+
+    @Test
+    void openOrCreateIsIdempotentOnExistingDatabase() throws Exception {
         Path db = tempDir.resolve("idempotent.sqlite");
         try (SqliteDatabase first = SqliteDatabase.openOrCreate(db)) {
             // create once

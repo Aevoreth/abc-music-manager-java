@@ -4,7 +4,7 @@
 
 Named Cloudflare relays for [Set Play](../set-play.md) named sessions. **Only the bandleader** needs a relay configured here (URL **and relay token**). Band assistants join via the share link (browser or paste into [Band Assistant](../band-assistant.md)) and do not need this settings page.
 
-Relays are stored in the library SQLite database (schema v14). The selected relay id remains in `preferences.json`.
+Relays are stored in the library SQLite database (schema v15). The selected relay id remains in `preferences.json`.
 
 ---
 

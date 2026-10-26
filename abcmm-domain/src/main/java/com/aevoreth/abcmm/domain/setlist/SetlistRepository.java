@@ -51,7 +51,8 @@ public interface SetlistRepository {
     /**
      * Create a new setlist in the same folder as {@code sourceSetlistId}, apply the given
      * metadata, and copy all source items (including per-item layouts, change-duration
-     * overrides, and band assignments when the band layout is unchanged).
+     * overrides, band assignments when the band layout is unchanged, and optimizer
+     * occurrence preferences onto the new item ids).
      *
      * @return the new setlist id
      */
@@ -70,7 +71,8 @@ public interface SetlistRepository {
     /**
      * Copy songs from {@code sourceSetlistId} into {@code targetSetlistId} (prepend or append).
      * Only song order is copied; new rows use the target setlist's band layout when present
-     * (no overrides or band assignments). Target metadata is not modified.
+     * (no overrides, band assignments, or optimizer occurrence preferences). Target metadata
+     * is not modified.
      *
      * @return number of items added
      */

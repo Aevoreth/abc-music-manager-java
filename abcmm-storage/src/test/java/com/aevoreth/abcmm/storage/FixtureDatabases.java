@@ -7,7 +7,7 @@ import java.sql.Statement;
 import java.time.Instant;
 
 /**
- * Builds a minimal schema-v14 SQLite fixture for tests.
+ * Builds a minimal schema-v15 SQLite fixture for tests.
  */
 final class FixtureDatabases {
 
@@ -19,7 +19,7 @@ final class FixtureDatabases {
         try (Connection connection = DriverManager.getConnection(url);
              Statement statement = connection.createStatement()) {
             statement.executeUpdate("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)");
-            statement.executeUpdate("INSERT INTO schema_version (version) VALUES (14)");
+            statement.executeUpdate("INSERT INTO schema_version (version) VALUES (15)");
 
             statement.executeUpdate("""
                     CREATE TABLE Status (
@@ -87,6 +87,55 @@ final class FixtureDatabases {
                       position INTEGER NOT NULL,
                       created_at TEXT NOT NULL,
                       updated_at TEXT NOT NULL
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE BandOptimizationProfile (
+                      band_id INTEGER PRIMARY KEY,
+                      settings_version INTEGER NOT NULL,
+                      settings_json TEXT NOT NULL,
+                      created_at TEXT NOT NULL,
+                      updated_at TEXT NOT NULL
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE BandPlayerSwitchWeight (
+                      band_id INTEGER NOT NULL,
+                      player_id INTEGER NOT NULL,
+                      multiplier REAL NOT NULL,
+                      PRIMARY KEY (band_id, player_id)
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE BandInstrumentAffinity (
+                      band_id INTEGER NOT NULL,
+                      player_id INTEGER NOT NULL,
+                      instrument_id INTEGER NOT NULL,
+                      miss_penalty REAL NOT NULL,
+                      PRIMARY KEY (band_id, player_id, instrument_id)
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE SetlistPartPreference (
+                      setlist_item_id INTEGER NOT NULL,
+                      part_number INTEGER NOT NULL,
+                      player_id INTEGER NOT NULL,
+                      penalty REAL NOT NULL,
+                      PRIMARY KEY (setlist_item_id, part_number)
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE SetlistItemKeepWeight (
+                      setlist_item_id INTEGER PRIMARY KEY,
+                      multiplier REAL NOT NULL
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE SetlistPartKeepWeight (
+                      setlist_item_id INTEGER NOT NULL,
+                      part_number INTEGER NOT NULL,
+                      multiplier REAL NOT NULL,
+                      PRIMARY KEY (setlist_item_id, part_number)
                     )
                     """);
             statement.executeUpdate("""

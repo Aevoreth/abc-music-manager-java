@@ -160,6 +160,7 @@ public final class SqlitePlayerRepository implements PlayerRepository {
             executeDelete("DELETE FROM BandMember WHERE player_id = ?", id);
             executeDelete("DELETE FROM SongLayoutAssignment WHERE player_id = ?", id);
             executeDelete("DELETE FROM SetlistBandAssignment WHERE player_id = ?", id);
+            new SqliteOptimizationProfileRepository(database).deletePlayerReferences(id);
             executeDelete("DELETE FROM Player WHERE id = ?", id);
         } catch (SQLException ex) {
             throw new LibraryException("Failed to delete player", ex);

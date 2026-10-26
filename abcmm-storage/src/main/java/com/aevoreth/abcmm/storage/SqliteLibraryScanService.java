@@ -1404,6 +1404,7 @@ public final class SqliteLibraryScanService implements LibraryScanService {
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate(
                     "UPDATE Song SET last_setlist_item_id = NULL WHERE last_setlist_item_id IN (" + orphanItems + ")");
+            new SqliteOptimizationProfileRepository(database).deleteOccurrenceForOrphanItems();
             statement.executeUpdate(
                     "DELETE FROM SetlistBandAssignment WHERE setlist_item_id IN (" + orphanItems + ")");
             statement.executeUpdate(

@@ -366,6 +366,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
      * Copy source items onto a freshly created duplicate. When the chosen band layout matches
      * the source, preserve per-item song layouts, change-duration overrides, and band
      * assignments; otherwise remap song layouts to the new band layout (or clear them).
+     * Occurrence preferences are copied onto the new item ids either way.
      */
     private void copyItemsForDuplicate(
             long newSetlistId,
@@ -398,6 +399,12 @@ public final class SqliteSetlistRepository implements SetlistRepository {
                 for (SetlistBandAssignmentInfo assignment : listBandAssignments(item.id())) {
                     upsertBandAssignment(newItemId, assignment.playerId(), assignment.partNumber());
                 }
+            }
+            try {
+                new SqliteOptimizationProfileRepository(database)
+                        .copyOccurrencePreferences(item.id(), newItemId);
+            } catch (SQLException ex) {
+                throw new LibraryException("Failed to copy occurrence preferences", ex);
             }
         }
     }
@@ -737,6 +744,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
     @Override
     public void removeItem(long itemId) throws LibraryException {
         try {
+            new SqliteOptimizationProfileRepository(database).deleteOccurrenceForItem(itemId);
             try (PreparedStatement clearSong = database.connection().prepareStatement(
                     "UPDATE Song SET last_setlist_item_id = NULL WHERE last_setlist_item_id = ?")) {
                 clearSong.setLong(1, itemId);
@@ -897,6 +905,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             clearAssignments.setLong(1, setlistId);
             clearAssignments.executeUpdate();
         }
+        new SqliteOptimizationProfileRepository(database).deleteOccurrenceForSetlist(setlistId);
 
         try (PreparedStatement deleteItems = database.connection().prepareStatement(
                 "DELETE FROM SetlistItem WHERE setlist_id = ?")) {

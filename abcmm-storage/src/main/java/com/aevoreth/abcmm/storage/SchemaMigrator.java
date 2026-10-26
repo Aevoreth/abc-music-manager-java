@@ -15,11 +15,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Creates and migrates the SQLite schema through version 14 (Java-only from v13).
+ * Creates and migrates the SQLite schema through version 15 (Java-only from v13).
  */
 final class SchemaMigrator {
 
-    static final int CURRENT_SCHEMA_VERSION = 14;
+    static final int CURRENT_SCHEMA_VERSION = 15;
 
     /** 24 LOTRO instruments for Players tab (same order as Python). */
     static final List<String> PLAYER_INSTRUMENTS = List.of(
@@ -316,6 +316,7 @@ final class SchemaMigrator {
                     "CREATE INDEX IF NOT EXISTS idx_setplaypublishedsession_relay_id "
                             + "ON SetPlayPublishedSession(relay_id)");
         }
+        createOptimizationProfileTables(connection);
     }
 
     static void runMigrations(Connection connection) throws SQLException {
@@ -393,6 +394,70 @@ final class SchemaMigrator {
         if (current < 14) {
             migrateSetlistSetCode(connection);
             setSchemaVersion(connection, 14);
+            current = 14;
+        }
+        if (current < 15) {
+            // Empty tables only. Do not backfill or rewrite setlist or song-layout assignments.
+            createOptimizationProfileTables(connection);
+            setSchemaVersion(connection, 15);
+        }
+    }
+
+    /**
+     * Soft optimizer settings. Player and item references are real foreign keys so deletes
+     * can remove them explicitly. Hard pins are not stored here.
+     */
+    private static void createOptimizationProfileTables(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS BandOptimizationProfile (
+                        band_id INTEGER PRIMARY KEY REFERENCES Band(id),
+                        settings_version INTEGER NOT NULL,
+                        settings_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS BandPlayerSwitchWeight (
+                        band_id INTEGER NOT NULL REFERENCES Band(id),
+                        player_id INTEGER NOT NULL REFERENCES Player(id),
+                        multiplier REAL NOT NULL,
+                        PRIMARY KEY (band_id, player_id)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS BandInstrumentAffinity (
+                        band_id INTEGER NOT NULL REFERENCES Band(id),
+                        player_id INTEGER NOT NULL REFERENCES Player(id),
+                        instrument_id INTEGER NOT NULL REFERENCES Instrument(id),
+                        miss_penalty REAL NOT NULL,
+                        PRIMARY KEY (band_id, player_id, instrument_id)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetlistPartPreference (
+                        setlist_item_id INTEGER NOT NULL REFERENCES SetlistItem(id),
+                        part_number INTEGER NOT NULL,
+                        player_id INTEGER NOT NULL REFERENCES Player(id),
+                        penalty REAL NOT NULL,
+                        PRIMARY KEY (setlist_item_id, part_number)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetlistItemKeepWeight (
+                        setlist_item_id INTEGER PRIMARY KEY REFERENCES SetlistItem(id),
+                        multiplier REAL NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetlistPartKeepWeight (
+                        setlist_item_id INTEGER NOT NULL REFERENCES SetlistItem(id),
+                        part_number INTEGER NOT NULL,
+                        multiplier REAL NOT NULL,
+                        PRIMARY KEY (setlist_item_id, part_number)
+                    )
+                    """);
         }
     }
 
