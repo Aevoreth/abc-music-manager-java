@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aevoreth.abcmm</groupId>
+    <artifactId>abc-music-manager-java</artifactId>
+    <version>0.5.0b</version>
+  </parent>
+
+  <artifactId>abcmm-optimizer</artifactId>
+  <name>ABCMM Optimizer</name>
+  <description>Read-only setlist instrument-assignment snapshot and feasibility checks</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.aevoreth.abcmm</groupId>
+      <artifactId>abcmm-domain</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.aevoreth.abcmm</groupId>
+      <artifactId>abcmm-storage</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>com.aevoreth.abcmm.optimizer.cli.OptimizerCli</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

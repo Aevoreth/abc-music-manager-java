@@ -15,6 +15,7 @@
   <modules>
     <module>abcmm-domain</module>
     <module>abcmm-storage</module>
+    <module>abcmm-optimizer</module>
     <module>abcmm-maestro-adapter</module>
     <module>abcmm-app</module>
   </modules>
@@ -46,6 +47,11 @@
       <dependency>
         <groupId>com.aevoreth.abcmm</groupId>
         <artifactId>abcmm-storage</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.aevoreth.abcmm</groupId>
+        <artifactId>abcmm-optimizer</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

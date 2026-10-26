@@ -51,6 +51,7 @@ ABC Music Manager Development/
     ├── abcmm-app/
     ├── abcmm-domain/
     ├── abcmm-storage/
+    ├── abcmm-optimizer/        # read-only setlist instrument optimizer
     ├── abcmm-maestro-adapter/
     ├── docs/
     └── third_party/maestro/    # Maestro main submodule
