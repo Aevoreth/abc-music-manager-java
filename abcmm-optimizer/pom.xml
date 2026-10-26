@@ -14,6 +14,10 @@
   <name>ABCMM Optimizer</name>
   <description>Read-only setlist instrument-assignment snapshot, feasibility checks, adjacent-song scoring, and anytime search</description>
 
+  <properties>
+    <exec.mainClass>com.aevoreth.abcmm.optimizer.cli.OptimizerCli</exec.mainClass>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.aevoreth.abcmm</groupId>
@@ -41,7 +45,7 @@
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
         <configuration>
-          <mainClass>com.aevoreth.abcmm.optimizer.cli.OptimizerCli</mainClass>
+          <mainClass>${exec.mainClass}</mainClass>
         </configuration>
       </plugin>
     </plugins>

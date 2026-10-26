@@ -10,8 +10,9 @@ public sealed interface SearchOutcome permits SearchOutcome.Solved, SearchOutcom
 
     /**
      * Best feasible assignment found. {@code acceptedMoves} counts hill-climb moves
-     * that strictly improved the current state. The breakdown is a fresh
-     * {@link AssignmentScorer} result.
+     * that strictly improved the current state. {@code evaluatedMoves} counts
+     * neighborhood attempts, including attempts that were rejected.
+     * The breakdown is a fresh {@link AssignmentScorer} result.
      */
     record Solved(
             Assignment assignment,
@@ -19,6 +20,7 @@ public sealed interface SearchOutcome permits SearchOutcome.Solved, SearchOutcom
             StopReason reason,
             long elapsedNanos,
             int acceptedMoves,
+            long evaluatedMoves,
             long seed) implements SearchOutcome {
 
         public Solved {
@@ -30,6 +32,9 @@ public sealed interface SearchOutcome permits SearchOutcome.Solved, SearchOutcom
             }
             if (acceptedMoves < 0) {
                 throw new IllegalArgumentException("acceptedMoves");
+            }
+            if (evaluatedMoves < 0) {
+                throw new IllegalArgumentException("evaluatedMoves");
             }
             if (seed < 0) {
                 throw new IllegalArgumentException("seed");

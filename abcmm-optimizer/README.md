@@ -77,3 +77,17 @@ Without `--search`, exit 0 means the snapshot and the baseline assignment are fe
 With `--search`, exit 0 means a feasible proposal was found. Exit 2 means the snapshot loaded but no feasible assignment exists. Exit 1 still means bad arguments or an ill-defined problem, including a roster-size mismatch, and no search is run in that case.
 
 Do not commit a private library database. Tests build a synthetic database in a temporary directory.
+
+## Benchmark
+
+`BenchmarkCli` compares the repaired baseline, a one-pass greedy assignment, and the heuristic. It does not change the database. Reports print counts, not names or player ids, and do not claim an optimum.
+
+The reference matrix is setlist 24 with rosters 12, 16, and 18, seeds 0, 1, and 42, and a 60-second budget. Checkpoints are 1, 2, 5, 10, 30, and 60 seconds. The first 12-player balanced seed-0 run is cold. A discarded 2-second warmup follows, and the matrix is warm. Rosters above the layout use non-layout library players who own a required instrument, then synthetic players. Synthetic players start idle and own three required instruments at offsets `k`, `k+1`, and `k+3`, never the whole catalog when more than one instrument is required. A 16 or 18 player result is tagged `library-extras`, `synthetic-extras`, or `library-extras+synthetic-extras`.
+
+```powershell
+mvn -pl abcmm-optimizer -DskipTests exec:java "-Dexec.mainClass=com.aevoreth.abcmm.optimizer.cli.BenchmarkCli" "-Dexec.args=--database C:\path\to\abc_music_manager.sqlite --setlist 24 --budget-seconds 60"
+```
+
+`--fixture public` runs the committed 4-player fixture instead. Omit the budget and it stays at 0 seconds, which checks the harness without a long search. `--rosters`, `--seeds`, `--checkpoints`, `--cold-warm`, and `--warmup-seconds` override the defaults. `--out` writes the same text to another file.
+
+Exit 0 means the report was written. Exit 1 means the arguments, database, or roster size is invalid. Exit 2 means the database file changed size or last-modified time. The 60-second matrix is not part of `mvn test`.

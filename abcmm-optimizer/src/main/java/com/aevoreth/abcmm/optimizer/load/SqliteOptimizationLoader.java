@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.optimizer.load;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -12,10 +13,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.InstrumentInfo;
+import com.aevoreth.abcmm.domain.band.PlayerInfo;
 import com.aevoreth.abcmm.domain.band.PlayerInstrumentInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
 import com.aevoreth.abcmm.domain.library.LibraryException;
@@ -60,6 +63,62 @@ public final class SqliteOptimizationLoader {
         } catch (LibraryException ex) {
             return failed(request, Diagnostic.integrity(failureCode(ex), failureDetail(ex)));
         }
+    }
+
+    /**
+     * Performers who are not on the layout and own at least one required instrument.
+     * Ordered by player id. Names are not returned.
+     */
+    public List<Performer> loadEligibleExtras(Path database, OptimizationProblem problem) throws LibraryException {
+        Objects.requireNonNull(database, "database");
+        Objects.requireNonNull(problem, "problem");
+        try (SqliteDatabase sqlite = SqliteDatabase.openReadOnly(database)) {
+            SqlitePlayerRepository players = new SqlitePlayerRepository(sqlite);
+            Set<Long> layout = new HashSet<>();
+            for (Performer performer : problem.performers()) {
+                layout.add(performer.playerId());
+            }
+            Set<Long> required = new HashSet<>();
+            for (SongOccurrence occurrence : problem.occurrences()) {
+                for (RequiredPart part : occurrence.parts()) {
+                    if (part.instrumentId() != null) {
+                        required.add(part.instrumentId());
+                    }
+                }
+            }
+            List<Performer> extras = new ArrayList<>();
+            for (PlayerInfo info : players.listPlayers()) {
+                if (info.id() <= 0 || layout.contains(info.id())) {
+                    continue;
+                }
+                Set<Long> owned = new HashSet<>();
+                for (PlayerInstrumentInfo instrument : players.listPlayerInstruments(info.id())) {
+                    if (instrument.hasInstrument()) {
+                        owned.add(instrument.instrumentId());
+                    }
+                }
+                if (!ownsRequired(owned, required, problem.equivalentInstrumentIds())) {
+                    continue;
+                }
+                extras.add(new Performer(info.id(), owned));
+            }
+            extras.sort(Comparator.comparingLong(Performer::playerId));
+            return extras;
+        }
+    }
+
+    private static boolean ownsRequired(
+            Set<Long> owned,
+            Set<Long> required,
+            Map<Long, Set<Long>> equivalence) {
+        for (long instrument : owned) {
+            for (long needed : required) {
+                if (PhysicalInstrumentEquivalence.sameInstrument(instrument, needed, equivalence)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static LoadOutcome load(SqliteDatabase database, LoadRequest request) throws LibraryException {

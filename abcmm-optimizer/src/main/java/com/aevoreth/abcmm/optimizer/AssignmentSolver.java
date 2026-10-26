@@ -71,6 +71,7 @@ public final class AssignmentSolver {
         private CandidateState best;
         private boolean bestReplaced;
         private int accepted;
+        private long evaluated;
         private StopReason stop;
 
         private Search(
@@ -213,6 +214,7 @@ public final class AssignmentSolver {
                     if (expired()) {
                         return false;
                     }
+                    evaluated++;
                     if (SearchMoves.commitPairWindow(current, window.start, window.length, first, second)) {
                         recordAcceptance();
                         return true;
@@ -230,6 +232,7 @@ public final class AssignmentSolver {
                             if (expired()) {
                                 return false;
                             }
+                            evaluated++;
                             if (SearchMoves.commitCycleWindow(
                                     current, window.start, window.length, first, second, third, orientation)) {
                                 recordAcceptance();
@@ -243,6 +246,7 @@ public final class AssignmentSolver {
         }
 
         private boolean acceptPair(int song, int first, int second) {
+            evaluated++;
             if (!SearchMoves.commitPair(current, song, first, second)) {
                 return false;
             }
@@ -251,6 +255,7 @@ public final class AssignmentSolver {
         }
 
         private boolean acceptCycle(int song, int first, int second, int third, int orientation) {
+            evaluated++;
             if (!SearchMoves.commitCycle(current, song, first, second, third, orientation)) {
                 return false;
             }
@@ -410,6 +415,7 @@ public final class AssignmentSolver {
                     reason,
                     elapsed,
                     accepted,
+                    evaluated,
                     budget.seed());
         }
     }

@@ -81,6 +81,7 @@ class AssignmentSolverTest {
         SearchOutcome.Solved zero = solved(problem, rules, Duration.ZERO);
         assertEquals(StopReason.BUDGET, zero.reason());
         assertEquals(0, zero.acceptedMoves());
+        assertEquals(0, zero.evaluatedMoves());
         assertEquals(baseline, zero.breakdown());
         assertEquals(parts(Assignment.fromBaseline(problem)), parts(zero.assignment()));
 
@@ -210,6 +211,13 @@ class AssignmentSolverTest {
         assertEquals(accepted(problem, OptimizationRules.defaults()), first.get());
         assertEquals(solved.breakdown(), last.get());
         assertTrue(solved.breakdown().weightedScore() < first.get().weightedScore());
+    }
+
+    @Test
+    void positiveBudgetCountsRejectedCandidates() {
+        SearchOutcome.Solved solved = solved(swapFixture(), switchOnly(), Duration.ofMillis(200));
+        assertTrue(solved.evaluatedMoves() > 0);
+        assertTrue(solved.evaluatedMoves() >= solved.acceptedMoves());
     }
 
     @Test
