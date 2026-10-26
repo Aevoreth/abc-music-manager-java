@@ -1,6 +1,6 @@
 # abcmm-optimizer
 
-Read-only proof-of-concept for setlist instrument assignment. It snapshots one setlist into an immutable problem, checks hard constraints, and scores the baseline with adjacent-song rules. It does not search, change the database, or modify the Swing application.
+Read-only proof-of-concept for setlist instrument assignment. It snapshots one setlist into an immutable problem, checks hard constraints, scores the baseline with adjacent-song rules, and can search for a better feasible assignment. It does not change the database or modify the Swing application.
 
 The module stays on the `setlist-optimizer` branch until a later benchmark review.
 
@@ -40,6 +40,8 @@ A pin is not a weight. A part preference that names a different player can still
 
 The CLI scores the loaded baseline with those default rules. It prints the breakdown only when that baseline is accepted, using the breakdown's own fields. It does not take weight flags.
 
+`--search` runs the pure-Java solver on that same default rule set. It requires `--budget-seconds`. An omitted `--seed` uses 0 for the search. Without `--search`, seed and budget are only echoed and no solver runs. A zero budget returns the repaired baseline. The proposal is printed after the baseline report as `proposal_stop`, `proposal_moves`, and the proposal breakdown, or `proposal: infeasible` when no feasible assignment exists. Search still opens the database read-only.
+
 ## Reference check
 
 The private October 2026 reference setlist, id 24, is 34 songs and 33 transitions. The adjacent-song baseline is 148 penalized switches, worst transition 6, histogram `2=2,3=4,4=9,5=12,6=6`. The older lookback total of 156 is not the expected score.
@@ -56,14 +58,22 @@ PowerShell splits an unquoted `-Dexec.args=...` on the dot and on `C:`, and Mave
 mvn -pl abcmm-optimizer -DskipTests exec:java "-Dexec.args=--database C:\path\to\abc_music_manager.sqlite --setlist 24"
 ```
 
+Add `--search` and `--budget-seconds` to run the solver. `--budget-seconds 0` scores the repaired baseline and does not search a neighborhood:
+
+```powershell
+mvn -pl abcmm-optimizer -DskipTests exec:java "-Dexec.args=--database C:\path\to\abc_music_manager.sqlite --setlist 24 --search --budget-seconds 10 --seed 42"
+```
+
 Paths with spaces need the stop-parsing token so PowerShell does not split them:
 
 ```powershell
 mvn -pl abcmm-optimizer -DskipTests exec:java --% -Dexec.args="--database C:\path\to\my database.sqlite --setlist 24"
 ```
 
-Optional flags: `--seed <n>`, `--budget-seconds <n>`, `--players <n>`. Seed and budget are echoed for later search and do not run a solver. `--players` checks that the active layout roster has that many performers. It does not invent extra players.
+Optional flags: `--seed <n>`, `--budget-seconds <n>`, `--players <n>`, `--search`. `--players` checks that the active layout roster has that many performers. It does not invent extra players.
 
-Exit 0 means the snapshot and the baseline assignment are feasible, and the report includes the default score. Exit 1 means the problem is not well-defined or the arguments are invalid. Exit 2 means the snapshot loaded, but the current assignment breaks a hard constraint. Exit 1 and exit 2 do not print a weighted score when the baseline itself is rejected. A roster-size mismatch can still print a score when the assignment is otherwise accepted.
+Without `--search`, exit 0 means the snapshot and the baseline assignment are feasible, and the report includes the default score. Exit 1 means the problem is not well-defined or the arguments are invalid. Exit 2 means the snapshot loaded, but the current assignment breaks a hard constraint. Exit 1 and exit 2 do not print a weighted score when the baseline itself is rejected. A roster-size mismatch can still print a score when the assignment is otherwise accepted.
+
+With `--search`, exit 0 means a feasible proposal was found. Exit 2 means the snapshot loaded but no feasible assignment exists. Exit 1 still means bad arguments or an ill-defined problem, including a roster-size mismatch, and no search is run in that case.
 
 Do not commit a private library database. Tests build a synthetic database in a temporary directory.

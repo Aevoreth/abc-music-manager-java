@@ -2,12 +2,18 @@ package com.aevoreth.abcmm.optimizer.cli;
 
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 
+import com.aevoreth.abcmm.optimizer.AssignmentSolver;
+import com.aevoreth.abcmm.optimizer.Diagnostic;
 import com.aevoreth.abcmm.optimizer.LoadOutcome;
 import com.aevoreth.abcmm.optimizer.LoadRequest;
+import com.aevoreth.abcmm.optimizer.OptimizationRules;
 import com.aevoreth.abcmm.optimizer.ProblemReport;
+import com.aevoreth.abcmm.optimizer.SearchBudget;
+import com.aevoreth.abcmm.optimizer.SearchOutcome;
 import com.aevoreth.abcmm.optimizer.load.SqliteOptimizationLoader;
 
 /**
@@ -16,7 +22,7 @@ import com.aevoreth.abcmm.optimizer.load.SqliteOptimizationLoader;
 public final class OptimizerCli {
 
     static final String USAGE = "usage: OptimizerCli --database <path> --setlist <id> "
-            + "[--seed <n>] [--budget-seconds <n>] [--players <n>]";
+            + "[--seed <n>] [--budget-seconds <n>] [--players <n>] [--search]";
 
     private OptimizerCli() {
     }
@@ -33,8 +39,32 @@ public final class OptimizerCli {
             return 1;
         }
         LoadOutcome outcome = new SqliteOptimizationLoader().load(parsed.request());
-        out.print(ProblemReport.format(outcome));
-        return outcome.report().exitCode();
+        String report = ProblemReport.format(outcome);
+        if (!parsed.search()) {
+            out.print(report);
+            return outcome.report().exitCode();
+        }
+        if (outcome.problem() == null || !outcome.report().integrityOk()) {
+            out.print(report);
+            return 1;
+        }
+        long seed = outcome.seed() == null ? 0L : outcome.seed();
+        SearchOutcome searched = AssignmentSolver.solve(
+                outcome.problem(),
+                OptimizationRules.defaults(),
+                SearchBudget.of(seed, Duration.ofSeconds(outcome.budgetSeconds())));
+        out.print(report);
+        if (searched instanceof SearchOutcome.Solved solved) {
+            out.println("proposal_stop: " + solved.reason().reportName());
+            out.println("proposal_moves: " + solved.acceptedMoves());
+            out.print(solved.breakdown().format());
+            return 0;
+        }
+        out.println("proposal: infeasible");
+        for (Diagnostic diagnostic : ((SearchOutcome.Infeasible) searched).diagnostics()) {
+            out.println(diagnostic.format());
+        }
+        return 2;
     }
 
     private static Parsed parse(String[] args) {
@@ -43,6 +73,7 @@ public final class OptimizerCli {
         Long seed = null;
         Long budgetSeconds = null;
         Integer players = null;
+        boolean search = false;
         Set<String> seen = new HashSet<>();
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -51,6 +82,10 @@ public final class OptimizerCli {
             }
             if (!seen.add(arg)) {
                 return Parsed.error("duplicate argument: " + arg);
+            }
+            if (arg.equals("--search")) {
+                search = true;
+                continue;
             }
             if (i + 1 >= args.length || args[i + 1].startsWith("--")) {
                 return Parsed.error("missing value for " + arg);
@@ -98,7 +133,10 @@ public final class OptimizerCli {
         if (setlistId == null) {
             return Parsed.error("missing --setlist");
         }
-        return Parsed.ok(new LoadRequest(database, setlistId, seed, budgetSeconds, players));
+        if (search && budgetSeconds == null) {
+            return Parsed.error("missing --budget-seconds");
+        }
+        return Parsed.ok(new LoadRequest(database, setlistId, seed, budgetSeconds, players), search);
     }
 
     private static Long parsePositiveLong(String value) {
@@ -126,13 +164,13 @@ public final class OptimizerCli {
         return parsed.intValue();
     }
 
-    private record Parsed(LoadRequest request, String error) {
-        private static Parsed ok(LoadRequest request) {
-            return new Parsed(request, null);
+    private record Parsed(LoadRequest request, boolean search, String error) {
+        private static Parsed ok(LoadRequest request, boolean search) {
+            return new Parsed(request, search, null);
         }
 
         private static Parsed error(String error) {
-            return new Parsed(null, error);
+            return new Parsed(null, false, error);
         }
     }
 }

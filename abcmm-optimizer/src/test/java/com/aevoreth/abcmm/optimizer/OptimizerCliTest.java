@@ -70,6 +70,7 @@ class OptimizerCliTest {
         assertTrue(out.contains("histogram: 2=1"));
         assertTrue(out.contains("transition: 0 changes=2"));
         assertTrue(out.contains("out_of_layout_assignment"));
+        assertFalse(out.contains("proposal_stop:"));
         assertFalse(out.contains("Alice"));
         assertFalse(out.contains("Fixture Tune"));
         assertFalse(out.contains("Feasible Set"));
@@ -85,6 +86,68 @@ class OptimizerCliTest {
             });
         }
         assertArrayEquals(before, Files.readAllBytes(database));
+    }
+
+    @Test
+    void searchWithZeroBudgetAppendsTheBaselineProposal() throws Exception {
+        Path database = tempDir.resolve("cli-search.sqlite");
+        long setlistId;
+        try (SyntheticLibrary library = SyntheticLibrary.create(database)) {
+            setlistId = library.feasibleId;
+        }
+        byte[] before = Files.readAllBytes(database);
+
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        int code = OptimizerCli.run(
+                new String[] {
+                        "--database", database.toString(),
+                        "--setlist", Long.toString(setlistId),
+                        "--search",
+                        "--budget-seconds", "0"
+                },
+                new PrintStream(stdout, true, StandardCharsets.UTF_8),
+                new PrintStream(stderr, true, StandardCharsets.UTF_8));
+
+        String out = stdout.toString(StandardCharsets.UTF_8);
+        assertEquals(0, code);
+        assertEquals("", stderr.toString(StandardCharsets.UTF_8));
+        assertTrue(out.contains("baseline: ok"));
+        assertTrue(out.contains("proposal_stop: budget"));
+        assertTrue(out.contains("proposal_moves: 0"));
+        assertEquals(2, count(out, "changes: 2"));
+        assertEquals(2, count(out, "weighted_score: 2.0"));
+        assertArrayEquals(before, Files.readAllBytes(database));
+    }
+
+    @Test
+    void searchRequiresABudgetAndDoesNotOpenTheDatabase() throws Exception {
+        Path database = tempDir.resolve("unused-search.sqlite");
+        Files.writeString(database, "not a database");
+        byte[] before = Files.readAllBytes(database);
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        int code = OptimizerCli.run(
+                new String[] {"--database", database.toString(), "--setlist", "1", "--search"},
+                new PrintStream(stdout, true, StandardCharsets.UTF_8),
+                new PrintStream(stderr, true, StandardCharsets.UTF_8));
+        assertEquals(1, code);
+        assertEquals("", stdout.toString(StandardCharsets.UTF_8));
+        assertTrue(stderr.toString(StandardCharsets.UTF_8).contains("missing --budget-seconds"));
+        assertArrayEquals(before, Files.readAllBytes(database));
+    }
+
+    private static int count(String text, String token) {
+        int count = 0;
+        int from = 0;
+        while (true) {
+            int found = text.indexOf(token, from);
+            if (found < 0) {
+                return count;
+            }
+            count++;
+            from = found + token.length();
+        }
     }
 
     private static java.util.Set<String> listNames(Path directory) throws Exception {
