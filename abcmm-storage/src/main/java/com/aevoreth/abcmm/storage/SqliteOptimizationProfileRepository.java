@@ -393,16 +393,25 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 bandLayoutId);
     }
 
-    void copyOccurrencePreferences(long sourceItemId, long newItemId) throws SQLException {
+    void copyOccurrencePreferences(long sourceItemId, long newItemId, boolean sameLayout) throws SQLException {
+        // Preserve shared characters when changing layouts, but never import off-layout rules.
+        String characterFilter = sameLayout ? "" : """
+                 AND player_id IN (
+                     SELECT slot.player_id FROM BandLayoutSlot slot
+                     JOIN Setlist s ON s.band_layout_id = slot.band_layout_id
+                     JOIN SetlistItem item ON item.setlist_id = s.id
+                     WHERE item.id = ?)
+                """;
         String partSql = """
                 INSERT INTO SetlistPartPreference (setlist_item_id, part_number, player_id, penalty)
                 SELECT ?, part_number, player_id, penalty
                 FROM SetlistPartPreference
                 WHERE setlist_item_id = ?
                 """;
-        try (PreparedStatement statement = database.connection().prepareStatement(partSql)) {
+        try (PreparedStatement statement = database.connection().prepareStatement(partSql + characterFilter)) {
             statement.setLong(1, newItemId);
             statement.setLong(2, sourceItemId);
+            if (!sameLayout) statement.setLong(3, newItemId);
             statement.executeUpdate();
         }
         String itemSql = """
@@ -431,9 +440,10 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 FROM SetlistAssignmentPin
                 WHERE setlist_item_id = ?
                 """;
-        try (PreparedStatement statement = database.connection().prepareStatement(pinSql)) {
+        try (PreparedStatement statement = database.connection().prepareStatement(pinSql + characterFilter)) {
             statement.setLong(1, newItemId);
             statement.setLong(2, sourceItemId);
+            if (!sameLayout) statement.setLong(3, newItemId);
             statement.executeUpdate();
         }
     }

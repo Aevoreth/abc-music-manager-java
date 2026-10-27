@@ -371,7 +371,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
      * Copy source items onto a freshly created duplicate. When the chosen band layout matches
      * the source, preserve per-item song layouts, change-duration overrides, and band
      * assignments; otherwise remap song layouts to the new band layout (or clear them).
-     * Occurrence preferences and assignment pins are copied onto the new item ids either way.
+     * Preservation weights are copied; character rules on a different layout retain only its members.
      */
     private void copyItemsForDuplicate(
             long newSetlistId,
@@ -407,7 +407,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
             }
             try {
                 new SqliteOptimizationProfileRepository(database)
-                        .copyOccurrencePreferences(item.id(), newItemId);
+                        .copyOccurrencePreferences(item.id(), newItemId, sameLayout);
             } catch (SQLException ex) {
                 throw new LibraryException("Failed to copy occurrence preferences", ex);
             }

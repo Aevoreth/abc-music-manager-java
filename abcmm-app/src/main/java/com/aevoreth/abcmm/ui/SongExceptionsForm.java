@@ -168,7 +168,9 @@ final class SongExceptionsForm extends JPanel {
                 boolean unchanged = pins.stream().anyMatch(p -> p.setlistItemId() == selected && p.partNumber() == part && p.playerId() == character.id());
                 if (!owned && !unchanged) throw new IllegalArgumentException(character.name() + " does not own the instrument for part " + part + ".");
                 nextPins.add(new AssignmentPin(selected, part, character.id()));
-                preferences.stream().filter(p -> p.setlistItemId() == selected && p.partNumber() == part).forEach(nextPreferences::add);
+                // Keep legacy combinations on an unchanged pin, but an edited pin replaces
+                // the combined assignment setting, including its hidden soft preference.
+                if (unchanged) preferences.stream().filter(p -> p.setlistItemId() == selected && p.partNumber() == part).forEach(nextPreferences::add);
             }
         }
         for (AssignmentPin pin : nextPins) {
