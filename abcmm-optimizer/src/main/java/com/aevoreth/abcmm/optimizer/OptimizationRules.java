@@ -1,5 +1,7 @@
 package com.aevoreth.abcmm.optimizer;
 
+import com.aevoreth.abcmm.domain.optimizer.InstrumentPlacementRule;
+
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,7 +42,35 @@ public record OptimizationRules(
         List<InstrumentAffinity> instrumentAffinities,
         List<PartPreference> partPreferences,
         Map<Long, Double> itemKeepMultiplier,
-        Map<OccurrencePart, Double> partKeepMultiplier) {
+        Map<OccurrencePart, Double> partKeepMultiplier,
+        List<InstrumentPlacementRule> instrumentPlacements) {
+
+    public OptimizationRules(
+            double smoothWeight,
+            double totalWeight,
+            double roleWeight,
+            double keepWeight,
+            int targetChanges,
+            double defaultSwitchMultiplier,
+            Map<Long, Double> playerSwitchMultiplier,
+            List<InstrumentAffinity> instrumentAffinities,
+            List<PartPreference> partPreferences,
+            Map<Long, Double> itemKeepMultiplier,
+            Map<OccurrencePart, Double> partKeepMultiplier) {
+        this(
+                smoothWeight,
+                totalWeight,
+                roleWeight,
+                keepWeight,
+                targetChanges,
+                defaultSwitchMultiplier,
+                playerSwitchMultiplier,
+                instrumentAffinities,
+                partPreferences,
+                itemKeepMultiplier,
+                partKeepMultiplier,
+                List.of());
+    }
 
     public OptimizationRules {
         requireWeight(smoothWeight, "smoothWeight");
@@ -58,6 +88,17 @@ public record OptimizationRules(
         partKeepMultiplier = copyPartWeights(partKeepMultiplier);
         rejectDuplicateAffinities(instrumentAffinities);
         rejectDuplicatePreferences(partPreferences);
+        instrumentPlacements =
+                instrumentPlacements.stream()
+                        .sorted(
+                                java.util.Comparator.comparingLong(
+                                        InstrumentPlacementRule::instrumentId))
+                        .toList();
+        Set<Long> placementIds = new HashSet<>();
+        for (InstrumentPlacementRule placement : instrumentPlacements) {
+            if (!placementIds.add(placement.instrumentId()))
+                throw new IllegalArgumentException("Duplicate instrument placement.");
+        }
     }
 
     /** Smooth, total, role, and keep weights of 1, target 2, and no scoped preferences. */

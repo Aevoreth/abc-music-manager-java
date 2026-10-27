@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Random;
+import java.util.function.BooleanSupplier;
 
 /**
  * Builds a feasible start from the baseline. A legal song is copied. Any other
@@ -16,15 +18,22 @@ final class AssignmentRepair {
     }
 
     static Result repair(ProblemIndex index) {
+        return repair(index, null, () -> false);
+    }
+
+    static Result repair(ProblemIndex index, Random random, BooleanSupplier cancelled) {
         CandidateState state = CandidateState.create(index);
         boolean preserved = true;
         for (int song = 0; song < index.songs; song++) {
-            if (index.baselineSongLegal[song]) {
+            if (cancelled.getAsBoolean()) {
+                return Result.failed();
+            }
+            if (random == null && index.baselineSongLegal[song]) {
                 System.arraycopy(index.baselinePart[song], 0, state.partByPlayer[song], 0, index.players);
                 state.rebuild(song);
             } else {
                 preserved = false;
-                if (!match(index, state, song)) {
+                if (!match(index, state, song, random)) {
                     return Result.failed();
                 }
             }
@@ -33,7 +42,20 @@ final class AssignmentRepair {
         return Result.ready(state, preserved);
     }
 
-    private static boolean match(ProblemIndex index, CandidateState state, int song) {
+    private static boolean match(
+            ProblemIndex index, CandidateState state, int song, Random random) {
+        int[] playerOrder = new int[index.players];
+        for (int i = 0; i < playerOrder.length; i++) {
+            playerOrder[i] = i;
+        }
+        if (random != null) {
+            for (int i = playerOrder.length - 1; i > 0; i--) {
+                int j = random.nextInt(i + 1);
+                int held = playerOrder[i];
+                playerOrder[i] = playerOrder[j];
+                playerOrder[j] = held;
+            }
+        }
         int parts = index.partCounts[song];
         int players = index.players;
         int[] playerOfPart = new int[parts];
@@ -84,13 +106,25 @@ final class AssignmentRepair {
         Arrays.sort(order, Comparator
                 .comparingInt((Integer part) -> index.partNumbers[song][part])
                 .thenComparingInt(part -> part));
+        if (random != null) {
+            java.util.Collections.shuffle(Arrays.asList(order), random);
+        }
         boolean[] seen = new boolean[players];
         for (int part : order) {
             if (playerOfPart[part] >= 0) {
                 continue;
             }
             Arrays.fill(seen, false);
-            if (!augment(index, song, part, playerOfPart, partOfPlayer, seen, fixed)) {
+            if (!augment(
+                    index,
+                    song,
+                    part,
+                    playerOfPart,
+                    partOfPlayer,
+                    seen,
+                    fixed,
+                    playerOrder,
+                    random == null)) {
                 return false;
             }
         }
@@ -215,20 +249,43 @@ final class AssignmentRepair {
             int[] playerOfPart,
             int[] partOfPlayer,
             boolean[] seen,
-            boolean[] fixed) {
+            boolean[] fixed,
+            int[] playerOrder,
+            boolean preferBaseline) {
         int preferred = -1;
         for (int player = 0; player < index.players; player++) {
-            if (index.baselinePart[song][player] == part) {
+            if (preferBaseline && index.baselinePart[song][player] == part) {
                 preferred = player;
                 break;
             }
         }
-        if (preferred >= 0 && assign(index, song, part, preferred, playerOfPart, partOfPlayer, seen, fixed)) {
+        if (preferred >= 0
+                && assign(
+                        index,
+                        song,
+                        part,
+                        preferred,
+                        playerOfPart,
+                        partOfPlayer,
+                        seen,
+                        fixed,
+                        playerOrder,
+                        preferBaseline)) {
             return true;
         }
-        for (int player = 0; player < index.players; player++) {
+        for (int player : playerOrder) {
             if (player != preferred
-                    && assign(index, song, part, player, playerOfPart, partOfPlayer, seen, fixed)) {
+                    && assign(
+                            index,
+                            song,
+                            part,
+                            player,
+                            playerOfPart,
+                            partOfPlayer,
+                            seen,
+                            fixed,
+                            playerOrder,
+                            preferBaseline)) {
                 return true;
             }
         }
@@ -243,7 +300,9 @@ final class AssignmentRepair {
             int[] playerOfPart,
             int[] partOfPlayer,
             boolean[] seen,
-            boolean[] fixed) {
+            boolean[] fixed,
+            int[] playerOrder,
+            boolean preferBaseline) {
         if (seen[player]
                 || fixed[player]
                 || index.pinnedPart[song][player] >= 0
@@ -252,7 +311,17 @@ final class AssignmentRepair {
         }
         seen[player] = true;
         int holding = partOfPlayer[player];
-        if (holding < 0 || augment(index, song, holding, playerOfPart, partOfPlayer, seen, fixed)) {
+        if (holding < 0
+                || augment(
+                        index,
+                        song,
+                        holding,
+                        playerOfPart,
+                        partOfPlayer,
+                        seen,
+                        fixed,
+                        playerOrder,
+                        preferBaseline)) {
             partOfPlayer[player] = part;
             playerOfPart[part] = player;
             return true;

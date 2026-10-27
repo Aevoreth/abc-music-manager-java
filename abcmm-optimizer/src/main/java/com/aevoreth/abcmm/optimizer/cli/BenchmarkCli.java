@@ -27,9 +27,10 @@ import com.aevoreth.abcmm.optimizer.load.SqliteOptimizationLoader;
  */
 public final class BenchmarkCli {
 
-    static final String USAGE = "usage: BenchmarkCli (--database <path> --setlist <id> | --fixture public) "
-            + "[--rosters 12,16,18] [--seeds 0,1,42] [--budget-seconds <n>] "
-            + "[--checkpoints 1,2,5,10,30,60] [--cold-warm true|false] [--warmup-seconds <n>] [--out <path>]";
+    static final String USAGE =
+            "usage: BenchmarkCli (--database <path> --setlist <id> | --fixture public|synthetic)"
+                + " [--rosters 12,16,18] [--seeds 0,1,42] [--budget-seconds <n>] [--checkpoints"
+                + " 1,2,5,10,30,60] [--cold-warm true|false] [--warmup-seconds <n>] [--out <path>]";
 
     private static final List<Integer> DEFAULT_ROSTERS = List.of(12, 16, 18);
     private static final List<Long> DEFAULT_SEEDS = List.of(0L, 1L, 42L);
@@ -54,7 +55,10 @@ public final class BenchmarkCli {
         long size = -1;
         FileTime modified = null;
         if (parsed.fixture()) {
-            problem = BenchmarkFixture.problem();
+            problem =
+                    parsed.synthetic()
+                            ? BenchmarkFixture.synthetic(34, 12, 2026)
+                            : BenchmarkFixture.problem();
         } else {
             try {
                 size = Files.size(parsed.database());
@@ -89,17 +93,23 @@ public final class BenchmarkCli {
                 return 1;
             }
         }
-        String report = BenchmarkRunner.run(new BenchmarkRunner.BenchmarkRequest(
-                parsed.fixture() ? "public-fixture" : "database",
-                problem,
-                extras,
-                parsed.rosters(),
-                parsed.seeds(),
-                Duration.ofSeconds(parsed.budgetSeconds()),
-                parsed.checkpoints(),
-                parsed.coldWarm(),
-                Duration.ofSeconds(parsed.warmupSeconds()),
-                err));
+        String report =
+                BenchmarkRunner.run(
+                        new BenchmarkRunner.BenchmarkRequest(
+                                parsed.fixture()
+                                        ? (parsed.synthetic()
+                                                ? "synthetic-fixture"
+                                                : "public-fixture")
+                                        : "database",
+                                problem,
+                                extras,
+                                parsed.rosters(),
+                                parsed.seeds(),
+                                Duration.ofSeconds(parsed.budgetSeconds()),
+                                parsed.checkpoints(),
+                                parsed.coldWarm(),
+                                Duration.ofSeconds(parsed.warmupSeconds()),
+                                err));
         int exit = 0;
         if (!parsed.fixture()) {
             boolean unchanged = unchanged(parsed.database(), size, modified);
@@ -151,6 +161,7 @@ public final class BenchmarkCli {
         Path database = null;
         Long setlistId = null;
         boolean fixture = false;
+        boolean synthetic = false;
         List<Integer> rosters = null;
         List<Long> seeds = null;
         Long budgetSeconds = null;
@@ -185,10 +196,11 @@ public final class BenchmarkCli {
                     }
                 }
                 case "--fixture" -> {
-                    if (!value.equals("public")) {
+                    if (!value.equals("public") && !value.equals("synthetic")) {
                         return Parsed.error("invalid --fixture");
                     }
                     fixture = true;
+                    synthetic = value.equals("synthetic");
                 }
                 case "--rosters" -> {
                     rosters = parsePositiveInts(value);
@@ -274,8 +286,18 @@ public final class BenchmarkCli {
         if (warmupSeconds == null) {
             warmupSeconds = coldWarm ? 2L : 0L;
         }
-        return Parsed.ok(database, setlistId == null ? 0 : setlistId, fixture, rosters, seeds,
-                budgetSeconds, checkpoints, coldWarm, warmupSeconds, out);
+        return Parsed.ok(
+                database,
+                setlistId == null ? 0 : setlistId,
+                fixture,
+                synthetic,
+                rosters,
+                seeds,
+                budgetSeconds,
+                checkpoints,
+                coldWarm,
+                warmupSeconds,
+                out);
     }
 
     private static List<Integer> parsePositiveInts(String value) {
@@ -343,6 +365,7 @@ public final class BenchmarkCli {
             Path database,
             long setlistId,
             boolean fixture,
+            boolean synthetic,
             List<Integer> rosters,
             List<Long> seeds,
             long budgetSeconds,
@@ -356,6 +379,7 @@ public final class BenchmarkCli {
                 Path database,
                 long setlistId,
                 boolean fixture,
+                boolean synthetic,
                 List<Integer> rosters,
                 List<Long> seeds,
                 long budgetSeconds,
@@ -363,12 +387,25 @@ public final class BenchmarkCli {
                 boolean coldWarm,
                 long warmupSeconds,
                 Path out) {
-            return new Parsed(database, setlistId, fixture, rosters, seeds, budgetSeconds, checkpoints,
-                    coldWarm, warmupSeconds, out, null);
+            return new Parsed(
+                    database,
+                    setlistId,
+                    fixture,
+                    synthetic,
+                    rosters,
+                    seeds,
+                    budgetSeconds,
+                    checkpoints,
+                    coldWarm,
+                    warmupSeconds,
+                    out,
+                    null);
         }
 
         private static Parsed error(String error) {
-            return new Parsed(null, 0, false, List.of(), List.of(), 0, List.of(), false, 0, null, error);
+            return new Parsed(
+                    null, 0, false, false, List.of(), List.of(), 0, List.of(), false, 0, null,
+                    error);
         }
     }
 }

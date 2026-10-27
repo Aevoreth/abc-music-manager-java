@@ -78,6 +78,25 @@ public final class AssignmentScorer {
             }
         }
         checkAffinities(problem, rules, performers, diagnostics);
+        java.util.Set<Long> placementInstruments = new java.util.HashSet<>();
+        for (var placement : rules.instrumentPlacements()) {
+            if (!problem.equivalentInstrumentIds().containsKey(placement.instrumentId())) {
+                diagnostics.add(
+                        Diagnostic.integrity(
+                                "rule_unknown_instrument",
+                                Diagnostics.detail("instrument", placement.instrumentId())));
+            }
+            for (Long existing : placementInstruments) {
+                if (PhysicalInstrumentEquivalence.sameInstrument(
+                        existing, placement.instrumentId(), problem.equivalentInstrumentIds())) {
+                    diagnostics.add(
+                            Diagnostic.integrity(
+                                    "rule_duplicate_placement",
+                                    Diagnostics.detail("instrument", placement.instrumentId())));
+                }
+            }
+            placementInstruments.add(placement.instrumentId());
+        }
         for (PartPreference preference : rules.partPreferences()) {
             checkPartReference(
                     occurrences,
@@ -239,8 +258,13 @@ public final class AssignmentScorer {
                     }
                     continue;
                 }
-                roleDeviation += affinityMiss(
-                        affinities.get(slot.playerId()), part.instrumentId(), equivalence);
+                roleDeviation +=
+                        affinityMiss(
+                                        affinities.get(slot.playerId()),
+                                        part.instrumentId(),
+                                        equivalence)
+                                + PlacementRules.penalty(
+                                        problem, rules, slot.playerId(), part.instrumentId());
             }
         }
 

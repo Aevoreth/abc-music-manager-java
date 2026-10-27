@@ -69,7 +69,8 @@ public final class OptimizationRulesMapper {
                 affinities,
                 parts,
                 itemKeep,
-                partKeep);
+                partKeep,
+                profile.instrumentPlacements());
     }
 
     public static List<Pin> toPins(List<AssignmentPin> pins) {

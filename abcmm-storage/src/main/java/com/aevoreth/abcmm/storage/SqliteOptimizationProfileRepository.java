@@ -17,6 +17,7 @@ import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.optimizer.AssignmentPin;
 import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
 import com.aevoreth.abcmm.domain.optimizer.InstrumentAffinityWeight;
+import com.aevoreth.abcmm.domain.optimizer.InstrumentPlacementRule;
 import com.aevoreth.abcmm.domain.optimizer.ItemKeepWeight;
 import com.aevoreth.abcmm.domain.optimizer.OccurrencePreferences;
 import com.aevoreth.abcmm.domain.optimizer.OptimizationProfileRepository;
@@ -46,14 +47,16 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
             "targetChanges",
             "defaultSwitchMultiplier");
 
-    private static final Set<String> SETTINGS_FIELDS = Set.of(
-            "smoothWeight",
-            "totalWeight",
-            "roleWeight",
-            "keepWeight",
-            "targetChanges",
-            "defaultSwitchMultiplier",
-            "searchBudget");
+    private static final Set<String> SETTINGS_FIELDS =
+            Set.of(
+                    "smoothWeight",
+                    "totalWeight",
+                    "roleWeight",
+                    "keepWeight",
+                    "targetChanges",
+                    "defaultSwitchMultiplier",
+                    "searchBudget",
+                    "instrumentPlacements");
 
     private final SqliteDatabase database;
 
@@ -90,7 +93,8 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                         scalars.defaultSwitchMultiplier(),
                         listSwitchWeights(bandId),
                         listAffinities(bandId),
-                        scalars.searchBudget());
+                        scalars.searchBudget(),
+                        scalars.instrumentPlacements());
             }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to read optimization profile", ex);
@@ -104,30 +108,45 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
             throw new LibraryException(
                     "Unsupported optimization profile version " + profile.settingsVersion());
         }
-        inTransaction(() -> {
-            requireRow("SELECT 1 FROM Band WHERE id = ?", bandId, "Band not found: " + bandId);
-            for (PlayerSwitchWeight weight : profile.playerSwitchWeights()) {
-                requireRow(
-                        "SELECT 1 FROM Player WHERE id = ?",
-                        weight.playerId(),
-                        "Player not found: " + weight.playerId());
-            }
-            for (InstrumentAffinityWeight weight : profile.instrumentAffinities()) {
-                requireRow(
-                        "SELECT 1 FROM Player WHERE id = ?",
-                        weight.playerId(),
-                        "Player not found: " + weight.playerId());
-                requireRow(
-                        "SELECT 1 FROM Instrument WHERE id = ?",
-                        weight.instrumentId(),
-                        "Instrument not found: " + weight.instrumentId());
-            }
-            writeProfileRow(bandId, profile);
-            executeUpdate("DELETE FROM BandPlayerSwitchWeight WHERE band_id = ?", bandId);
-            executeUpdate("DELETE FROM BandInstrumentAffinity WHERE band_id = ?", bandId);
-            insertSwitchWeights(bandId, profile.playerSwitchWeights());
-            insertAffinities(bandId, profile.instrumentAffinities());
-        });
+        inTransaction(
+                () -> {
+                    requireRow(
+                            "SELECT 1 FROM Band WHERE id = ?", bandId, "Band not found: " + bandId);
+                    for (PlayerSwitchWeight weight : profile.playerSwitchWeights()) {
+                        requireRow(
+                                "SELECT 1 FROM Player WHERE id = ?",
+                                weight.playerId(),
+                                "Player not found: " + weight.playerId());
+                    }
+                    for (InstrumentAffinityWeight weight : profile.instrumentAffinities()) {
+                        requireRow(
+                                "SELECT 1 FROM Player WHERE id = ?",
+                                weight.playerId(),
+                                "Player not found: " + weight.playerId());
+                        requireRow(
+                                "SELECT 1 FROM Instrument WHERE id = ?",
+                                weight.instrumentId(),
+                                "Instrument not found: " + weight.instrumentId());
+                    }
+                    for (InstrumentPlacementRule placement : profile.instrumentPlacements()) {
+                        requireRow(
+                                "SELECT 1 FROM Instrument WHERE id = ?",
+                                placement.instrumentId(),
+                                "Instrument not found");
+                        Set<Long> ids = new HashSet<>(placement.avoidedPlayerIds());
+                        ids.addAll(placement.preferredPlayerIds());
+                        for (Long id : ids)
+                            requireRow(
+                                    "SELECT 1 FROM Player WHERE id = ?",
+                                    id,
+                                    "Player not found: " + id);
+                    }
+                    writeProfileRow(bandId, profile);
+                    executeUpdate("DELETE FROM BandPlayerSwitchWeight WHERE band_id = ?", bandId);
+                    executeUpdate("DELETE FROM BandInstrumentAffinity WHERE band_id = ?", bandId);
+                    insertSwitchWeights(bandId, profile.playerSwitchWeights());
+                    insertAffinities(bandId, profile.instrumentAffinities());
+                });
     }
 
     @Override
@@ -255,6 +274,7 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
     }
 
     void deletePlayerReferences(long playerId) throws SQLException {
+        rewritePlacementPlayers(null, playerId, null);
         executeUpdate("DELETE FROM BandPlayerSwitchWeight WHERE player_id = ?", playerId);
         executeUpdate("DELETE FROM BandInstrumentAffinity WHERE player_id = ?", playerId);
         executeUpdate("DELETE FROM SetlistPartPreference WHERE player_id = ?", playerId);
@@ -268,6 +288,7 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
      */
     void transferPlayer(long bandId, long bandLayoutId, long oldPlayerId, long newPlayerId)
             throws SQLException {
+        rewritePlacementPlayers(bandId, oldPlayerId, newPlayerId);
         if (rowExists(
                 "SELECT 1 FROM BandPlayerSwitchWeight WHERE band_id = ? AND player_id = ?",
                 bandId,
@@ -805,6 +826,61 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
         }
     }
 
+    private void rewritePlacementPlayers(Long bandId, long oldPlayer, Long replacement)
+            throws SQLException {
+        List<Long> bands = new ArrayList<>();
+        List<String> documents = new ArrayList<>();
+        try (PreparedStatement query =
+                database.connection()
+                        .prepareStatement(
+                                "SELECT band_id, settings_json FROM BandOptimizationProfile"
+                                        + (bandId == null ? "" : " WHERE band_id = ?"))) {
+            if (bandId != null) query.setLong(1, bandId);
+            try (ResultSet rows = query.executeQuery()) {
+                while (rows.next()) {
+                    bands.add(rows.getLong(1));
+                    documents.add(rows.getString(2));
+                }
+            }
+        }
+        for (int i = 0; i < bands.size(); i++) {
+            try {
+                ObjectNode document = (ObjectNode) JSON.readTree(documents.get(i));
+                if (!document.has("instrumentPlacements")) continue;
+                for (JsonNode placement : document.get("instrumentPlacements")) {
+                    boolean destinationExists = false;
+                    if (replacement != null) {
+                        for (String field : List.of("avoidedPlayerIds", "preferredPlayerIds")) {
+                            for (JsonNode id : placement.path(field))
+                                destinationExists |= id.longValue() == replacement;
+                        }
+                    }
+                    for (String field : List.of("avoidedPlayerIds", "preferredPlayerIds")) {
+                        java.util.TreeSet<Long> ids = new java.util.TreeSet<>();
+                        for (JsonNode value : placement.path(field)) {
+                            if (value.longValue() != oldPlayer) ids.add(value.longValue());
+                            else if (replacement != null && !destinationExists)
+                                ids.add(replacement);
+                        }
+                        ((ObjectNode) placement).set(field, JSON.valueToTree(ids));
+                    }
+                }
+                try (PreparedStatement update =
+                        database.connection()
+                                .prepareStatement(
+                                        "UPDATE BandOptimizationProfile SET settings_json = ?,"
+                                            + " updated_at = ? WHERE band_id = ?")) {
+                    update.setString(1, JSON.writeValueAsString(document));
+                    update.setString(2, SqliteTimestamps.now());
+                    update.setLong(3, bands.get(i));
+                    update.executeUpdate();
+                }
+            } catch (java.io.IOException | ClassCastException ex) {
+                throw new SQLException("Cannot update instrument placement characters", ex);
+            }
+        }
+    }
+
     private static String writeSettings(BandOptimizationProfile profile) throws LibraryException {
         ObjectNode node = JSON.createObjectNode();
         node.put("smoothWeight", profile.smoothWeight());
@@ -814,6 +890,8 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
         node.put("targetChanges", profile.targetChanges());
         node.put("defaultSwitchMultiplier", profile.defaultSwitchMultiplier());
         node.put("searchBudget", profile.searchBudget().name());
+        if (!profile.instrumentPlacements().isEmpty())
+            node.set("instrumentPlacements", JSON.valueToTree(profile.instrumentPlacements()));
         try {
             return JSON.writeValueAsString(node);
         } catch (JsonProcessingException ex) {
@@ -860,7 +938,57 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 readWeight(node, "defaultSwitchMultiplier"),
                 List.of(),
                 List.of(),
-                readSearchBudget(node));
+                readSearchBudget(node),
+                readPlacements(node));
+    }
+
+    private static List<InstrumentPlacementRule> readPlacements(JsonNode node)
+            throws LibraryException {
+        if (!node.has("instrumentPlacements")) return List.of();
+        try {
+            JsonNode values = node.get("instrumentPlacements");
+            if (!values.isArray()) throw new IllegalArgumentException("Expected a list");
+            List<InstrumentPlacementRule> placements = new ArrayList<>();
+            Set<Long> seen = new HashSet<>();
+            Set<String> fields =
+                    Set.of("instrumentId", "preferredPlayerIds", "avoidedPlayerIds", "missPenalty");
+            for (JsonNode value : values) {
+                if (!value.isObject() || value.size() != fields.size())
+                    throw new IllegalArgumentException("Invalid placement fields");
+                value.fieldNames()
+                        .forEachRemaining(
+                                field -> {
+                                    if (!fields.contains(field))
+                                        throw new IllegalArgumentException(
+                                                "Unknown placement field");
+                                });
+                JsonNode id = value.path("instrumentId"), penalty = value.path("missPenalty");
+                if (!id.isIntegralNumber() || !id.canConvertToLong() || !penalty.isNumber())
+                    throw new IllegalArgumentException("Invalid placement number");
+                if (!seen.add(id.longValue()))
+                    throw new IllegalArgumentException("Duplicate placement");
+                placements.add(
+                        new InstrumentPlacementRule(
+                                id.longValue(),
+                                readPlacementPlayers(value.path("preferredPlayerIds")),
+                                readPlacementPlayers(value.path("avoidedPlayerIds")),
+                                penalty.doubleValue()));
+            }
+            return List.copyOf(placements);
+        } catch (IllegalArgumentException ex) {
+            throw new LibraryException("Invalid instrument placement rules", ex);
+        }
+    }
+
+    private static List<Long> readPlacementPlayers(JsonNode values) {
+        if (!values.isArray()) throw new IllegalArgumentException("Expected character ids");
+        List<Long> ids = new ArrayList<>();
+        for (JsonNode id : values) {
+            if (!id.isIntegralNumber() || !id.canConvertToLong())
+                throw new IllegalArgumentException("Invalid character id");
+            ids.add(id.longValue());
+        }
+        return ids;
     }
 
     private static SearchBudgetPreset readSearchBudget(JsonNode node) throws LibraryException {

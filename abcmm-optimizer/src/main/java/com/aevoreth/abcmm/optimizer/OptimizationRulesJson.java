@@ -70,6 +70,15 @@ public final class OptimizationRulesJson {
             json.append(",\"multiplier\":").append(Double.toString(partKeep.get(i).getValue()));
             json.append('}');
         }
+        json.append("],\"instrumentPlacements\":[");
+        for (int i = 0; i < rules.instrumentPlacements().size(); i++) {
+            if (i > 0) json.append(',');
+            var placement = rules.instrumentPlacements().get(i);
+            json.append("{\"instrumentId\":").append(placement.instrumentId());
+            json.append(",\"avoidedPlayerIds\":").append(placement.avoidedPlayerIds());
+            json.append(",\"preferredPlayerIds\":").append(placement.preferredPlayerIds());
+            json.append(",\"missPenalty\":").append(placement.missPenalty()).append('}');
+        }
         json.append("]}");
         return json.toString();
     }

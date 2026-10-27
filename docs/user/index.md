@@ -17,6 +17,7 @@ ABC Music Manager helps *Lord of the Rings Online* player musicians organize ABC
 | [Song detail and parts](song-detail-and-layouts.md) | Song detail dialog, metadata, parts, layouts, and Raw ABC |
 | [Bands](bands.md) | Players, bands, and band layout grids |
 | [Setlists](setlists.md) | Setlist editor, timing, and part assignments |
+| [Instrument optimizer](optimizer.md) | Weights, preferred characters, Avoid, pins, and examples |
 | [Set export](set-export.md) | Export sets to folders or zip with renaming and CSV sheets |
 | [Set Play (live events)](set-play.md) | Live set control and optional relay broadcast |
 | [Band Assistant](band-assistant.md) | Follow a bandleader’s Set Play session |

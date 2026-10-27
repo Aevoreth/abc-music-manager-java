@@ -286,6 +286,9 @@ final class SetlistOptimizationPanel extends JPanel {
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttons.add(searchButton);
+        JButton help = new JButton("Optimizer help…");
+        help.addActionListener(event -> OptimizerHelpDialog.show(this));
+        buttons.add(help);
         buttons.add(cancelButton);
         buttons.add(applyButton);
         add(buttons, BorderLayout.SOUTH);
@@ -676,6 +679,7 @@ final class SetlistOptimizationPanel extends JPanel {
         return switch (solved.reason()) {
             case CANCELLED -> "Stopped. Kept the best valid assignment found.";
             case BUDGET -> "Stopped when the time budget ended.";
+            case ATTEMPTS -> "Stopped when the comparison work limit was reached.";
             case LOCAL_OPTIMUM -> "Stopped at a local best.";
         };
     }

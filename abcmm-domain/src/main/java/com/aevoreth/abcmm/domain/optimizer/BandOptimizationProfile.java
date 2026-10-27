@@ -12,11 +12,11 @@ import java.util.Set;
  * by default and total stays on, so a flat overload still has a reason to
  * reduce switches.
  *
- * <p>Lists are sorted by id. A player switch weight replaces
- * {@code defaultSwitchMultiplier} for that player. Instrument affinity is
- * replaced, not stacked, when an occurrence part preference names that slot.
- * Hard pins are stored per setlist item, not on this profile.
- * {@code has_proficiency} is not an input.
+ * <p>Lists are sorted by id. A player switch weight replaces {@code defaultSwitchMultiplier} for
+ * that player. Instrument affinity is replaced, not stacked, when an occurrence part preference
+ * names that slot. Instrument-first placements charge a soft role penalty outside a preferred group
+ * or for an avoided character. Older profiles default to no placements. Hard pins are stored per
+ * setlist item, not on this profile. {@code has_proficiency} is not an input.
  *
  * <p>{@code settingsVersion} is the document version, not the SQLite schema version.
  * A missing {@code searchBudget} in an older document reads as {@link SearchBudgetPreset#NORMAL}.
@@ -31,7 +31,33 @@ public record BandOptimizationProfile(
         double defaultSwitchMultiplier,
         List<PlayerSwitchWeight> playerSwitchWeights,
         List<InstrumentAffinityWeight> instrumentAffinities,
-        SearchBudgetPreset searchBudget) {
+        SearchBudgetPreset searchBudget,
+        List<InstrumentPlacementRule> instrumentPlacements) {
+
+    public BandOptimizationProfile(
+            int settingsVersion,
+            double smoothWeight,
+            double totalWeight,
+            double roleWeight,
+            double keepWeight,
+            int targetChanges,
+            double defaultSwitchMultiplier,
+            List<PlayerSwitchWeight> playerSwitchWeights,
+            List<InstrumentAffinityWeight> instrumentAffinities,
+            SearchBudgetPreset searchBudget) {
+        this(
+                settingsVersion,
+                smoothWeight,
+                totalWeight,
+                roleWeight,
+                keepWeight,
+                targetChanges,
+                defaultSwitchMultiplier,
+                playerSwitchWeights,
+                instrumentAffinities,
+                searchBudget,
+                List.of());
+    }
 
     public static final int CURRENT_SETTINGS_VERSION = 1;
 
@@ -50,6 +76,17 @@ public record BandOptimizationProfile(
         playerSwitchWeights = copySwitches(playerSwitchWeights);
         instrumentAffinities = copyAffinities(instrumentAffinities);
         searchBudget = Objects.requireNonNull(searchBudget, "searchBudget");
+        instrumentPlacements =
+                instrumentPlacements.stream()
+                        .sorted(
+                                java.util.Comparator.comparingLong(
+                                        InstrumentPlacementRule::instrumentId))
+                        .toList();
+        Set<Long> instruments = new HashSet<>();
+        for (InstrumentPlacementRule placement : instrumentPlacements) {
+            if (!instruments.add(placement.instrumentId()))
+                throw new IllegalArgumentException("Duplicate instrument placement.");
+        }
     }
 
     /**

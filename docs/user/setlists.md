@@ -122,3 +122,5 @@ Toggle lock from the set tree context menu or the details dialog checkbox.
 ---
 
 [← User Guide home](index.md) · [Set export](set-export.md) · [Set Play](set-play.md)
+
+See [Instrument optimizer: settings and examples](optimizer.md) for back-row placement preferences, Avoid, and worked weight examples.

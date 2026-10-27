@@ -91,3 +91,19 @@ mvn -pl abcmm-optimizer -DskipTests exec:java "-Dexec.mainClass=com.aevoreth.abc
 `--fixture public` runs the committed 4-player fixture instead. Omit the budget and it stays at 0 seconds, which checks the harness without a long search. `--rosters`, `--seeds`, `--checkpoints`, `--cold-warm`, and `--warmup-seconds` override the defaults. `--out` writes the same text to another file.
 
 Exit 0 means the report was written. Exit 1 means the arguments, database, or roster size is invalid. Exit 2 means the database file changed size or last-modified time. The 60-second matrix is not part of `mvn test`.
+
+### Development regression checks
+
+`--fixture synthetic` uses a public, seeded 34-song problem with 12 active parts per song and three owned instruments per character. The default layout has 12 characters; roster expansion adds idle characters with limited inventories. It does not load a private database. For a short comparison:
+
+```bash
+mvn -pl abcmm-optimizer exec:java \
+  -Dexec.mainClass=com.aevoreth.abcmm.optimizer.cli.BenchmarkCli \
+  '-Dexec.args=--fixture synthetic --rosters 12,18 --seeds 0,1,42 --budget-seconds 1 --cold-warm false'
+```
+
+Keep fixture and search seeds, weights, rosters, JVM, and budgets the same when comparing versions. Candidate counts include rejected moves and starting-assignment attempts; they are not equivalent amounts of CPU work across algorithms.
+
+`SearchBudget.attempts(seed, count)` provides repeatable work limits for tests and experiments, with a one-minute safety deadline. `SolverQualityTest` compares the tiny public fixture against exhaustive enumeration, checks fixed-work repeatability, and compares full scoring against randomized moves, rollback, and independently generated starting assignments. These small exact results do not prove optimality for a real setlist.
+
+Search now checks a feasible greedy starting assignment and tries seeded randomized matchings after local optima, including cases where no pair swap can escape. All preservation costs continue to refer to the original baseline. The original assignment wins score ties. See [implementation and validation notes](../docs/OPTIMIZER_IMPROVEMENTS.md).

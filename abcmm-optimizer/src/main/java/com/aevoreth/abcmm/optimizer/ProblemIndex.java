@@ -244,10 +244,13 @@ final class ProblemIndex {
                     continue;
                 }
                 for (int player = 0; player < players; player++) {
-                    affinityMiss[song][part][player] = affinityMiss(
-                            affinities.get(playerIds[player]),
-                            instrument,
-                            problem.equivalentInstrumentIds());
+                    affinityMiss[song][part][player] =
+                            affinityMiss(
+                                            affinities.get(playerIds[player]),
+                                            instrument,
+                                            problem.equivalentInstrumentIds())
+                                    + PlacementRules.penalty(
+                                            problem, rules, playerIds[player], instrument);
                 }
             }
         }

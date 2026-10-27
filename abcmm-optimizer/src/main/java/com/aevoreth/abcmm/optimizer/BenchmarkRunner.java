@@ -285,7 +285,10 @@ public final class BenchmarkRunner {
         line(text, "checkpoints", join(request.checkpointSeconds()));
         line(text, "cold_warm", Boolean.toString(request.coldWarm()));
         line(text, "warmup_seconds", Long.toString(request.warmup().toSeconds()));
-        line(text, "candidate_moves", "evaluated neighborhood attempts, including rejects");
+        line(
+                text,
+                "candidate_moves",
+                "evaluated neighborhood and starting-assignment attempts, including rejects");
         line(text, "optimality", "not_claimed");
     }
 

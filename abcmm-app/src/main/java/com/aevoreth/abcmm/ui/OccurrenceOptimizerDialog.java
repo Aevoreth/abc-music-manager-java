@@ -214,6 +214,9 @@ public final class OccurrenceOptimizerDialog {
             }
         });
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton help = new JButton("Optimizer help…");
+        help.addActionListener(event -> OptimizerHelpDialog.show(dialog));
+        buttons.add(help);
         buttons.add(cancel);
         buttons.add(save);
         JPanel root = new JPanel(new BorderLayout(8, 8));

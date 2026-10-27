@@ -40,6 +40,55 @@ public final class BenchmarkFixture {
                 equivalence());
     }
 
+    /**
+     * Public stress fixture: 12 active parts, three owned instruments per character, optional idle
+     * extras.
+     */
+    public static OptimizationProblem synthetic(int songCount, int playerCount, long seed) {
+        if (songCount < 1 || playerCount < 12) {
+            throw new IllegalArgumentException("Need songs and at least 12 characters");
+        }
+        List<Performer> performers = new java.util.ArrayList<>();
+        Map<Long, String> instruments = new LinkedHashMap<>();
+        for (long id = 1; id <= 8; id++) instruments.put(id, "Synthetic instrument " + id);
+        for (int player = 0; player < playerCount; player++) {
+            performers.add(
+                    new Performer(
+                            10 + player,
+                            Set.of(
+                                    (long) (player % 8 + 1),
+                                    (long) ((player + 1) % 8 + 1),
+                                    (long) ((player + 3) % 8 + 1))));
+        }
+        java.util.Random fixture = new java.util.Random(seed);
+        List<SongOccurrence> songs = new java.util.ArrayList<>();
+        List<BaselineAssignment> baseline = new java.util.ArrayList<>();
+        for (int song = 0; song < songCount; song++) {
+            List<RequiredPart> parts = new java.util.ArrayList<>();
+            for (int player = 0; player < playerCount; player++) {
+                if (player < 12) {
+                    List<Long> owned =
+                            performers.get(player).ownedInstrumentIds().stream().sorted().toList();
+                    long instrument = owned.get(fixture.nextInt(owned.size()));
+                    parts.add(new RequiredPart(player + 1, instrument));
+                    baseline.add(play(100 + song, 10 + player, player + 1, instrument));
+                } else {
+                    baseline.add(idle(100 + song, 10 + player));
+                }
+            }
+            songs.add(new SongOccurrence(100 + song, 100 + song, song, parts));
+        }
+        return new OptimizationProblem(
+                1,
+                false,
+                1,
+                performers,
+                songs,
+                baseline,
+                List.of(),
+                PhysicalInstrumentEquivalence.equivalentIds(instruments));
+    }
+
     private static SongOccurrence song(long itemId, long first, long second, long third) {
         return new SongOccurrence(itemId, itemId, (int) (itemId - 101), List.of(
                 new RequiredPart(1, first),

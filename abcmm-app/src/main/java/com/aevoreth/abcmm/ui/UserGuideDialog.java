@@ -73,7 +73,7 @@ public final class UserGuideDialog extends JDialog {
     private final Deque<String> forwardStack = new ArrayDeque<>();
     private String currentRelPath;
 
-    private UserGuideDialog(Window owner) {
+    private UserGuideDialog(Window owner, String initialPage) {
         super(owner, titleWithVersion(), ModalityType.MODELESS);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setMinimumSize(new Dimension(560, 420));
@@ -115,16 +115,22 @@ public final class UserGuideDialog extends JDialog {
         pack();
         setLocationRelativeTo(owner);
 
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowOpened(WindowEvent e) {
-                navigateTo(HOME_PAGE, null, false);
-            }
-        });
+        addWindowListener(
+                new WindowAdapter() {
+                    @Override
+                    public void windowOpened(WindowEvent e) {
+                        navigateTo(initialPage, null, false);
+                    }
+                });
     }
 
     /** Open the user guide. */
     public static void open(Window owner) {
+        open(owner, HOME_PAGE);
+    }
+
+    /** Open a bundled guide topic, retaining normal navigation and theme support. */
+    public static void open(Window owner, String page) {
         if (!guideAvailable()) {
             JOptionPane.showMessageDialog(
                     owner,
@@ -133,7 +139,7 @@ public final class UserGuideDialog extends JDialog {
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        UserGuideDialog dialog = new UserGuideDialog(owner);
+        UserGuideDialog dialog = new UserGuideDialog(owner, page);
         dialog.setVisible(true);
     }
 

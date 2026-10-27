@@ -18,7 +18,6 @@ import java.util.Objects;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
-import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -40,6 +39,7 @@ import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
 import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
 import com.aevoreth.abcmm.domain.optimizer.InstrumentAffinityWeight;
+import com.aevoreth.abcmm.domain.optimizer.InstrumentPlacementRule;
 import com.aevoreth.abcmm.domain.optimizer.OptimizationProfileRepository;
 import com.aevoreth.abcmm.domain.optimizer.PlayerSwitchWeight;
 import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
@@ -51,14 +51,11 @@ import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
 public final class BandOptimizerForm extends JPanel {
 
     static final String UNIT_EXPLANATION =
-            "One smooth unit is one transition at the target plus one. "
-                    + "One total unit is one instrument switch. "
-                    + "One role unit is a miss penalty of 1. "
-                    + "One keep unit is one changed assignment. "
-                    + "Zero turns that goal off. "
-                    + "A preference does not change which instruments a player owns. "
-                    + "Always, when the song has it, assigns that instrument. "
-                    + "If several players always want the only part, priority decides who takes it.";
+            "One smooth unit is one transition at the target plus one. One total unit is one"
+                + " instrument switch. One role unit is a preference penalty of 1. One keep unit is"
+                + " one changed assignment. Zero turns that goal off. A preference does not change"
+                + " which instruments a player owns. Use Optimizer help for examples and Instrument"
+                + " placement for back-row preferences.";
 
     private final OptimizationProfileRepository profiles;
     private final PlayerRepository players;
@@ -71,6 +68,7 @@ public final class BandOptimizerForm extends JPanel {
     private final JSpinner defaultSwitch = weightSpinner(1);
     private final JComboBox<SearchBudgetPreset> budget = new JComboBox<>(SearchBudgetPreset.values());
     private final List<PlayerRuleRow> rows = new ArrayList<>();
+    private final List<InstrumentPlacementRule> placements = new ArrayList<>();
 
     public BandOptimizerForm(
             OptimizationProfileRepository profiles,
@@ -82,6 +80,7 @@ public final class BandOptimizerForm extends JPanel {
         this.players = Objects.requireNonNull(players, "players");
         this.bandId = bandId;
         BandOptimizationProfile profile = profiles.getBandProfile(bandId);
+        placements.addAll(profile.instrumentPlacements());
         setWeight(smooth, profile.smoothWeight());
         setWeight(total, profile.totalWeight());
         setWeight(role, profile.roleWeight());
@@ -103,6 +102,7 @@ public final class BandOptimizerForm extends JPanel {
         note.setEditable(false);
         note.setLineWrap(true);
         note.setWrapStyleWord(true);
+        note.setRows(5);
         note.setOpaque(false);
         note.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
 
@@ -141,6 +141,12 @@ public final class BandOptimizerForm extends JPanel {
                     weight.instrumentId(),
                     new AffinitySetting(weight.missPenalty(), weight.required()));
         }
+        for (InstrumentPlacementRule placement : placements) {
+            java.util.Set<Long> ids = new java.util.LinkedHashSet<>(placement.preferredPlayerIds());
+            ids.addAll(placement.avoidedPlayerIds());
+            for (Long id : ids)
+                byId.computeIfAbsent(id, player -> row(player, lookupName(player), false));
+        }
         rows.addAll(byId.values());
         rows.sort(Comparator
                 .comparing((PlayerRuleRow row) -> !row.onLayout)
@@ -155,6 +161,14 @@ public final class BandOptimizerForm extends JPanel {
         JPanel north = new JPanel(new BorderLayout(4, 4));
         north.add(note, BorderLayout.NORTH);
         north.add(weights, BorderLayout.CENTER);
+        JPanel tools = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton placement = new JButton("Instrument placement…");
+        placement.addActionListener(event -> editPlacements());
+        JButton help = new JButton("Optimizer help…");
+        help.addActionListener(event -> OptimizerHelpDialog.show(this));
+        tools.add(placement);
+        tools.add(help);
+        north.add(tools, BorderLayout.SOUTH);
         add(north, BorderLayout.NORTH);
         JScrollPane scroll = new JScrollPane(people);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
@@ -219,17 +233,20 @@ public final class BandOptimizerForm extends JPanel {
         if (preset == null) {
             preset = SearchBudgetPreset.NORMAL;
         }
-        profiles.saveBandProfile(bandId, new BandOptimizationProfile(
-                BandOptimizationProfile.CURRENT_SETTINGS_VERSION,
-                number(smooth),
-                number(total),
-                number(role),
-                number(keep),
-                ((Number) target.getValue()).intValue(),
-                number(defaultSwitch),
-                switches,
-                affinities,
-                preset));
+        profiles.saveBandProfile(
+                bandId,
+                new BandOptimizationProfile(
+                        BandOptimizationProfile.CURRENT_SETTINGS_VERSION,
+                        number(smooth),
+                        number(total),
+                        number(role),
+                        number(keep),
+                        ((Number) target.getValue()).intValue(),
+                        number(defaultSwitch),
+                        switches,
+                        affinities,
+                        preset,
+                        placements));
     }
 
     static SpinnerNumberModel weightModel(double value) {
@@ -243,8 +260,8 @@ public final class BandOptimizerForm extends JPanel {
         field.getAccessibleContext().setAccessibleName("Switch multiplier for " + shown);
         JLabel switchLabel = new JLabel("Switch");
         switchLabel.setLabelFor(field);
-        JButton preferred = new JButton("Preferred instruments…");
-        preferred.getAccessibleContext().setAccessibleName("Preferred instruments for " + shown);
+        JButton preferred = new JButton("Instrument preferences…");
+        preferred.getAccessibleContext().setAccessibleName("Instrument preferences for " + shown);
         PlayerRuleRow row = new PlayerRuleRow(
                 playerId, shown, onLayout, field, new LinkedHashMap<>(), new JPanel());
         preferred.addActionListener(e -> editAffinities(row));
@@ -254,7 +271,62 @@ public final class BandOptimizerForm extends JPanel {
         panel.add(switchLabel);
         panel.add(field);
         panel.add(preferred);
+        panel.setMaximumSize(
+                new java.awt.Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
         return row;
+    }
+
+    private void editPlacements() {
+        try {
+            Map<Long, String> instruments = new LinkedHashMap<>();
+            for (var instrument : players.listInstruments())
+                instruments.put(instrument.id(), displayInstrument(instrument.name()));
+            Map<Long, String> names = new LinkedHashMap<>();
+            for (PlayerRuleRow row : rows) names.put(row.playerId, row.name);
+            InstrumentPlacementForm form =
+                    new InstrumentPlacementForm(instruments, names, placements);
+            if (JOptionPane.showConfirmDialog(
+                            this,
+                            form,
+                            "Instrument placement",
+                            JOptionPane.OK_CANCEL_OPTION,
+                            JOptionPane.PLAIN_MESSAGE)
+                    == JOptionPane.OK_OPTION) {
+                placements.clear();
+                placements.addAll(form.values());
+            }
+        } catch (LibraryException ex) {
+            JOptionPane.showMessageDialog(
+                    this, ex.getMessage(), "Instrument placement", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private InstrumentPlacementRule placement(long instrumentId) {
+        return placements.stream()
+                .filter(rule -> rule.instrumentId() == instrumentId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void setAvoidance(long playerId, long instrumentId, boolean avoided, double penalty) {
+        InstrumentPlacementRule existing = placement(instrumentId);
+        List<Long> preferred =
+                new ArrayList<>(existing == null ? List.of() : existing.preferredPlayerIds());
+        List<Long> avoid =
+                new ArrayList<>(existing == null ? List.of() : existing.avoidedPlayerIds());
+        avoid.remove(playerId);
+        if (avoided) {
+            avoid.add(playerId);
+            preferred.remove(playerId);
+        }
+        placements.removeIf(rule -> rule.instrumentId() == instrumentId);
+        if (!preferred.isEmpty() || !avoid.isEmpty())
+            placements.add(
+                    new InstrumentPlacementRule(
+                            instrumentId,
+                            preferred,
+                            avoid,
+                            avoided ? penalty : existing.missPenalty()));
     }
 
     private void editAffinities(PlayerRuleRow row) {
@@ -266,106 +338,80 @@ public final class BandOptimizerForm extends JPanel {
                 }
             }
         } catch (LibraryException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Preferred instruments",
-                    JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this, ex.getMessage(), "Instrument preferences", JOptionPane.ERROR_MESSAGE);
             return;
+        }
+        for (InstrumentPlacementRule placement : placements) {
+            if (placement.avoidedPlayerIds().contains(row.playerId)) {
+                instruments.putIfAbsent(
+                        placement.instrumentId(), instrumentName(placement.instrumentId()));
+            }
         }
         for (Long instrumentId : row.affinities.keySet()) {
             instruments.computeIfAbsent(instrumentId, id -> instrumentName(id) + " (not owned)");
         }
-        JPanel body = new JPanel();
-        body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-        JTextArea note = new JTextArea(
-                "Prefer adds a penalty when this player plays something else. "
-                        + "Always, when the song has it, assigns that instrument on every song that includes it. "
-                        + "If more players always want it than the song has parts, the higher priority takes a part "
-                        + "and the others are free to play anything else. Equal priority lets the search choose. "
-                        + "Neither choice changes which instruments this player owns.");
-        note.setEditable(false);
-        note.setOpaque(false);
-        note.setLineWrap(true);
-        note.setWrapStyleWord(true);
-        body.add(note);
-        if (instruments.isEmpty()) {
-            body.add(new JLabel("This player does not own any instruments."));
+        Map<Long, InstrumentAffinityWeight> affinities = new LinkedHashMap<>();
+        row.affinities.forEach(
+                (id, value) ->
+                        affinities.put(
+                                id,
+                                new InstrumentAffinityWeight(
+                                        row.playerId, id, value.missPenalty(), value.required())));
+        Map<Long, Double> avoided = new LinkedHashMap<>();
+        for (InstrumentPlacementRule placement : placements) {
+            if (placement.avoidedPlayerIds().contains(row.playerId)) {
+                avoided.put(placement.instrumentId(), placement.missPenalty());
+            }
         }
-        Map<Long, JCheckBox> checks = new LinkedHashMap<>();
-        Map<Long, JCheckBox> alwaysBoxes = new LinkedHashMap<>();
-        Map<Long, JSpinner> penalties = new LinkedHashMap<>();
-        for (Map.Entry<Long, String> instrument : instruments.entrySet()) {
-            JCheckBox check = new JCheckBox("Prefer " + instrument.getValue());
-            AffinitySetting current = row.affinities.get(instrument.getKey());
-            check.setSelected(current != null);
-            JCheckBox always = new JCheckBox("Always, when the song has it");
-            always.getAccessibleContext().setAccessibleName(
-                    "Always take " + instrument.getValue() + " when the song has it");
-            always.setSelected(current != null && current.required());
-            double startingPenalty = current == null ? 1.0d : current.missPenalty();
-            JSpinner penalty = new JSpinner(weightModel(startingPenalty));
-            JLabel penaltyLabel = new JLabel("Miss penalty");
-            penaltyLabel.setLabelFor(penalty);
-            Runnable refresh = () -> {
-                if (!check.isSelected()) {
-                    always.setSelected(false);
-                }
-                always.setEnabled(check.isSelected());
-                penalty.setEnabled(check.isSelected());
-                penaltyLabel.setText(always.isSelected() ? "Priority" : "Miss penalty");
-            };
-            check.addActionListener(e -> refresh.run());
-            always.addActionListener(e -> {
-                if (always.isSelected() && (current == null || !current.required())) {
-                    double value = ((Number) penalty.getValue()).doubleValue();
-                    if (value == 1.0d) {
-                        penalty.setValue(0.0d);
-                    }
-                }
-                refresh.run();
-            });
-            refresh.run();
-            JPanel line = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-            line.add(check);
-            line.add(penaltyLabel);
-            line.add(penalty);
-            line.add(always);
-            body.add(line);
-            checks.put(instrument.getKey(), check);
-            alwaysBoxes.put(instrument.getKey(), always);
-            penalties.put(instrument.getKey(), penalty);
-        }
+        CharacterInstrumentForm form =
+                new CharacterInstrumentForm(instruments, affinities, avoided);
         Window owner = SwingUtilities.getWindowAncestor(this);
-        JDialog dialog = new JDialog(owner, "Preferred instruments", Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog dialog =
+                new JDialog(
+                        owner,
+                        "Instrument preferences — " + row.name,
+                        Dialog.ModalityType.APPLICATION_MODAL);
         JButton cancel = new JButton("Cancel");
         JButton ok = new JButton("OK");
-        cancel.addActionListener(e -> dialog.dispose());
-        ok.addActionListener(e -> {
-            row.affinities.clear();
-            for (Map.Entry<Long, JCheckBox> entry : checks.entrySet()) {
-                if (!entry.getValue().isSelected()) {
-                    continue;
-                }
-                if (alwaysBoxes.get(entry.getKey()).isSelected()) {
-                    row.affinities.put(
-                            entry.getKey(),
-                            new AffinitySetting(
-                                    ((Number) penalties.get(entry.getKey()).getValue()).doubleValue(), true));
-                } else {
-                    row.affinities.put(
-                            entry.getKey(),
-                            new AffinitySetting(
-                                    ((Number) penalties.get(entry.getKey()).getValue()).doubleValue(), false));
-                }
-            }
-            dialog.dispose();
-        });
+        JButton help = new JButton("Optimizer help…");
+        cancel.addActionListener(event -> dialog.dispose());
+        help.addActionListener(event -> OptimizerHelpDialog.show(dialog));
+        ok.addActionListener(
+                event -> {
+                    try {
+                        List<InstrumentAffinityWeight> edited = form.affinities(row.playerId);
+                        Map<Long, Double> nextAvoided = form.avoided();
+                        row.affinities.clear();
+                        for (Long id : instruments.keySet()) {
+                            setAvoidance(
+                                    row.playerId,
+                                    id,
+                                    nextAvoided.containsKey(id),
+                                    nextAvoided.getOrDefault(id, 0.0));
+                        }
+                        for (InstrumentAffinityWeight affinity : edited) {
+                            row.affinities.put(
+                                    affinity.instrumentId(),
+                                    new AffinitySetting(
+                                            affinity.missPenalty(), affinity.required()));
+                        }
+                        dialog.dispose();
+                    } catch (IllegalArgumentException ex) {
+                        JOptionPane.showMessageDialog(
+                                dialog,
+                                ex.getMessage(),
+                                "Instrument preferences",
+                                JOptionPane.WARNING_MESSAGE);
+                    }
+                });
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttons.add(help);
         buttons.add(cancel);
         buttons.add(ok);
         JPanel root = new JPanel(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-        JScrollPane scroll = new JScrollPane(body);
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
-        root.add(scroll, BorderLayout.CENTER);
+        root.add(form, BorderLayout.CENTER);
         root.add(buttons, BorderLayout.SOUTH);
         dialog.setContentPane(root);
         dialog.pack();

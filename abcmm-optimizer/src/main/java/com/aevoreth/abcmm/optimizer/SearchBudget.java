@@ -12,9 +12,18 @@ public record SearchBudget(
         long seed,
         Duration budget,
         BooleanSupplier cancelled,
-        SearchListener listener) {
+        SearchListener listener,
+        long maxEvaluatedMoves) {
+
+    public SearchBudget(
+            long seed, Duration budget, BooleanSupplier cancelled, SearchListener listener) {
+        this(seed, budget, cancelled, listener, Long.MAX_VALUE);
+    }
 
     public SearchBudget {
+        if (maxEvaluatedMoves < 0) {
+            throw new IllegalArgumentException("maxEvaluatedMoves");
+        }
         if (seed < 0) {
             throw new IllegalArgumentException("seed");
         }
@@ -22,6 +31,11 @@ public record SearchBudget(
         if (budget.isNegative()) {
             throw new IllegalArgumentException("budget");
         }
+    }
+
+    /** Repeatable work limit for algorithm comparisons; one minute remains a safety deadline. */
+    public static SearchBudget attempts(long seed, long attempts) {
+        return new SearchBudget(seed, Duration.ofMinutes(1), null, null, attempts);
     }
 
     public static SearchBudget of(long seed, Duration budget) {

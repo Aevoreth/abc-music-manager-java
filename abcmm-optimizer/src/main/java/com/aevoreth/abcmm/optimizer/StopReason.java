@@ -6,6 +6,7 @@ package com.aevoreth.abcmm.optimizer;
 public enum StopReason {
     LOCAL_OPTIMUM("local_optimum"),
     BUDGET("budget"),
+    ATTEMPTS("attempts"),
     CANCELLED("cancelled");
 
     private final String reportName;

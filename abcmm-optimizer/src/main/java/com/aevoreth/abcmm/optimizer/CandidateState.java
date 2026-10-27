@@ -54,6 +54,20 @@ final class CandidateState {
         return new CandidateState(index);
     }
 
+    static CandidateState fromAssignment(ProblemIndex index, Assignment assignment) {
+        CandidateState state = create(index);
+        for (int song = 0; song < index.songs; song++) {
+            for (int player = 0; player < index.players; player++) {
+                AssignedSlot slot = assignment.slot(index.itemIds[song], index.playerIds[player]);
+                state.partByPlayer[song][player] =
+                        slot.partNumber() == null ? -1 : index.partIndex(song, slot.partNumber());
+            }
+            state.rebuild(song);
+        }
+        state.rescoreAll();
+        return state;
+    }
+
     CandidateState copy() {
         CandidateState copy = create(index);
         for (int song = 0; song < index.songs; song++) {
@@ -111,7 +125,12 @@ final class CandidateState {
 
     /** Recomputes song {@code song} and only the transitions that touch it. */
     void rescoreSong(int song) {
-        rescoreSongs(song);
+        recomputeRole(song);
+        recomputeKeep(song);
+        if (song > 0) recomputeTransition(song - 1);
+        if (song + 1 < index.songs) recomputeTransition(song);
+        // Preserve canonical floating-point summation, including fractional weights.
+        recomputeAggregates();
     }
 
     void rescoreSongs(int... songs) {

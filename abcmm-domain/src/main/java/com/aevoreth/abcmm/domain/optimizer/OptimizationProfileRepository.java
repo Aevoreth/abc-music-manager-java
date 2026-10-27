@@ -9,11 +9,12 @@ import com.aevoreth.abcmm.domain.library.LibraryException;
  * Implementations live in {@code abcmm-storage}. This store does not read
  * {@code has_proficiency}.
  *
- * <p>A missing band profile reads as {@link BandOptimizationProfile#defaults()}
- * and is not inserted. Saving one band does not change another. A stored
- * {@code settings_version} this build does not know is rejected rather than applied.
- * A profile document that omits {@code searchBudget} reads as
- * {@link SearchBudgetPreset#NORMAL}.
+ * <p>A missing band profile reads as {@link BandOptimizationProfile#defaults()} and is not
+ * inserted. Saving one band does not change another. A stored {@code settings_version} this build
+ * does not know is rejected rather than applied. A profile document that omits {@code searchBudget}
+ * reads as {@link SearchBudgetPreset#NORMAL}. Optional instrument-first placements live in the
+ * profile JSON; older documents read with an empty list. Copy, player replacement, and deletion
+ * preserve or rewrite their character references along with the other profile settings.
  *
  * <p><b>Duplicate band</b> copies the profile JSON and player-scoped rows. Player
  * ids stay the same, matching copied layout slots. Occurrence rows and pins are

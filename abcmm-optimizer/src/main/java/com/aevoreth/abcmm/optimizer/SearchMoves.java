@@ -15,13 +15,16 @@ final class SearchMoves {
         if (!pairLegal(state, song, first, second)) {
             return false;
         }
-        int[] saved = state.snapshot(song);
+        int savedFirst = state.partByPlayer[song][first];
+        int savedSecond = state.partByPlayer[song][second];
         double before = state.weightedScore;
         applyPair(state.partByPlayer[song], first, second);
         state.rebuild(song);
         state.rescoreSong(song);
         if (!(state.weightedScore < before)) {
-            state.restore(song, saved);
+            state.partByPlayer[song][first] = savedFirst;
+            state.partByPlayer[song][second] = savedSecond;
+            state.rebuild(song);
             state.rescoreSong(song);
             return false;
         }
@@ -32,13 +35,18 @@ final class SearchMoves {
         if (!cycleLegal(state, song, first, second, third, orientation)) {
             return false;
         }
-        int[] saved = state.snapshot(song);
+        int savedFirst = state.partByPlayer[song][first];
+        int savedSecond = state.partByPlayer[song][second];
+        int savedThird = state.partByPlayer[song][third];
         double before = state.weightedScore;
         applyCycle(state.partByPlayer[song], first, second, third, orientation);
         state.rebuild(song);
         state.rescoreSong(song);
         if (!(state.weightedScore < before)) {
-            state.restore(song, saved);
+            state.partByPlayer[song][first] = savedFirst;
+            state.partByPlayer[song][second] = savedSecond;
+            state.partByPlayer[song][third] = savedThird;
+            state.rebuild(song);
             state.rescoreSong(song);
             return false;
         }
@@ -83,14 +91,14 @@ final class SearchMoves {
             return false;
         }
         int[] parts = state.partByPlayer[song];
+        if (!receiverOwns(state, song, second, parts[first])
+                || !receiverOwns(state, song, first, parts[second])
+                || !keepsRequired(state, song, first, parts[second])
+                || !keepsRequired(state, song, second, parts[first])) return false;
+        if (state.index.requiredClaims[song].length == 0) return true;
         int[] next = parts.clone();
-        next[first] = parts[second];
-        next[second] = parts[first];
-        return receiverOwns(state, song, second, parts[first])
-                && receiverOwns(state, song, first, parts[second])
-                && keepsRequired(state, song, first, parts[second])
-                && keepsRequired(state, song, second, parts[first])
-                && claimsHold(state, song, next);
+        applyPair(next, first, second);
+        return claimsHold(state, song, next);
     }
 
     static boolean cycleLegal(CandidateState state, int song, int first, int second, int third, int orientation) {
@@ -98,9 +106,7 @@ final class SearchMoves {
             return false;
         }
         int[] parts = state.partByPlayer[song];
-        int[] next = ArraysCopy(parts);
-        applyCycle(next, first, second, third, orientation);
-        return changed(parts, next);
+        return parts[first] != parts[second] || parts[second] != parts[third];
     }
 
     private static boolean commitWindow(
@@ -201,17 +207,18 @@ final class SearchMoves {
         int toFirst = orientation == 0 ? parts[second] : parts[third];
         int toSecond = orientation == 0 ? parts[third] : parts[first];
         int toThird = orientation == 0 ? parts[first] : parts[second];
+        if (!receiverOwns(state, song, first, toFirst)
+                || !receiverOwns(state, song, second, toSecond)
+                || !receiverOwns(state, song, third, toThird)
+                || !keepsRequired(state, song, first, toFirst)
+                || !keepsRequired(state, song, second, toSecond)
+                || !keepsRequired(state, song, third, toThird)) return false;
+        if (state.index.requiredClaims[song].length == 0) return true;
         int[] next = parts.clone();
         next[first] = toFirst;
         next[second] = toSecond;
         next[third] = toThird;
-        return receiverOwns(state, song, first, toFirst)
-                && receiverOwns(state, song, second, toSecond)
-                && receiverOwns(state, song, third, toThird)
-                && keepsRequired(state, song, first, toFirst)
-                && keepsRequired(state, song, second, toSecond)
-                && keepsRequired(state, song, third, toThird)
-                && claimsHold(state, song, next);
+        return claimsHold(state, song, next);
     }
 
     private static boolean claimsHold(CandidateState state, int song, int[] parts) {
@@ -274,16 +281,4 @@ final class SearchMoves {
         }
     }
 
-    private static boolean changed(int[] before, int[] after) {
-        for (int player = 0; player < before.length; player++) {
-            if (before[player] != after[player]) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static int[] ArraysCopy(int[] parts) {
-        return java.util.Arrays.copyOf(parts, parts.length);
-    }
 }

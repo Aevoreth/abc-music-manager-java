@@ -73,6 +73,7 @@ public final class AssignmentSolver {
         private int accepted;
         private long evaluated;
         private StopReason stop;
+        private int localOptima;
 
         private Search(
                 ProblemIndex index,
@@ -98,6 +99,7 @@ public final class AssignmentSolver {
             if (budget.budget().isZero()) {
                 return finish(StopReason.BUDGET);
             }
+            seedGreedy();
             StopReason reason = StopReason.LOCAL_OPTIMUM;
             while (true) {
                 hillClimb();
@@ -273,14 +275,32 @@ public final class AssignmentSolver {
             updateBest();
         }
 
+        private void seedGreedy() {
+            if (expired()) return;
+            GreedyBaseline.Result result = GreedyBaseline.assign(index.problem);
+            evaluated++;
+            if (result instanceof GreedyBaseline.Result.Assigned assigned
+                    && AssignmentValidator.validate(
+                                    index.problem, assigned.assignment(), index.rules)
+                            .isEmpty()) {
+                CandidateState seed = CandidateState.fromAssignment(index, assigned.assignment());
+                if (!expired() && seed.weightedScore < current.weightedScore) {
+                    current = seed;
+                    recordAcceptance();
+                }
+            }
+        }
+
         private boolean perturb() {
+            if (++localOptima % 4 == 0 && restart()) return true;
+            if (stop != null) return false;
             for (int swap = 0; swap < PERTURB_SWAPS; swap++) {
                 if (expired()) {
                     return false;
                 }
                 int[] move = randomLegalPair();
                 if (move == null) {
-                    return swap > 0;
+                    return stop == null && (swap > 0 || restart());
                 }
                 SearchMoves.applyForcedPair(current, move[0], move[1], move[2]);
                 updateBest();
@@ -288,21 +308,44 @@ public final class AssignmentSolver {
             return true;
         }
 
+        private boolean restart() {
+            for (int attempt = 0; attempt < 8; attempt++) {
+                if (expired()) return false;
+                evaluated++;
+                AssignmentRepair.Result restart =
+                        AssignmentRepair.repair(index, random, this::expired);
+                if (stop != null) return false;
+                if (!restart.feasible()
+                        || java.util.Arrays.deepEquals(
+                                current.partByPlayer, restart.state().partByPlayer)) continue;
+                CandidateState seed = restart.state();
+                // Matching uses the same validated constraints as initial repair. Full scoring
+                // remains independent at every accepted improvement and on the returned best.
+                current = seed;
+                updateBest();
+                return true;
+            }
+            return false;
+        }
+
         private int[] randomLegalPair() {
-            List<int[]> legal = new ArrayList<>();
+            int[] chosen = null;
+            int legal = 0;
             for (int song = 0; song < index.songs; song++) {
                 for (int first = 0; first < index.players; first++) {
                     for (int second = first + 1; second < index.players; second++) {
-                        if (SearchMoves.pairLegal(current, song, first, second)) {
-                            legal.add(new int[] {song, first, second});
+                        if (expired()) return null;
+                        if (SearchMoves.pairLegal(current, song, first, second)
+                                && random.nextInt(++legal) == 0) {
+                            if (chosen == null) chosen = new int[3];
+                            chosen[0] = song;
+                            chosen[1] = first;
+                            chosen[2] = second;
                         }
                     }
                 }
             }
-            if (legal.isEmpty()) {
-                return null;
-            }
-            return legal.get(random.nextInt(legal.size()));
+            return chosen;
         }
 
         private void updateBest() {
@@ -381,6 +424,10 @@ public final class AssignmentSolver {
             }
             if (alreadyCancelled()) {
                 stop = StopReason.CANCELLED;
+                return true;
+            }
+            if (evaluated >= budget.maxEvaluatedMoves()) {
+                stop = StopReason.ATTEMPTS;
                 return true;
             }
             if (System.nanoTime() >= deadline) {
