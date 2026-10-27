@@ -7,13 +7,24 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.aevoreth.abcmm.domain.optimizer.AssignmentPin;
+import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
+import com.aevoreth.abcmm.domain.optimizer.InstrumentAffinityWeight;
+import com.aevoreth.abcmm.domain.optimizer.OccurrencePreferences;
+import com.aevoreth.abcmm.domain.optimizer.PartPreferenceWeight;
+import com.aevoreth.abcmm.domain.optimizer.PlayerSwitchWeight;
+import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
+import com.aevoreth.abcmm.optimizer.cli.OptimizerCli;
 import com.aevoreth.abcmm.optimizer.load.SqliteOptimizationLoader;
+import com.aevoreth.abcmm.storage.SqliteOptimizationProfileRepository;
 
 class SqliteOptimizationLoaderTest {
 
@@ -150,6 +161,62 @@ class SqliteOptimizationLoaderTest {
         assertNotNull(roster.problem());
         assertEquals(1, roster.report().exitCode());
         assertTrue(has(roster, DiagnosticSeverity.INTEGRITY, "players_mismatch"));
+    }
+
+    @Test
+    void sameSongCanCarryDifferentPinsAndSavedRules() throws Exception {
+        Path pinned = tempDir.resolve("pinned-repeat.sqlite");
+        long setlistId;
+        long firstId;
+        long secondId;
+        long alice;
+        long bob;
+        try (SyntheticLibrary library = SyntheticLibrary.create(pinned)) {
+            SqliteOptimizationProfileRepository profiles =
+                    new SqliteOptimizationProfileRepository(library.database);
+            long bandId = library.bands.listBands().get(0).id();
+            profiles.saveBandProfile(bandId, new BandOptimizationProfile(
+                    1,
+                    9.0d,
+                    1.0d,
+                    3.0d,
+                    1.0d,
+                    2,
+                    1.0d,
+                    List.of(new PlayerSwitchWeight(library.alice, 4.0d)),
+                    List.of(new InstrumentAffinityWeight(library.alice, library.fiddle, 2.5d)),
+                    SearchBudgetPreset.QUICK));
+            setlistId = library.setlists.addSetlist("Repeat", null);
+            library.setlists.updateSetlist(
+                    setlistId, "Repeat", library.layoutId, null, 0, false,
+                    null, null, null, null, null, null);
+            firstId = library.setlists.addItem(setlistId, library.tuneId, 0, null, library.tuneLayoutId);
+            secondId = library.setlists.addItem(setlistId, library.tuneId, 1, null, library.tuneLayoutId);
+            profiles.replaceOccurrencePreferences(setlistId, new OccurrencePreferences(
+                    List.of(new PartPreferenceWeight(firstId, 1, library.alice, 6.0d)),
+                    List.of(),
+                    List.of()));
+            profiles.replacePins(setlistId, List.of(
+                    new AssignmentPin(firstId, 1, library.alice),
+                    new AssignmentPin(secondId, 1, library.bob)));
+            alice = library.alice;
+            bob = library.bob;
+        }
+
+        LoadOutcome outcome = new SqliteOptimizationLoader().load(
+                new LoadRequest(pinned, setlistId, 1L, null, null));
+        OptimizationProblem problem = outcome.problem();
+        assertNotNull(problem);
+        assertEquals(problem.occurrences().get(0).songId(), problem.occurrences().get(1).songId());
+        assertEquals(List.of(new Pin(firstId, 1, alice), new Pin(secondId, 1, bob)), problem.pins());
+        assertEquals(9.0d, outcome.rules().smoothWeight());
+        assertEquals(3.0d, outcome.rules().roleWeight());
+        assertEquals(4.0d, outcome.rules().playerSwitchMultiplier().get(alice));
+        assertEquals(2.5d, outcome.rules().instrumentAffinities().get(0).missPenalty());
+        assertEquals(6.0d, outcome.rules().partPreferences().get(0).penalty());
+        assertEquals(SearchBudgetPreset.QUICK, outcome.searchBudget());
+        assertNull(outcome.budgetSeconds());
+        assertEquals(Duration.ofSeconds(2), OptimizerCli.searchBudget(outcome));
     }
 
     private static LoadOutcome load(long setlistId, Integer players) {

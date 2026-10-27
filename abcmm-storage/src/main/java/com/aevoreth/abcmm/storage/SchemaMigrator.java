@@ -15,11 +15,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Creates and migrates the SQLite schema through version 15 (Java-only from v13).
+ * Creates and migrates the SQLite schema through version 16 (Java-only from v13).
  */
 final class SchemaMigrator {
 
-    static final int CURRENT_SCHEMA_VERSION = 15;
+    static final int CURRENT_SCHEMA_VERSION = 16;
 
     /** 24 LOTRO instruments for Players tab (same order as Python). */
     static final List<String> PLAYER_INSTRUMENTS = List.of(
@@ -400,12 +400,17 @@ final class SchemaMigrator {
             // Empty tables only. Do not backfill or rewrite setlist or song-layout assignments.
             createOptimizationProfileTables(connection);
             setSchemaVersion(connection, 15);
+            current = 15;
+        }
+        if (current < 16) {
+            createAssignmentPinTable(connection);
+            setSchemaVersion(connection, 16);
         }
     }
 
     /**
      * Soft optimizer settings. Player and item references are real foreign keys so deletes
-     * can remove them explicitly. Hard pins are not stored here.
+     * can remove them explicitly. Hard pins are added in schema v16.
      */
     private static void createOptimizationProfileTables(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
@@ -455,6 +460,23 @@ final class SchemaMigrator {
                         setlist_item_id INTEGER NOT NULL REFERENCES SetlistItem(id),
                         part_number INTEGER NOT NULL,
                         multiplier REAL NOT NULL,
+                        PRIMARY KEY (setlist_item_id, part_number)
+                    )
+                    """);
+        }
+    }
+
+    /**
+     * One pinned player per occurrence part. A second part pinned to the same player is
+     * stored and reported later; it is not dropped here.
+     */
+    private static void createAssignmentPinTable(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetlistAssignmentPin (
+                        setlist_item_id INTEGER NOT NULL REFERENCES SetlistItem(id),
+                        part_number INTEGER NOT NULL,
+                        player_id INTEGER NOT NULL REFERENCES Player(id),
                         PRIMARY KEY (setlist_item_id, part_number)
                     )
                     """);

@@ -13,6 +13,8 @@ import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Point2D;
@@ -25,12 +27,17 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.InputMap;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.ToolTipManager;
 import javax.swing.UIManager;
@@ -44,6 +51,8 @@ import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
 import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.optimizer.AssignmentPin;
+import com.aevoreth.abcmm.domain.optimizer.OptimizationProfileRepository;
 import com.aevoreth.abcmm.domain.setlist.SetlistBandAssignmentInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistItemInfo;
 import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
@@ -74,6 +83,7 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     private PlayerRepository playerRepository;
     private SetlistRepository setlistRepository;
     private SongLayoutRepository songLayoutRepository;
+    private OptimizationProfileRepository optimizationProfiles;
     private Runnable assignmentChangedHandler;
 
     private final JLabel hintLabel = new JLabel();
@@ -83,7 +93,14 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     private final List<SongPartMeta> assignmentParts = new ArrayList<>();
     private final Map<Integer, Long> partToPlayer = new HashMap<>();
 
+    private Long setlistId;
+    private boolean locked;
     private Long itemId;
+    private final List<AssignmentPin> itemPins = new ArrayList<>();
+    private final Map<Long, String> playerNames = new HashMap<>();
+    private Map<Long, Set<Long>> ownedByPlayer = Map.of();
+    private Map<Long, Set<Long>> equivalentInstruments = Map.of();
+    private int selectedCardIndex = -1;
     private double panX;
     private double panY;
     private boolean panning;
@@ -118,6 +135,9 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                 }
                 AssignmentCard hit = findCardAt(e.getX(), e.getY());
                 if (hit != null) {
+                    selectedCardIndex = cards.indexOf(hit);
+                    canvas.requestFocusInWindow();
+                    canvas.repaint();
                     showPartMenu(hit, e.getX(), e.getY());
                     return;
                 }
@@ -169,7 +189,16 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         };
         canvas.addMouseListener(mouse);
         canvas.addMouseMotionListener(mouse);
+        installAssignmentKeys();
         clear();
+    }
+
+    public void setOptimizationProfileRepository(OptimizationProfileRepository optimizationProfiles) {
+        this.optimizationProfiles = optimizationProfiles;
+    }
+
+    InputMap assignmentKeyMap() {
+        return canvas.getInputMap(JComponent.WHEN_FOCUSED);
     }
 
     public void bind(
@@ -192,6 +221,13 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         helpByPlayer.clear();
         assignmentParts.clear();
         partToPlayer.clear();
+        itemPins.clear();
+        playerNames.clear();
+        ownedByPlayer = Map.of();
+        equivalentInstruments = Map.of();
+        selectedCardIndex = -1;
+        setlistId = null;
+        locked = false;
         itemId = null;
         panX = 0;
         panY = 0;
@@ -206,6 +242,8 @@ public final class SetlistBandAssignmentPanel extends JPanel {
      * neighbor prev/next headers and prior-instrument tooltips.
      */
     public void refresh(
+            Long setlistId,
+            boolean locked,
             Long bandLayoutId,
             Long setlistItemId,
             Long songLayoutId,
@@ -215,6 +253,13 @@ public final class SetlistBandAssignmentPanel extends JPanel {
         helpByPlayer.clear();
         assignmentParts.clear();
         partToPlayer.clear();
+        itemPins.clear();
+        playerNames.clear();
+        ownedByPlayer = Map.of();
+        equivalentInstruments = Map.of();
+        selectedCardIndex = -1;
+        this.setlistId = setlistId;
+        this.locked = locked;
         itemId = setlistItemId;
 
         if (bandLayoutId == null) {
@@ -271,8 +316,20 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             }
 
             Map<Long, Set<Long>> playerInstruments = loadOwnedInstruments(slots);
+            ownedByPlayer = playerInstruments;
             Map<Long, String> instrumentNames = loadInstrumentNames();
             Map<Long, Set<Long>> equivByInstrument = buildEquivalentInstrumentIds(instrumentNames);
+            equivalentInstruments = equivByInstrument;
+            for (BandLayoutSlotInfo slot : slots) {
+                playerNames.put(slot.playerId(), slot.playerName() == null ? "" : slot.playerName());
+            }
+            if (optimizationProfiles != null && setlistId != null) {
+                for (AssignmentPin pin : optimizationProfiles.listPins(setlistId)) {
+                    if (pin.setlistItemId() == setlistItemId) {
+                        itemPins.add(pin);
+                    }
+                }
+            }
 
             Map<Long, Integer> effective = new HashMap<>();
             for (BandLayoutSlotInfo slot : slots) {
@@ -430,11 +487,26 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                     helpByPlayer.put(slot.playerId(), String.join("\n", lines));
                 }
 
+                String shownName = slot.playerName() == null || slot.playerName().isBlank()
+                        ? ("#" + slot.playerId())
+                        : slot.playerName();
+                Integer currentPart = parsePartNumber(pn);
+                boolean marked = false;
+                for (AssignmentPin pin : itemPins) {
+                    if (pin.playerId() == slot.playerId()) {
+                        marked = true;
+                        break;
+                    }
+                }
+                helpByPlayer.put(
+                        slot.playerId(),
+                        PinMessages.tooltip(
+                                helpByPlayer.get(slot.playerId()),
+                                marked,
+                                pinLines(slot.playerId(), shownName, currentPart)));
                 cards.add(new AssignmentCard(
                         slot.playerId(),
-                        slot.playerName() == null || slot.playerName().isBlank()
-                                ? ("#" + slot.playerId())
-                                : slot.playerName(),
+                        shownName,
                         slot.x(),
                         slot.y(),
                         Math.max(1, slot.widthUnits()),
@@ -447,9 +519,13 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                         useHeader,
                         prevL,
                         nextL,
-                        instChanged));
+                        instChanged,
+                        marked));
             }
 
+            if (!cards.isEmpty()) {
+                selectedCardIndex = 0;
+            }
             fitCardsToView();
         } catch (LibraryException ex) {
             hintLabel.setText(ex.getMessage() == null || ex.getMessage().isBlank()
@@ -486,6 +562,14 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     }
 
     private void showPartMenu(AssignmentCard card, int x, int y) {
+        if (locked) {
+            JPopupMenu menu = new JPopupMenu();
+            JMenuItem lockedItem = new JMenuItem(OptimizationProfileRepository.LOCKED_SETLIST_MESSAGE);
+            lockedItem.addActionListener(e -> showLockedMessage());
+            menu.add(lockedItem);
+            menu.show(canvas, x, y);
+            return;
+        }
         Integer current;
         try {
             if ("###".equals(card.partNumber())
@@ -553,10 +637,19 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             item.addActionListener(e -> applyPart(card.playerId(), partNumber));
             menu.add(item);
         }
+        menu.addSeparator();
+        JMenuItem optimizer = new JMenuItem("Optimizer settings for this song…");
+        optimizer.setFont(menuFont);
+        optimizer.addActionListener(e -> showOccurrenceSettings(card));
+        menu.add(optimizer);
         menu.show(canvas, x, y);
     }
 
     private void applyPart(long playerId, Integer partNumber) {
+        if (locked) {
+            showLockedMessage();
+            return;
+        }
         if (itemId == null || setlistRepository == null) {
             return;
         }
@@ -815,12 +908,13 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             Font baseFont = getFont().deriveFont(Font.PLAIN, 13f);
             final int lineGap = 1;
             Color fill = cardFill();
-            for (AssignmentCard card : cards) {
+            for (int index = 0; index < cards.size(); index++) {
+                AssignmentCard card = cards.get(index);
                 Rectangle r = cardBounds(card);
                 g2.setColor(fill);
                 g2.fillRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, 6, 6);
-                g2.setStroke(new BasicStroke(1f));
-                g2.setColor(CARD_BORDER);
+                g2.setStroke(new BasicStroke(index == selectedCardIndex && isFocusOwner() ? 2f : 1f));
+                g2.setColor(index == selectedCardIndex && isFocusOwner() ? TEXT : CARD_BORDER);
                 g2.drawRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, 6, 6);
 
                 int margin = 3;
@@ -865,7 +959,25 @@ public final class SetlistBandAssignmentPanel extends JPanel {
                 Color partColor = card.partDuplicate()
                         ? DUP_RED
                         : (card.instrumentChanged() ? WARN_ORANGE : TEXT);
-                drawFitting(g2, big, card.partNumber(), innerX, y, innerW, bigH, partColor);
+                Font pinFont = baseFont.deriveFont(Font.BOLD, 10f);
+                FontMetrics pinFm = g2.getFontMetrics(pinFont);
+                int pinReserve = card.pinned() ? pinFm.stringWidth(PinMessages.MARKER) + 4 : 0;
+                drawFitting(
+                        g2,
+                        big,
+                        card.partNumber(),
+                        innerX,
+                        y,
+                        Math.max(1, innerW - pinReserve),
+                        bigH,
+                        partColor);
+                if (card.pinned()) {
+                    g2.setFont(pinFont);
+                    g2.setColor(TEXT);
+                    int pinX = innerX + innerW - pinFm.stringWidth(PinMessages.MARKER);
+                    int pinY = y + (bigH + pinFm.getAscent() - pinFm.getDescent()) / 2;
+                    g2.drawString(PinMessages.MARKER, pinX, pinY);
+                }
                 y += bigH + lineGap;
 
                 // Instrument
@@ -923,6 +1035,164 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             boolean useSetlistHeader,
             String neighborPrev,
             String neighborNext,
-            boolean instrumentChanged) {
+            boolean instrumentChanged,
+            boolean pinned) {
+    }
+
+    private void installAssignmentKeys() {
+        canvas.setFocusable(true);
+        InputMap map = canvas.getInputMap(JComponent.WHEN_FOCUSED);
+        map.put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), "assignment-previous");
+        map.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "assignment-previous");
+        map.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), "assignment-next");
+        map.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "assignment-next");
+        map.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "assignment-menu");
+        map.put(KeyStroke.getKeyStroke(KeyEvent.VK_CONTEXT_MENU, 0), "assignment-menu");
+        map.put(KeyStroke.getKeyStroke(KeyEvent.VK_F10, InputEvent.SHIFT_DOWN_MASK), "assignment-menu");
+        canvas.getActionMap().put("assignment-previous", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                moveSelection(-1);
+            }
+        });
+        canvas.getActionMap().put("assignment-next", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                moveSelection(1);
+            }
+        });
+        canvas.getActionMap().put("assignment-menu", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                openSelectedMenu();
+            }
+        });
+    }
+
+    private void moveSelection(int delta) {
+        if (cards.isEmpty()) {
+            return;
+        }
+        if (selectedCardIndex < 0) {
+            selectedCardIndex = 0;
+        } else {
+            selectedCardIndex = Math.floorMod(selectedCardIndex + delta, cards.size());
+        }
+        canvas.repaint();
+    }
+
+    private void openSelectedMenu() {
+        if (selectedCardIndex < 0 || selectedCardIndex >= cards.size()) {
+            return;
+        }
+        AssignmentCard card = cards.get(selectedCardIndex);
+        Rectangle bounds = cardBounds(card);
+        showPartMenu(card, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    }
+
+    private void showLockedMessage() {
+        JOptionPane.showMessageDialog(
+                this,
+                OptimizationProfileRepository.LOCKED_SETLIST_MESSAGE,
+                "Locked setlist",
+                JOptionPane.WARNING_MESSAGE);
+    }
+
+    private void showOccurrenceSettings(AssignmentCard card) {
+        if (locked) {
+            showLockedMessage();
+            return;
+        }
+        if (optimizationProfiles == null || setlistId == null || itemId == null) {
+            hintLabel.setText("Optimizer settings are not connected.");
+            return;
+        }
+        Integer partNumber = parsePartNumber(card.partNumber());
+        Long instrumentId = null;
+        if (partNumber != null) {
+            for (SongPartMeta part : assignmentParts) {
+                if (part.partNumber() == partNumber) {
+                    instrumentId = part.instrumentId();
+                    break;
+                }
+            }
+        }
+        try {
+            boolean saved = OccurrenceOptimizerDialog.show(
+                    this,
+                    optimizationProfiles,
+                    setlistId,
+                    itemId,
+                    card.playerId(),
+                    card.playerName(),
+                    partNumber,
+                    instrumentId,
+                    card.instrumentName(),
+                    ownsInstrument(card.playerId(), instrumentId),
+                    playerNames);
+            if (saved && assignmentChangedHandler != null) {
+                assignmentChangedHandler.run();
+            }
+        } catch (LibraryException ex) {
+            hintLabel.setText(ex.getMessage() == null || ex.getMessage().isBlank()
+                    ? "Failed to open optimizer settings."
+                    : ex.getMessage());
+        }
+    }
+
+    private List<String> pinLines(long playerId, String playerName, Integer currentPart) {
+        List<String> lines = new ArrayList<>();
+        for (AssignmentPin pin : itemPins) {
+            if (pin.playerId() != playerId) {
+                continue;
+            }
+            if (currentPart != null && pin.partNumber() == currentPart) {
+                lines.add(PinMessages.pinnedPart(pin.partNumber()));
+            } else {
+                String current = currentPart == null ? "unassigned" : "part " + currentPart;
+                lines.add(PinMessages.conflict(playerName, current));
+            }
+        }
+        if (currentPart != null) {
+            for (AssignmentPin pin : itemPins) {
+                if (pin.partNumber() == currentPart && pin.playerId() != playerId) {
+                    lines.add(PinMessages.conflict(playerName(pin.playerId()), playerName));
+                }
+            }
+        }
+        return lines;
+    }
+
+    private String playerName(long playerId) {
+        String name = playerNames.get(playerId);
+        if (name == null || name.isBlank()) {
+            return "Player " + playerId;
+        }
+        return name.strip();
+    }
+
+    private boolean ownsInstrument(long playerId, Long instrumentId) {
+        if (instrumentId == null) {
+            return false;
+        }
+        Set<Long> owned = ownedByPlayer.getOrDefault(playerId, Set.of());
+        for (Long ownedId : owned) {
+            if (instrumentsEquivalent(ownedId, instrumentId, equivalentInstruments)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Integer parsePartNumber(String text) {
+        if (text == null || text.isBlank() || "###".equals(text) || "---".equals(text)) {
+            return null;
+        }
+        try {
+            int part = Integer.parseInt(text);
+            return part > 0 ? part : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

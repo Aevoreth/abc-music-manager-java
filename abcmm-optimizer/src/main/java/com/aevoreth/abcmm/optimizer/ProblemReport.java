@@ -35,8 +35,11 @@ public final class ProblemReport {
             text.append(diagnostic.format()).append('\n');
         }
         if (problem != null) {
+            OptimizationRules rules = outcome.rules() == null
+                    ? OptimizationRules.defaults()
+                    : outcome.rules();
             ScoreOutcome scored = AssignmentScorer.score(
-                    problem, Assignment.fromBaseline(problem), OptimizationRules.defaults());
+                    problem, Assignment.fromBaseline(problem), rules);
             if (scored instanceof ScoreOutcome.Accepted accepted) {
                 text.append(accepted.breakdown().format());
             }

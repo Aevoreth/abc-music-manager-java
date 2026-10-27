@@ -81,6 +81,7 @@ import com.aevoreth.abcmm.domain.export.SetExportException;
 import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
 import com.aevoreth.abcmm.domain.export.SetExportService;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.optimizer.OptimizationProfileRepository;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
@@ -263,6 +264,10 @@ public final class SetlistsPanel extends JPanel {
                 }
             }
         });
+    }
+
+    public void setOptimizationProfileRepository(OptimizationProfileRepository optimizationProfiles) {
+        assignmentPanel.setOptimizationProfileRepository(optimizationProfiles);
     }
 
     public void bind(
@@ -1789,6 +1794,8 @@ public final class SetlistsPanel extends JPanel {
         }
         SetlistItemInfo current = item;
         assignmentPanel.refresh(
+                setlist.id(),
+                setlist.locked(),
                 setlist.bandLayoutId(),
                 current == null ? null : current.id(),
                 songLayoutId,

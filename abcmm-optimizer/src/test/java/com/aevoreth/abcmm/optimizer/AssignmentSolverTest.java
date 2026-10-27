@@ -180,6 +180,22 @@ class AssignmentSolverTest {
         SearchOutcome.Solved solved = solved(problem, rules, Duration.ofMillis(50));
         assertEquals(1, part(solved.assignment(), 6, 10));
         assertEquals(0, solved.breakdown().totalChanges());
+
+        OptimizationProblem pressured = problem(
+                List.of(player(10, 1), player(11, 1)),
+                List.of(song(5, new RequiredPart(1, 1L)), song(6, new RequiredPart(1, 1L))),
+                List.of(play(5, 11, 1, 1L), idle(5, 10), play(6, 11, 1, 1L), idle(6, 10)),
+                List.of(new Pin(6, 1, 10)));
+        OptimizationRules heavy = new OptimizationRules(
+                0, 0, 100, 100, 2, 1,
+                Map.of(),
+                List.of(new InstrumentAffinity(11, 1L, 100)),
+                List.of(new PartPreference(6, 1, 11, 100)),
+                Map.of(6L, 100.0d),
+                Map.of());
+        SearchOutcome.Solved held = solved(pressured, heavy, Duration.ofMillis(200));
+        assertEquals(1, part(held.assignment(), 6, 10));
+        assertNull(part(held.assignment(), 6, 11));
         assertTrue(solved.breakdown().weightedScore() < accepted(problem, rules).weightedScore());
 
         SearchBudget budget = SearchBudget.of(4, Duration.ofMillis(80));

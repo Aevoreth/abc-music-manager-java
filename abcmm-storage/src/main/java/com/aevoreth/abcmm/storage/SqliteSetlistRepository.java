@@ -366,7 +366,7 @@ public final class SqliteSetlistRepository implements SetlistRepository {
      * Copy source items onto a freshly created duplicate. When the chosen band layout matches
      * the source, preserve per-item song layouts, change-duration overrides, and band
      * assignments; otherwise remap song layouts to the new band layout (or clear them).
-     * Occurrence preferences are copied onto the new item ids either way.
+     * Occurrence preferences and assignment pins are copied onto the new item ids either way.
      */
     private void copyItemsForDuplicate(
             long newSetlistId,

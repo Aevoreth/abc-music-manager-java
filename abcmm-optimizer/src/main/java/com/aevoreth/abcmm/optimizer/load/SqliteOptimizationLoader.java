@@ -17,6 +17,8 @@ import java.util.Objects;
 import java.util.Set;
 
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
+import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
+import com.aevoreth.abcmm.domain.optimizer.OccurrencePreferences;
 import com.aevoreth.abcmm.domain.band.InstrumentInfo;
 import com.aevoreth.abcmm.domain.band.PlayerInfo;
 import com.aevoreth.abcmm.domain.band.PlayerInstrumentInfo;
@@ -35,6 +37,8 @@ import com.aevoreth.abcmm.optimizer.FeasibilityReport;
 import com.aevoreth.abcmm.optimizer.LoadOutcome;
 import com.aevoreth.abcmm.optimizer.LoadRequest;
 import com.aevoreth.abcmm.optimizer.OptimizationProblem;
+import com.aevoreth.abcmm.optimizer.OptimizationRules;
+import com.aevoreth.abcmm.optimizer.OptimizationRulesMapper;
 import com.aevoreth.abcmm.optimizer.Performer;
 import com.aevoreth.abcmm.optimizer.PhysicalInstrumentEquivalence;
 import com.aevoreth.abcmm.optimizer.RequiredPart;
@@ -42,6 +46,7 @@ import com.aevoreth.abcmm.optimizer.RequiredPartResolver;
 import com.aevoreth.abcmm.optimizer.SongOccurrence;
 import com.aevoreth.abcmm.storage.SqliteBandRepository;
 import com.aevoreth.abcmm.storage.SqliteDatabase;
+import com.aevoreth.abcmm.storage.SqliteOptimizationProfileRepository;
 import com.aevoreth.abcmm.storage.SqlitePlayerRepository;
 import com.aevoreth.abcmm.storage.SqliteSetlistRepository;
 import com.aevoreth.abcmm.storage.SqliteSongLayoutRepository;
@@ -166,6 +171,13 @@ public final class SqliteOptimizationLoader {
 
         EffectiveAssignmentResolver.Result resolved = EffectiveAssignmentResolver.resolve(
                 playerIds, sources, instrumentsByItem);
+        SqliteOptimizationProfileRepository profiles = new SqliteOptimizationProfileRepository(database);
+        Long bandId = bandIdForLayout(database, setlist.bandLayoutId());
+        BandOptimizationProfile profile = bandId == null
+                ? BandOptimizationProfile.defaults()
+                : profiles.getBandProfile(bandId);
+        OccurrencePreferences preferences = profiles.listOccurrencePreferences(setlist.id());
+        OptimizationRules rules = OptimizationRulesMapper.toRules(profile, preferences);
         OptimizationProblem problem = new OptimizationProblem(
                 setlist.id(),
                 setlist.locked(),
@@ -173,7 +185,7 @@ public final class SqliteOptimizationLoader {
                 performers,
                 occurrences,
                 resolved.assignments(),
-                List.of(),
+                OptimizationRulesMapper.toPins(profiles.listPins(setlist.id())),
                 PhysicalInstrumentEquivalence.equivalentIds(instrumentNames));
         List<Diagnostic> diagnostics = new ArrayList<>(loadDiagnostics);
         diagnostics.addAll(resolved.diagnostics());
@@ -184,7 +196,24 @@ public final class SqliteOptimizationLoader {
                 request.budgetSeconds(),
                 request.players(),
                 problem,
-                new FeasibilityReport(diagnostics));
+                new FeasibilityReport(diagnostics),
+                rules,
+                profile.searchBudget());
+    }
+
+    private static Long bandIdForLayout(SqliteDatabase database, long layoutId) throws LibraryException {
+        String sql = "SELECT band_id FROM BandLayout WHERE id = ?";
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, layoutId);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return rs.getLong("band_id");
+            }
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to read band layout", ex);
+        }
     }
 
     /**
@@ -413,7 +442,9 @@ public final class SqliteOptimizationLoader {
                 request.budgetSeconds(),
                 request.players(),
                 null,
-                new FeasibilityReport(List.of(diagnostic)));
+                new FeasibilityReport(List.of(diagnostic)),
+                null,
+                null);
     }
 
     private static String failureCode(LibraryException ex) {

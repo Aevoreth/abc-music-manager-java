@@ -6,11 +6,11 @@ import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 
+import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
 import com.aevoreth.abcmm.optimizer.AssignmentSolver;
 import com.aevoreth.abcmm.optimizer.Diagnostic;
 import com.aevoreth.abcmm.optimizer.LoadOutcome;
 import com.aevoreth.abcmm.optimizer.LoadRequest;
-import com.aevoreth.abcmm.optimizer.OptimizationRules;
 import com.aevoreth.abcmm.optimizer.ProblemReport;
 import com.aevoreth.abcmm.optimizer.SearchBudget;
 import com.aevoreth.abcmm.optimizer.SearchOutcome;
@@ -51,8 +51,8 @@ public final class OptimizerCli {
         long seed = outcome.seed() == null ? 0L : outcome.seed();
         SearchOutcome searched = AssignmentSolver.solve(
                 outcome.problem(),
-                OptimizationRules.defaults(),
-                SearchBudget.of(seed, Duration.ofSeconds(outcome.budgetSeconds())));
+                outcome.rules(),
+                SearchBudget.of(seed, searchBudget(outcome)));
         out.print(report);
         if (searched instanceof SearchOutcome.Solved solved) {
             out.println("proposal_stop: " + solved.reason().reportName());
@@ -133,10 +133,20 @@ public final class OptimizerCli {
         if (setlistId == null) {
             return Parsed.error("missing --setlist");
         }
-        if (search && budgetSeconds == null) {
-            return Parsed.error("missing --budget-seconds");
-        }
         return Parsed.ok(new LoadRequest(database, setlistId, seed, budgetSeconds, players), search);
+    }
+
+    /**
+     * {@code --budget-seconds} wins. Otherwise the saved band preset is used.
+     */
+    public static Duration searchBudget(LoadOutcome outcome) {
+        if (outcome.budgetSeconds() != null) {
+            return Duration.ofSeconds(outcome.budgetSeconds());
+        }
+        SearchBudgetPreset preset = outcome.searchBudget() == null
+                ? SearchBudgetPreset.NORMAL
+                : outcome.searchBudget();
+        return preset.budget();
     }
 
     private static Long parsePositiveLong(String value) {

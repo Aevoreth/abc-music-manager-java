@@ -15,9 +15,11 @@ import java.util.Set;
  * <p>Lists are sorted by id. A player switch weight replaces
  * {@code defaultSwitchMultiplier} for that player. Instrument affinity is
  * replaced, not stacked, when an occurrence part preference names that slot.
- * Hard pins are not stored on this profile. {@code has_proficiency} is not an input.
+ * Hard pins are stored per setlist item, not on this profile.
+ * {@code has_proficiency} is not an input.
  *
  * <p>{@code settingsVersion} is the document version, not the SQLite schema version.
+ * A missing {@code searchBudget} in an older document reads as {@link SearchBudgetPreset#NORMAL}.
  */
 public record BandOptimizationProfile(
         int settingsVersion,
@@ -28,7 +30,8 @@ public record BandOptimizationProfile(
         int targetChanges,
         double defaultSwitchMultiplier,
         List<PlayerSwitchWeight> playerSwitchWeights,
-        List<InstrumentAffinityWeight> instrumentAffinities) {
+        List<InstrumentAffinityWeight> instrumentAffinities,
+        SearchBudgetPreset searchBudget) {
 
     public static final int CURRENT_SETTINGS_VERSION = 1;
 
@@ -46,11 +49,13 @@ public record BandOptimizationProfile(
         OptimizationWeights.requireNonNegative(defaultSwitchMultiplier, "defaultSwitchMultiplier");
         playerSwitchWeights = copySwitches(playerSwitchWeights);
         instrumentAffinities = copyAffinities(instrumentAffinities);
+        searchBudget = Objects.requireNonNull(searchBudget, "searchBudget");
     }
 
     /**
      * Smooth 4, total 1, role 1, keep 1, target 2, switch multiplier 1,
-     * and no player-scoped rows. This is not the solver's equal-weight default.
+     * Normal search budget, and no player-scoped rows. This is not the solver's
+     * equal-weight default.
      */
     public static BandOptimizationProfile defaults() {
         return new BandOptimizationProfile(
@@ -62,7 +67,8 @@ public record BandOptimizationProfile(
                 2,
                 1.0d,
                 List.of(),
-                List.of());
+                List.of(),
+                SearchBudgetPreset.NORMAL);
     }
 
     private static List<PlayerSwitchWeight> copySwitches(List<PlayerSwitchWeight> source) {

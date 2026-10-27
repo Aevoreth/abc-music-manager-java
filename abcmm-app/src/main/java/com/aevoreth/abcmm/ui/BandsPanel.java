@@ -71,6 +71,7 @@ import com.aevoreth.abcmm.domain.band.PlayerInfo;
 import com.aevoreth.abcmm.domain.band.PlayerInstrumentInfo;
 import com.aevoreth.abcmm.domain.band.PlayerRepository;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.optimizer.OptimizationProfileRepository;
 
 /**
  * Bands and Players management. A band is exactly one layout; members come from grid cards.
@@ -84,6 +85,8 @@ public final class BandsPanel extends JPanel {
 
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
+    private OptimizationProfileRepository optimizationProfiles;
+    private final JButton optimizerButton = new JButton("Optimizer rules…");
 
     private final PlayersTableModel playersTableModel = new PlayersTableModel();
     private final JTable playersTable = new JTable(playersTableModel);
@@ -164,6 +167,10 @@ public final class BandsPanel extends JPanel {
     public void setBandRepository(BandRepository bandRepository) {
         this.bandRepository = bandRepository;
         layoutGrid.setBandRepository(bandRepository);
+    }
+
+    public void setOptimizationProfileRepository(OptimizationProfileRepository optimizationProfiles) {
+        this.optimizationProfiles = optimizationProfiles;
     }
 
     public void bind(PlayerRepository players, BandRepository bands) {
@@ -357,7 +364,10 @@ public final class BandsPanel extends JPanel {
         JPanel metaTop = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         JButton saveBand = new JButton("Save");
         saveBand.addActionListener(e -> saveSelectedBand());
+        optimizerButton.addActionListener(e -> editOptimizerRules());
+        optimizerButton.setEnabled(false);
         metaTop.add(saveBand);
+        metaTop.add(optimizerButton);
         metaTop.add(new JLabel("Name"));
         bandNameField.setColumns(18);
         metaTop.add(bandNameField);
@@ -924,6 +934,7 @@ public final class BandsPanel extends JPanel {
         loadedBandId = selected.id();
         loadedBandName = name.strip();
         loadedBandNotes = notes;
+        optimizerButton.setEnabled(true);
         try {
             BandLayoutInfo layout = bandRepository.getOrCreatePrimaryLayout(selected.id());
             layoutGrid.setLayoutId(layout.id(), selected.id());
@@ -982,7 +993,25 @@ public final class BandsPanel extends JPanel {
         loadedBandId = null;
         loadedBandName = "";
         loadedBandNotes = "";
+        optimizerButton.setEnabled(false);
         layoutGrid.setLayoutId(null, null);
+    }
+
+    private void editOptimizerRules() {
+        BandInfo selected = bandList.getSelectedValue();
+        if (selected == null || bandRepository == null || playerRepository == null) {
+            showError("Select a band first.");
+            return;
+        }
+        if (optimizationProfiles == null) {
+            showError("Optimizer settings are not connected.");
+            return;
+        }
+        try {
+            BandOptimizerForm.show(this, optimizationProfiles, bandRepository, playerRepository, selected.id());
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+        }
     }
 
     private void enableBandListReorder() {

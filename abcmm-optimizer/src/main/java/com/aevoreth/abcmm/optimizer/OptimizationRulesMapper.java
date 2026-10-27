@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import com.aevoreth.abcmm.domain.optimizer.AssignmentPin;
 import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
 import com.aevoreth.abcmm.domain.optimizer.InstrumentAffinityWeight;
 import com.aevoreth.abcmm.domain.optimizer.ItemKeepWeight;
@@ -16,7 +17,8 @@ import com.aevoreth.abcmm.domain.optimizer.PlayerSwitchWeight;
 
 /**
  * Builds {@link OptimizationRules} from a saved band profile and one setlist's
- * occurrence preferences. Hard pins are not read and are not added here.
+ * occurrence preferences. Hard pins are mapped separately by {@link #toPins}
+ * and are not added to the soft rules.
  */
 public final class OptimizationRulesMapper {
 
@@ -65,5 +67,14 @@ public final class OptimizationRulesMapper {
                 parts,
                 itemKeep,
                 partKeep);
+    }
+
+    public static List<Pin> toPins(List<AssignmentPin> pins) {
+        Objects.requireNonNull(pins, "pins");
+        List<Pin> copy = new ArrayList<>();
+        for (AssignmentPin pin : pins) {
+            copy.add(new Pin(pin.setlistItemId(), pin.partNumber(), pin.playerId()));
+        }
+        return List.copyOf(copy);
     }
 }

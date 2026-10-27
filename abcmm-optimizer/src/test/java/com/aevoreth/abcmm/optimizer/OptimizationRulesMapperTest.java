@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import com.aevoreth.abcmm.domain.optimizer.AssignmentPin;
 import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
 import com.aevoreth.abcmm.domain.optimizer.InstrumentAffinityWeight;
 import com.aevoreth.abcmm.domain.optimizer.ItemKeepWeight;
@@ -15,6 +16,7 @@ import com.aevoreth.abcmm.domain.optimizer.OccurrencePreferences;
 import com.aevoreth.abcmm.domain.optimizer.PartKeepWeight;
 import com.aevoreth.abcmm.domain.optimizer.PartPreferenceWeight;
 import com.aevoreth.abcmm.domain.optimizer.PlayerSwitchWeight;
+import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
 
 class OptimizationRulesMapperTest {
 
@@ -29,7 +31,8 @@ class OptimizationRulesMapperTest {
                 2,
                 1.5d,
                 List.of(new PlayerSwitchWeight(7, 4.0d)),
-                List.of(new InstrumentAffinityWeight(7, 3, 2.5d)));
+                List.of(new InstrumentAffinityWeight(7, 3, 2.5d)),
+                SearchBudgetPreset.NORMAL);
         OccurrencePreferences preferences = new OccurrencePreferences(
                 List.of(new PartPreferenceWeight(11, 2, 7, 6.0d)),
                 List.of(new ItemKeepWeight(11, 0.5d)),
@@ -52,5 +55,15 @@ class OptimizationRulesMapperTest {
         assertEquals(1.0d, OptimizationRules.defaults().smoothWeight());
         assertNotEquals(OptimizationRules.defaults(), OptimizationRulesMapper.toRules(
                 BandOptimizationProfile.defaults(), OccurrencePreferences.empty()));
+    }
+
+    @Test
+    void mapsPinsWithoutTurningThemIntoPreferences() {
+        List<Pin> pins = OptimizationRulesMapper.toPins(List.of(
+                new AssignmentPin(20, 1, 8),
+                new AssignmentPin(11, 2, 7)));
+        assertEquals(List.of(new Pin(20, 1, 8), new Pin(11, 2, 7)), pins);
+        assertEquals(List.of(), OptimizationRulesMapper.toRules(
+                BandOptimizationProfile.defaults(), OccurrencePreferences.empty()).partPreferences());
     }
 }

@@ -14,6 +14,8 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
+import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
+
 class AssignmentScorerTest {
 
     private static final Map<Long, String> NAMES = Map.of(
@@ -533,7 +535,8 @@ class AssignmentScorerTest {
                 play(5, 10, 1, 1L), idle(5, 11),
                 play(6, 10, 1, 2L), idle(6, 11));
         String accepted = ProblemReport.format(new LoadOutcome(
-                1, null, null, null, feasible, AssignmentFeasibility.check(feasible, null)));
+                1, null, null, null, feasible, AssignmentFeasibility.check(feasible, null),
+                OptimizationRules.defaults(), SearchBudgetPreset.NORMAL));
         assertTrue(accepted.contains("baseline: ok"));
         assertTrue(accepted.contains("changes: 1"));
         assertTrue(accepted.contains("weighted_score: 1.0"));
@@ -542,7 +545,8 @@ class AssignmentScorerTest {
 
         OptimizationProblem roster = oneSong(play(5, 10, 1, 1L), idle(5, 11));
         String mismatch = ProblemReport.format(new LoadOutcome(
-                1, null, null, 9, roster, AssignmentFeasibility.check(roster, 9)));
+                1, null, null, 9, roster, AssignmentFeasibility.check(roster, 9),
+                OptimizationRules.defaults(), SearchBudgetPreset.NORMAL));
         assertTrue(mismatch.contains("players_mismatch"));
         assertTrue(mismatch.contains("weighted_score: 0.0"));
 
@@ -552,7 +556,8 @@ class AssignmentScorerTest {
                 roster.baseline(),
                 List.of());
         String rejected = ProblemReport.format(new LoadOutcome(
-                1, null, null, null, infeasible, AssignmentFeasibility.check(infeasible, null)));
+                1, null, null, null, infeasible, AssignmentFeasibility.check(infeasible, null),
+                OptimizationRules.defaults(), SearchBudgetPreset.NORMAL));
         assertTrue(rejected.contains("unowned_instrument"));
         assertFalse(rejected.contains("weighted_score:"));
         assertFalse(rejected.contains("\nchanges: "));

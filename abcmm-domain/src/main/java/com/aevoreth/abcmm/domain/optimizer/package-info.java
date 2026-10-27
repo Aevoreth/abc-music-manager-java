@@ -1,5 +1,5 @@
 /**
- * Saved optimizer settings: per-band weights and setlist-occurrence soft preferences.
- * Hard pins are not part of this model.
+ * Saved optimizer settings: per-band weights, setlist-occurrence soft preferences,
+ * and hard per-occurrence assignment pins.
  */
 package com.aevoreth.abcmm.domain.optimizer;

@@ -89,7 +89,7 @@ See [SCHEMA_ISSUES.md](SCHEMA_ISSUES.md). Suggested in a future v13+ bump, not J
 
 | Path | Role |
 |------|------|
-| `~/.abc_music_manager/abc_music_manager.sqlite` | Library index and app entities (schema v15 in Java) |
+| `~/.abc_music_manager/abc_music_manager.sqlite` | Library index and app entities (schema v16 in Java) |
 | `~/.abc_music_manager/preferences.json` | Jackson JSON; shared key names + `extras` passthrough for unknown/Python UI keys |
 | `$ABC_MUSIC_MANAGER_DATA/` | Optional override for the data directory (portable-app hook) |
 
@@ -101,7 +101,7 @@ Java may add keys under `extras` (e.g. `java_nav_section`) without breaking Pyth
 
 Completed bandleader library + management slice (this edition):
 
-1. Open or create SQLite v15 (writable; migrate older DBs; Python v12 will not round-trip)
+1. Open or create SQLite v16 (writable; migrate older DBs; Python v12 will not round-trip)
 2. List primary-library songs in the Library table with filters
 3. Settings dialog: Appearance, Library Filters, roots, Status/FolderRule/AccountTarget CRUD
 4. Shared `preferences.json` load/save (including Java `theme`)

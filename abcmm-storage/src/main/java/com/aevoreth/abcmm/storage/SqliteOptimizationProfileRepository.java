@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -13,6 +14,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.optimizer.AssignmentPin;
 import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
 import com.aevoreth.abcmm.domain.optimizer.InstrumentAffinityWeight;
 import com.aevoreth.abcmm.domain.optimizer.ItemKeepWeight;
@@ -21,6 +23,7 @@ import com.aevoreth.abcmm.domain.optimizer.OptimizationProfileRepository;
 import com.aevoreth.abcmm.domain.optimizer.PartKeepWeight;
 import com.aevoreth.abcmm.domain.optimizer.PartPreferenceWeight;
 import com.aevoreth.abcmm.domain.optimizer.PlayerSwitchWeight;
+import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,13 +38,22 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private static final Set<String> SETTINGS_FIELDS = Set.of(
+    private static final Set<String> REQUIRED_SETTINGS_FIELDS = Set.of(
             "smoothWeight",
             "totalWeight",
             "roleWeight",
             "keepWeight",
             "targetChanges",
             "defaultSwitchMultiplier");
+
+    private static final Set<String> SETTINGS_FIELDS = Set.of(
+            "smoothWeight",
+            "totalWeight",
+            "roleWeight",
+            "keepWeight",
+            "targetChanges",
+            "defaultSwitchMultiplier",
+            "searchBudget");
 
     private final SqliteDatabase database;
 
@@ -77,7 +89,8 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                         scalars.targetChanges(),
                         scalars.defaultSwitchMultiplier(),
                         listSwitchWeights(bandId),
-                        listAffinities(bandId));
+                        listAffinities(bandId),
+                        scalars.searchBudget());
             }
         } catch (SQLException ex) {
             throw new LibraryException("Failed to read optimization profile", ex);
@@ -136,6 +149,7 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
         Objects.requireNonNull(preferences, "preferences");
         inTransaction(() -> {
             requireRow("SELECT 1 FROM Setlist WHERE id = ?", setlistId, "Setlist not found: " + setlistId);
+            requireUnlocked(setlistId);
             Set<Long> itemIds = listItemIds(setlistId);
             for (PartPreferenceWeight weight : preferences.partPreferences()) {
                 requireItem(itemIds, setlistId, weight.setlistItemId());
@@ -157,9 +171,38 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
         });
     }
 
+    @Override
+    public List<AssignmentPin> listPins(long setlistId) throws LibraryException {
+        requireRow("SELECT 1 FROM Setlist WHERE id = ?", setlistId, "Setlist not found: " + setlistId);
+        try {
+            return listPinsForSetlist(setlistId);
+        } catch (SQLException ex) {
+            throw new LibraryException("Failed to read assignment pins", ex);
+        }
+    }
+
+    @Override
+    public void replacePins(long setlistId, List<AssignmentPin> pins) throws LibraryException {
+        List<AssignmentPin> copy = copyPins(pins);
+        inTransaction(() -> {
+            requireRow("SELECT 1 FROM Setlist WHERE id = ?", setlistId, "Setlist not found: " + setlistId);
+            requireUnlocked(setlistId);
+            Set<Long> itemIds = listItemIds(setlistId);
+            for (AssignmentPin pin : copy) {
+                requireItem(itemIds, setlistId, pin.setlistItemId());
+                requireRow(
+                        "SELECT 1 FROM Player WHERE id = ?",
+                        pin.playerId(),
+                        "Player not found: " + pin.playerId());
+            }
+            deletePinsForSetlist(setlistId);
+            insertPins(copy);
+        });
+    }
+
     /**
      * Copy a saved profile and its player-scoped rows. No profile row means the
-     * copy also has none and reads as the code default. Occurrence rows stay put.
+     * copy also has none and reads as the code default. Occurrence rows and pins stay put.
      */
     void copyBandProfile(long sourceBandId, long newBandId) throws SQLException {
         if (!rowExists("SELECT 1 FROM BandOptimizationProfile WHERE band_id = ?", sourceBandId)) {
@@ -214,12 +257,13 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
         executeUpdate("DELETE FROM BandPlayerSwitchWeight WHERE player_id = ?", playerId);
         executeUpdate("DELETE FROM BandInstrumentAffinity WHERE player_id = ?", playerId);
         executeUpdate("DELETE FROM SetlistPartPreference WHERE player_id = ?", playerId);
+        executeUpdate("DELETE FROM SetlistAssignmentPin WHERE player_id = ?", playerId);
     }
 
     /**
      * Move this band's player-scoped rows onto {@code newPlayerId}. An existing
      * destination switch weight or affinity is kept and the source row is dropped.
-     * Part preferences change player only on setlists that use {@code bandLayoutId}.
+     * Part preferences and pins change player only on setlists that use {@code bandLayoutId}.
      */
     void transferPlayer(long bandId, long bandLayoutId, long oldPlayerId, long newPlayerId)
             throws SQLException {
@@ -310,6 +354,21 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 newPlayerId,
                 oldPlayerId,
                 bandLayoutId);
+        executeUpdate(
+                """
+                UPDATE SetlistAssignmentPin
+                SET player_id = ?
+                WHERE player_id = ?
+                  AND setlist_item_id IN (
+                      SELECT si.id
+                      FROM SetlistItem si
+                      JOIN Setlist s ON s.id = si.setlist_id
+                      WHERE s.band_layout_id = ?
+                  )
+                """,
+                newPlayerId,
+                oldPlayerId,
+                bandLayoutId);
     }
 
     void copyOccurrencePreferences(long sourceItemId, long newItemId) throws SQLException {
@@ -344,12 +403,24 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
             statement.setLong(2, sourceItemId);
             statement.executeUpdate();
         }
+        String pinSql = """
+                INSERT INTO SetlistAssignmentPin (setlist_item_id, part_number, player_id)
+                SELECT ?, part_number, player_id
+                FROM SetlistAssignmentPin
+                WHERE setlist_item_id = ?
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(pinSql)) {
+            statement.setLong(1, newItemId);
+            statement.setLong(2, sourceItemId);
+            statement.executeUpdate();
+        }
     }
 
     void deleteOccurrenceForItem(long itemId) throws SQLException {
         executeUpdate("DELETE FROM SetlistPartPreference WHERE setlist_item_id = ?", itemId);
         executeUpdate("DELETE FROM SetlistItemKeepWeight WHERE setlist_item_id = ?", itemId);
         executeUpdate("DELETE FROM SetlistPartKeepWeight WHERE setlist_item_id = ?", itemId);
+        executeUpdate("DELETE FROM SetlistAssignmentPin WHERE setlist_item_id = ?", itemId);
     }
 
     void deleteOccurrenceForSetlist(long setlistId) throws SQLException {
@@ -362,6 +433,9 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 setlistId);
         executeUpdate(
                 "DELETE FROM SetlistPartKeepWeight WHERE setlist_item_id IN (" + itemIds + ")",
+                setlistId);
+        executeUpdate(
+                "DELETE FROM SetlistAssignmentPin WHERE setlist_item_id IN (" + itemIds + ")",
                 setlistId);
     }
 
@@ -380,6 +454,8 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                     "DELETE FROM SetlistItemKeepWeight WHERE setlist_item_id IN (" + orphanItems + ")");
             statement.executeUpdate(
                     "DELETE FROM SetlistPartKeepWeight WHERE setlist_item_id IN (" + orphanItems + ")");
+            statement.executeUpdate(
+                    "DELETE FROM SetlistAssignmentPin WHERE setlist_item_id IN (" + orphanItems + ")");
         }
     }
 
@@ -734,6 +810,7 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
         node.put("keepWeight", profile.keepWeight());
         node.put("targetChanges", profile.targetChanges());
         node.put("defaultSwitchMultiplier", profile.defaultSwitchMultiplier());
+        node.put("searchBudget", profile.searchBudget().name());
         try {
             return JSON.writeValueAsString(node);
         } catch (JsonProcessingException ex) {
@@ -761,7 +838,7 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 throw new LibraryException("Unknown optimization profile field " + name);
             }
         }
-        for (String required : SETTINGS_FIELDS) {
+        for (String required : REQUIRED_SETTINGS_FIELDS) {
             if (!node.has(required)) {
                 throw new LibraryException("Missing optimization profile field " + required);
             }
@@ -779,7 +856,99 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 target.intValue(),
                 readWeight(node, "defaultSwitchMultiplier"),
                 List.of(),
-                List.of());
+                List.of(),
+                readSearchBudget(node));
+    }
+
+    private static SearchBudgetPreset readSearchBudget(JsonNode node) throws LibraryException {
+        if (!node.has("searchBudget") || node.get("searchBudget").isNull()) {
+            return SearchBudgetPreset.NORMAL;
+        }
+        JsonNode value = node.get("searchBudget");
+        if (!value.isTextual()) {
+            throw new LibraryException("Invalid optimization profile field searchBudget");
+        }
+        try {
+            return SearchBudgetPreset.valueOf(value.asText());
+        } catch (IllegalArgumentException ex) {
+            throw new LibraryException("Invalid optimization profile field searchBudget");
+        }
+    }
+
+    private void requireUnlocked(long setlistId) throws SQLException, LibraryException {
+        String sql = "SELECT locked FROM Setlist WHERE id = ?";
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, setlistId);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    throw new LibraryException("Setlist not found: " + setlistId);
+                }
+                if (rs.getInt("locked") != 0) {
+                    throw new LibraryException(LOCKED_SETLIST_MESSAGE);
+                }
+            }
+        }
+    }
+
+    private List<AssignmentPin> listPinsForSetlist(long setlistId) throws SQLException {
+        String sql = """
+                SELECT p.setlist_item_id, p.part_number, p.player_id
+                FROM SetlistAssignmentPin p
+                JOIN SetlistItem si ON si.id = p.setlist_item_id
+                WHERE si.setlist_id = ?
+                ORDER BY p.setlist_item_id, p.part_number
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            statement.setLong(1, setlistId);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<AssignmentPin> pins = new ArrayList<>();
+                while (rs.next()) {
+                    pins.add(new AssignmentPin(
+                            rs.getLong("setlist_item_id"),
+                            rs.getInt("part_number"),
+                            rs.getLong("player_id")));
+                }
+                return pins;
+            }
+        }
+    }
+
+    private void deletePinsForSetlist(long setlistId) throws SQLException {
+        executeUpdate(
+                "DELETE FROM SetlistAssignmentPin WHERE setlist_item_id IN ("
+                        + "SELECT id FROM SetlistItem WHERE setlist_id = ?)",
+                setlistId);
+    }
+
+    private void insertPins(List<AssignmentPin> pins) throws SQLException {
+        String sql = """
+                INSERT INTO SetlistAssignmentPin (setlist_item_id, part_number, player_id)
+                VALUES (?, ?, ?)
+                """;
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            for (AssignmentPin pin : pins) {
+                statement.setLong(1, pin.setlistItemId());
+                statement.setInt(2, pin.partNumber());
+                statement.setLong(3, pin.playerId());
+                statement.executeUpdate();
+            }
+        }
+    }
+
+    private static List<AssignmentPin> copyPins(List<AssignmentPin> source) throws LibraryException {
+        Objects.requireNonNull(source, "pins");
+        List<AssignmentPin> copy = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (AssignmentPin pin : source) {
+            if (pin == null || !seen.add(pin.setlistItemId() + ":" + pin.partNumber())) {
+                throw new LibraryException("Duplicate assignment pin");
+            }
+            copy.add(pin);
+        }
+        copy.sort(Comparator
+                .comparingLong(AssignmentPin::setlistItemId)
+                .thenComparingInt(AssignmentPin::partNumber));
+        return List.copyOf(copy);
     }
 
     private static double readWeight(JsonNode node, String field) throws LibraryException {

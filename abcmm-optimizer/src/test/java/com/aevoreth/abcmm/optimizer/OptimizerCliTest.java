@@ -13,11 +13,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
+import java.util.List;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
 import com.aevoreth.abcmm.optimizer.cli.OptimizerCli;
 import com.aevoreth.abcmm.storage.SqliteDatabase;
 
@@ -121,20 +124,16 @@ class OptimizerCliTest {
     }
 
     @Test
-    void searchRequiresABudgetAndDoesNotOpenTheDatabase() throws Exception {
-        Path database = tempDir.resolve("unused-search.sqlite");
-        Files.writeString(database, "not a database");
-        byte[] before = Files.readAllBytes(database);
-        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
-        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-        int code = OptimizerCli.run(
-                new String[] {"--database", database.toString(), "--setlist", "1", "--search"},
-                new PrintStream(stdout, true, StandardCharsets.UTF_8),
-                new PrintStream(stderr, true, StandardCharsets.UTF_8));
-        assertEquals(1, code);
-        assertEquals("", stdout.toString(StandardCharsets.UTF_8));
-        assertTrue(stderr.toString(StandardCharsets.UTF_8).contains("missing --budget-seconds"));
-        assertArrayEquals(before, Files.readAllBytes(database));
+    void budgetFlagOverridesTheSavedPreset() {
+        FeasibilityReport report = new FeasibilityReport(List.of());
+        LoadOutcome flagged = new LoadOutcome(
+                1, 0L, 0L, null, null, report, null, SearchBudgetPreset.THOROUGH);
+        assertEquals(Duration.ZERO, OptimizerCli.searchBudget(flagged));
+        LoadOutcome preset = new LoadOutcome(
+                1, 0L, null, null, null, report, null, SearchBudgetPreset.QUICK);
+        assertEquals(Duration.ofSeconds(2), OptimizerCli.searchBudget(preset));
+        LoadOutcome missing = new LoadOutcome(1, null, null, null, null, report, null, null);
+        assertEquals(Duration.ofSeconds(10), OptimizerCli.searchBudget(missing));
     }
 
     private static int count(String text, String token) {
