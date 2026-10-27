@@ -33,14 +33,14 @@ public final class AssignmentSolver {
         ProblemIndex index = ProblemIndex.build(problem, rules);
         AssignmentRepair.Result repaired = AssignmentRepair.repair(index);
         if (!repaired.feasible()) {
-            List<Diagnostic> diagnostics = AssignmentValidator.validate(problem, baseline);
+            List<Diagnostic> diagnostics = AssignmentValidator.validate(problem, baseline, rules);
             if (diagnostics.isEmpty()) {
                 throw new IllegalStateException("repair failed without diagnostics");
             }
             return infeasible(diagnostics);
         }
         CandidateState current = repaired.state();
-        List<Diagnostic> repairedProblems = AssignmentValidator.validate(problem, current.toAssignment());
+        List<Diagnostic> repairedProblems = AssignmentValidator.validate(problem, current.toAssignment(), rules);
         if (!repairedProblems.isEmpty()) {
             return infeasible(repairedProblems);
         }
@@ -401,7 +401,7 @@ public final class AssignmentSolver {
             if (!best.breakdown().equals(acceptedScore.breakdown())) {
                 throw new IllegalStateException("incremental score diverged from AssignmentScorer");
             }
-            List<Diagnostic> problems = AssignmentValidator.validate(index.problem, assignment);
+            List<Diagnostic> problems = AssignmentValidator.validate(index.problem, assignment, index.rules);
             if (!problems.isEmpty()) {
                 throw new IllegalStateException("search returned an assignment that breaks a hard constraint");
             }

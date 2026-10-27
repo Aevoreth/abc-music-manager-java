@@ -61,6 +61,91 @@ class AssignmentSolverTest {
     }
 
     @Test
+    void requiredInstrumentTakesAnOpenPartAndSurvivesSearch() {
+        OptimizationProblem offInstrument = problem(
+                List.of(player(10, 1, 2), player(11, 1, 2)),
+                List.of(song(5, new RequiredPart(1, 1L), new RequiredPart(2, 2L))),
+                List.of(play(5, 10, 2, 2L), play(5, 11, 1, 1L)),
+                List.of());
+        SearchOutcome.Solved repaired = solved(offInstrument, requiredInstrument(10, 1L), Duration.ZERO);
+        assertEquals(1, part(repaired.assignment(), 5, 10));
+        assertEquals(2, part(repaired.assignment(), 5, 11));
+
+        OptimizationProblem keepWantsTheBaseline = problem(
+                List.of(player(10, 1, 2), player(11, 1, 2)),
+                List.of(
+                        song(5, new RequiredPart(1, 1L), new RequiredPart(2, 2L)),
+                        song(6, new RequiredPart(1, 2L), new RequiredPart(2, 1L))),
+                List.of(
+                        play(5, 10, 2, 2L), play(5, 11, 1, 1L),
+                        play(6, 10, 2, 1L), play(6, 11, 1, 2L)),
+                List.of());
+        SearchOutcome.Solved held = solved(
+                keepWantsTheBaseline, requiredInstrument(10, 1L), Duration.ofMillis(400));
+        assertEquals(1, part(held.assignment(), 5, 10));
+        assertEquals(2, part(held.assignment(), 6, 10));
+    }
+
+    @Test
+    void requiredInstrumentLeavesSongsThatDoNotHaveItAndKeepsEitherMatchingPart() {
+        OptimizationProblem absent = problem(
+                List.of(player(10, 1, 2), player(11, 2)),
+                List.of(song(5, new RequiredPart(1, 2L))),
+                List.of(play(5, 10, 1, 2L), idle(5, 11)),
+                List.of());
+        SearchOutcome.Solved kept = solved(absent, requiredInstrument(10, 1L), Duration.ZERO);
+        assertEquals(1, part(kept.assignment(), 5, 10));
+
+        OptimizationProblem eitherPart = problem(
+                List.of(player(10, 1), player(11, 1)),
+                List.of(song(5, new RequiredPart(1, 1L), new RequiredPart(2, 1L))),
+                List.of(play(5, 10, 2, 1L), play(5, 11, 1, 1L)),
+                List.of());
+        SearchOutcome.Solved stayed = solved(eitherPart, requiredInstrument(10, 1L), Duration.ZERO);
+        assertEquals(2, part(stayed.assignment(), 5, 10));
+        assertEquals(1, part(stayed.assignment(), 5, 11));
+    }
+
+    @Test
+    void scarceRequiredInstrumentLetsEqualPlayersShareAndGivesPriorityThePart() {
+        OptimizationProblem tied = problem(
+                List.of(player(10, 1, 2), player(11, 1, 2)),
+                List.of(song(5, new RequiredPart(1, 1L), new RequiredPart(2, 2L))),
+                List.of(play(5, 10, 2, 2L), idle(5, 11)),
+                List.of());
+        SearchOutcome.Solved shared = solved(tied, requiredBoth(0, 0), Duration.ZERO);
+        assertEquals(1, part(shared.assignment(), 5, 10));
+        assertEquals(2, part(shared.assignment(), 5, 11));
+
+        OptimizationProblem alreadyShared = problem(
+                List.of(player(10, 1, 2), player(11, 1, 2)),
+                List.of(song(5, new RequiredPart(1, 1L), new RequiredPart(2, 2L))),
+                List.of(play(5, 10, 2, 2L), play(5, 11, 1, 1L)),
+                List.of());
+        SearchOutcome.Solved kept = solved(alreadyShared, requiredBoth(0, 0), Duration.ofMillis(400));
+        assertEquals(2, part(kept.assignment(), 5, 10));
+        assertEquals(1, part(kept.assignment(), 5, 11));
+
+        OptimizationProblem ranked = problem(
+                List.of(player(10, 1, 2), player(11, 1, 2)),
+                List.of(song(5, new RequiredPart(1, 1L), new RequiredPart(2, 2L))),
+                List.of(play(5, 10, 2, 2L), play(5, 11, 1, 1L)),
+                List.of());
+        SearchOutcome.Solved priority = solved(ranked, requiredBoth(5, 0), Duration.ofMillis(400));
+        assertEquals(1, part(priority.assignment(), 5, 10));
+        assertEquals(2, part(priority.assignment(), 5, 11));
+
+        OptimizationProblem pinnedAway = problem(
+                List.of(player(10, 1, 2), player(11, 1)),
+                List.of(song(5, new RequiredPart(1, 1L), new RequiredPart(2, 2L))),
+                List.of(play(5, 10, 2, 2L), play(5, 11, 1, 1L)),
+                List.of(new Pin(5, 1, 11)));
+        SearchOutcome.Solved blocked = solved(pinnedAway, requiredInstrument(10, 1L), Duration.ZERO);
+        assertEquals(1, part(blocked.assignment(), 5, 11));
+        assertEquals(2, part(blocked.assignment(), 5, 10));
+    }
+
+    @Test
     void repairBacktracksWhenTheFirstOwnerIsNeededOnALaterPart() {
         OptimizationProblem problem = problem(
                 List.of(player(10, 1, 2), player(11, 1)),
@@ -271,7 +356,7 @@ class AssignmentSolverTest {
         ScoreOutcome scored = AssignmentScorer.score(problem, solved.assignment(), rules);
         ScoreOutcome.Accepted accepted = assertInstanceOf(ScoreOutcome.Accepted.class, scored);
         assertEquals(accepted.breakdown(), solved.breakdown());
-        assertEquals(0, AssignmentValidator.validate(problem, solved.assignment()).size());
+        assertEquals(0, AssignmentValidator.validate(problem, solved.assignment(), rules).size());
         return solved;
     }
 
@@ -287,6 +372,28 @@ class AssignmentSolverTest {
 
     private static boolean has(SearchOutcome.Infeasible infeasible, String code) {
         return infeasible.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(code));
+    }
+
+    private static OptimizationRules requiredBoth(double firstPriority, double secondPriority) {
+        return new OptimizationRules(
+                0, 0, 0, 100, 2, 1,
+                Map.of(),
+                List.of(
+                        new InstrumentAffinity(10, 1L, firstPriority, true),
+                        new InstrumentAffinity(11, 1L, secondPriority, true)),
+                List.of(),
+                Map.of(),
+                Map.of());
+    }
+
+    private static OptimizationRules requiredInstrument(long playerId, long instrumentId) {
+        return new OptimizationRules(
+                0, 0, 0, 100, 2, 1,
+                Map.of(),
+                List.of(new InstrumentAffinity(playerId, instrumentId, 50, true)),
+                List.of(),
+                Map.of(),
+                Map.of());
     }
 
     private static OptimizationRules switchOnly() {

@@ -24,6 +24,12 @@ final class ProblemIndex {
     final boolean[][][] owns;
     final int[][] pinnedPlayer;
     final int[][] pinnedPart;
+    /** True when this player must take one of {@link #allowedPart} on this song. */
+    final boolean[][] mustPlay;
+    /** Parts that satisfy a required instrument. Indexed for strict players and tied claims. */
+    final boolean[][][] allowedPart;
+    /** Tied players of one priority, of whom exactly {@code seats} must take the instrument. */
+    final RequiredInstrumentPlan.Claim[][] requiredClaims;
     final boolean[] baselineSongLegal;
     final int[][] baselinePart;
     final Integer[][] baselinePartNumber;
@@ -46,6 +52,9 @@ final class ProblemIndex {
             boolean[][][] owns,
             int[][] pinnedPlayer,
             int[][] pinnedPart,
+            boolean[][] mustPlay,
+            boolean[][][] allowedPart,
+            RequiredInstrumentPlan.Claim[][] requiredClaims,
             boolean[] baselineSongLegal,
             int[][] baselinePart,
             Integer[][] baselinePartNumber,
@@ -67,6 +76,9 @@ final class ProblemIndex {
         this.owns = owns;
         this.pinnedPlayer = pinnedPlayer;
         this.pinnedPart = pinnedPart;
+        this.mustPlay = mustPlay;
+        this.allowedPart = allowedPart;
+        this.requiredClaims = requiredClaims;
         this.baselineSongLegal = baselineSongLegal;
         this.baselinePart = baselinePart;
         this.baselinePartNumber = baselinePartNumber;
@@ -139,6 +151,11 @@ final class ProblemIndex {
             }
         }
 
+        RequiredInstrumentPlan required = RequiredInstrumentPlan.build(problem, rules);
+        boolean[][] mustPlay = required.mustPlay;
+        boolean[][][] allowedPart = required.allowedPart;
+        RequiredInstrumentPlan.Claim[][] requiredClaims = required.claims;
+
         int[][] rowCount = new int[songs][players];
         Integer[][] baselinePartNumber = new Integer[songs][players];
         Long[][] baselineInstrument = new Long[songs][players];
@@ -171,7 +188,10 @@ final class ProblemIndex {
                     baselinePart[song],
                     baselineInstrument[song],
                     pinnedPlayer[song],
-                    pinnedPart[song]);
+                    pinnedPart[song],
+                    mustPlay[song],
+                    allowedPart[song],
+                    requiredClaims[song]);
         }
 
         double[] switchMultiplier = new double[players];
@@ -242,6 +262,9 @@ final class ProblemIndex {
                 owns,
                 pinnedPlayer,
                 pinnedPart,
+                mustPlay,
+                allowedPart,
+                requiredClaims,
                 baselineSongLegal,
                 baselinePart,
                 baselinePartNumber,
@@ -278,7 +301,10 @@ final class ProblemIndex {
             int[] baselinePart,
             Long[] baselineInstrument,
             int[] pinnedPlayer,
-            int[] pinnedPart) {
+            int[] pinnedPart,
+            boolean[] mustPlay,
+            boolean[][] allowedPart,
+            RequiredInstrumentPlan.Claim[] claims) {
         SongOccurrence occurrence = problem.occurrences().get(song);
         for (int player = 0; player < rowCount.length; player++) {
             if (rowCount[player] != 1) {
@@ -324,6 +350,27 @@ final class ProblemIndex {
         for (int player = 0; player < pinnedPart.length; player++) {
             int part = pinnedPart[player];
             if (part >= 0 && baselinePart[player] != part) {
+                return false;
+            }
+        }
+        for (int player = 0; player < mustPlay.length; player++) {
+            if (!mustPlay[player]) {
+                continue;
+            }
+            int part = baselinePart[player];
+            if (part < 0 || !allowedPart[player][part]) {
+                return false;
+            }
+        }
+        for (RequiredInstrumentPlan.Claim claim : claims) {
+            int onInstrument = 0;
+            for (int player : claim.players) {
+                int part = baselinePart[player];
+                if (part >= 0 && allowedPart[player][part]) {
+                    onInstrument++;
+                }
+            }
+            if (onInstrument != claim.seats) {
                 return false;
             }
         }
@@ -373,6 +420,9 @@ final class ProblemIndex {
             if (PhysicalInstrumentEquivalence.sameInstrument(
                     affinity.instrumentId(), instrumentId, equivalence)) {
                 return 0.0d;
+            }
+            if (affinity.required()) {
+                continue;
             }
             if (affinity.missPenalty() > highest) {
                 highest = affinity.missPenalty();

@@ -151,6 +151,7 @@ public final class SetPlayPanel extends JPanel {
     private SetlistRepository setlistRepository;
     private BandRepository bandRepository;
     private PlayerRepository playerRepository;
+    private SongLayoutRepository songLayoutRepository;
     private PlayLogRepository playLogRepository;
     private SetPlayLayoutBuilder layoutBuilder;
     private SetPlayRelayRepository setPlayRelayRepository;
@@ -846,6 +847,7 @@ public final class SetPlayPanel extends JPanel {
         this.setlistRepository = setlistRepository;
         this.bandRepository = bandRepository;
         this.playerRepository = playerRepository;
+        this.songLayoutRepository = songLayoutRepository;
         this.playLogRepository = playLogRepository;
         songFields.setPlayLogRepository(playLogRepository);
         this.setPlayRelayRepository = setPlayRelayRepository;
@@ -2207,6 +2209,7 @@ public final class SetPlayPanel extends JPanel {
                     setlistRepository,
                     bandRepository,
                     playerRepository,
+                    songLayoutRepository,
                     preferences == null ? null : preferences.setExport());
         } catch (LibraryException ex) {
             partsSheet = SetPlayPartsSheet.empty();

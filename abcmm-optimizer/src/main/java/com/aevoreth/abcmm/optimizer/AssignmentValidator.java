@@ -24,6 +24,11 @@ public final class AssignmentValidator {
     }
 
     public static List<Diagnostic> validate(OptimizationProblem problem, Assignment assignment) {
+        return validate(problem, assignment, null);
+    }
+
+    public static List<Diagnostic> validate(
+            OptimizationProblem problem, Assignment assignment, OptimizationRules rules) {
         List<Diagnostic> diagnostics = new ArrayList<>();
         Map<Long, Performer> performers = new HashMap<>();
         for (Performer performer : problem.performers()) {
@@ -36,6 +41,9 @@ public final class AssignmentValidator {
             checkSlots(problem, occurrence, performers, assignment, diagnostics);
         }
         checkPins(problem, occurrences, performers.keySet(), assignment, diagnostics);
+        if (rules != null) {
+            checkRequiredInstruments(problem, rules, performers.keySet(), assignment, diagnostics);
+        }
         return diagnostics;
     }
 
@@ -270,6 +278,71 @@ public final class AssignmentValidator {
                                 "player", pin.playerId())));
             }
         }
+    }
+
+    /**
+     * Required instruments fill the parts a song actually has. Extra players at the
+     * same priority share those parts, and lower priorities are free.
+     */
+    private static void checkRequiredInstruments(
+            OptimizationProblem problem,
+            OptimizationRules rules,
+            Set<Long> playerIds,
+            Assignment assignment,
+            List<Diagnostic> diagnostics) {
+        RequiredInstrumentPlan plan = RequiredInstrumentPlan.build(problem, rules);
+        List<SongOccurrence> occurrences = problem.occurrences();
+        for (int song = 0; song < occurrences.size(); song++) {
+            SongOccurrence occurrence = occurrences.get(song);
+            int[] partByPlayer = new int[problem.performers().size()];
+            java.util.Arrays.fill(partByPlayer, -1);
+            for (int player = 0; player < partByPlayer.length; player++) {
+                long playerId = problem.performers().get(player).playerId();
+                if (!playerIds.contains(playerId)) {
+                    continue;
+                }
+                AssignedSlot slot = assignment.slot(occurrence.setlistItemId(), playerId);
+                if (slot == null || slot.partNumber() == null) {
+                    continue;
+                }
+                partByPlayer[player] = partIndex(occurrence, slot.partNumber());
+            }
+            for (int player = 0; player < partByPlayer.length; player++) {
+                if (!plan.mustPlay[song][player]) {
+                    continue;
+                }
+                int part = partByPlayer[player];
+                if (part >= 0 && plan.allowedPart[song][player][part]) {
+                    continue;
+                }
+                diagnostics.add(Diagnostic.baseline(
+                        "required_instrument",
+                        Diagnostics.detail(
+                                "item", occurrence.setlistItemId(),
+                                "player", problem.performers().get(player).playerId())));
+            }
+            for (RequiredInstrumentPlan.Claim claim : plan.claims[song]) {
+                if (RequiredInstrumentPlan.seated(plan, song, claim, partByPlayer) == claim.seats) {
+                    continue;
+                }
+                diagnostics.add(Diagnostic.baseline(
+                        "required_instrument",
+                        Diagnostics.detail(
+                                "item", occurrence.setlistItemId(),
+                                "instrument", claim.instrumentId,
+                                "seats", claim.seats)));
+            }
+        }
+    }
+
+    private static int partIndex(SongOccurrence occurrence, int partNumber) {
+        List<RequiredPart> parts = occurrence.parts();
+        for (int part = 0; part < parts.size(); part++) {
+            if (parts.get(part).partNumber() == partNumber) {
+                return part;
+            }
+        }
+        return -1;
     }
 
     private static RequiredPart requiredPart(SongOccurrence occurrence, int partNumber) {

@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -68,6 +69,38 @@ class SqliteOptimizationProfileRepositoryTest {
             assertEquals(9.0d, profiles.getBandProfile(second).smoothWeight());
             assertEquals(playerA, profiles.getBandProfile(first).playerSwitchWeights().get(0).playerId());
             assertEquals(instrumentB, profiles.getBandProfile(first).instrumentAffinities().get(0).instrumentId());
+            assertFalse(profiles.getBandProfile(first).instrumentAffinities().get(0).required());
+        }
+    }
+
+    @Test
+    void savesAndCopiesRequiredInstrumentAffinity() throws Exception {
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(tempDir.resolve("required.sqlite"))) {
+            SqliteBandRepository bands = new SqliteBandRepository(database);
+            SqlitePlayerRepository players = new SqlitePlayerRepository(database);
+            SqliteOptimizationProfileRepository profiles = new SqliteOptimizationProfileRepository(database);
+            long bandId = bands.addBand("Band", null);
+            long playerId = players.addPlayer("Ada", null, null);
+            long instrumentId = instrumentId(database, 0);
+            profiles.saveBandProfile(bandId, new BandOptimizationProfile(
+                    1,
+                    4.0d,
+                    1.0d,
+                    1.0d,
+                    1.0d,
+                    2,
+                    1.0d,
+                    List.of(),
+                    List.of(new InstrumentAffinityWeight(playerId, instrumentId, 0.0d, true)),
+                    SearchBudgetPreset.NORMAL));
+
+            InstrumentAffinityWeight saved = profiles.getBandProfile(bandId).instrumentAffinities().get(0);
+            assertTrue(saved.required());
+            assertEquals(0.0d, saved.missPenalty());
+
+            long copyId = bands.duplicateBand(bandId);
+            InstrumentAffinityWeight copied = profiles.getBandProfile(copyId).instrumentAffinities().get(0);
+            assertEquals(saved, copied);
         }
     }
 

@@ -56,7 +56,9 @@ public final class BandOptimizerForm extends JPanel {
                     + "One role unit is a miss penalty of 1. "
                     + "One keep unit is one changed assignment. "
                     + "Zero turns that goal off. "
-                    + "A preference does not change which instruments a player owns.";
+                    + "A preference does not change which instruments a player owns. "
+                    + "Always, when the song has it, assigns that instrument. "
+                    + "If several players always want the only part, priority decides who takes it.";
 
     private final OptimizationProfileRepository profiles;
     private final PlayerRepository players;
@@ -135,7 +137,9 @@ public final class BandOptimizerForm extends JPanel {
         }
         for (InstrumentAffinityWeight weight : profile.instrumentAffinities()) {
             byId.computeIfAbsent(weight.playerId(), id -> row(id, lookupName(id), false));
-            byId.get(weight.playerId()).affinities.put(weight.instrumentId(), weight.missPenalty());
+            byId.get(weight.playerId()).affinities.put(
+                    weight.instrumentId(),
+                    new AffinitySetting(weight.missPenalty(), weight.required()));
         }
         rows.addAll(byId.values());
         rows.sort(Comparator
@@ -203,8 +207,12 @@ public final class BandOptimizerForm extends JPanel {
             if (!text.isEmpty()) {
                 switches.add(new PlayerSwitchWeight(row.playerId, parseWeight(text, row.name)));
             }
-            for (Map.Entry<Long, Double> affinity : row.affinities.entrySet()) {
-                affinities.add(new InstrumentAffinityWeight(row.playerId, affinity.getKey(), affinity.getValue()));
+            for (Map.Entry<Long, AffinitySetting> affinity : row.affinities.entrySet()) {
+                affinities.add(new InstrumentAffinityWeight(
+                        row.playerId,
+                        affinity.getKey(),
+                        affinity.getValue().missPenalty(),
+                        affinity.getValue().required()));
             }
         }
         SearchBudgetPreset preset = (SearchBudgetPreset) budget.getSelectedItem();
@@ -237,7 +245,8 @@ public final class BandOptimizerForm extends JPanel {
         switchLabel.setLabelFor(field);
         JButton preferred = new JButton("Preferred instruments…");
         preferred.getAccessibleContext().setAccessibleName("Preferred instruments for " + shown);
-        PlayerRuleRow row = new PlayerRuleRow(playerId, shown, onLayout, field, new LinkedHashMap<>(), new JPanel());
+        PlayerRuleRow row = new PlayerRuleRow(
+                playerId, shown, onLayout, field, new LinkedHashMap<>(), new JPanel());
         preferred.addActionListener(e -> editAffinities(row));
         JPanel panel = row.panel;
         panel.setLayout(new FlowLayout(FlowLayout.LEFT, 6, 2));
@@ -267,7 +276,11 @@ public final class BandOptimizerForm extends JPanel {
         JPanel body = new JPanel();
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
         JTextArea note = new JTextArea(
-                "A preference does not change which instruments this player owns.");
+                "Prefer adds a penalty when this player plays something else. "
+                        + "Always, when the song has it, assigns that instrument on every song that includes it. "
+                        + "If more players always want it than the song has parts, the higher priority takes a part "
+                        + "and the others are free to play anything else. Equal priority lets the search choose. "
+                        + "Neither choice changes which instruments this player owns.");
         note.setEditable(false);
         note.setOpaque(false);
         note.setLineWrap(true);
@@ -277,22 +290,47 @@ public final class BandOptimizerForm extends JPanel {
             body.add(new JLabel("This player does not own any instruments."));
         }
         Map<Long, JCheckBox> checks = new LinkedHashMap<>();
+        Map<Long, JCheckBox> alwaysBoxes = new LinkedHashMap<>();
         Map<Long, JSpinner> penalties = new LinkedHashMap<>();
         for (Map.Entry<Long, String> instrument : instruments.entrySet()) {
             JCheckBox check = new JCheckBox("Prefer " + instrument.getValue());
-            Double current = row.affinities.get(instrument.getKey());
+            AffinitySetting current = row.affinities.get(instrument.getKey());
             check.setSelected(current != null);
-            JSpinner penalty = new JSpinner(weightModel(current == null ? 1.0d : current));
+            JCheckBox always = new JCheckBox("Always, when the song has it");
+            always.getAccessibleContext().setAccessibleName(
+                    "Always take " + instrument.getValue() + " when the song has it");
+            always.setSelected(current != null && current.required());
+            double startingPenalty = current == null ? 1.0d : current.missPenalty();
+            JSpinner penalty = new JSpinner(weightModel(startingPenalty));
             JLabel penaltyLabel = new JLabel("Miss penalty");
             penaltyLabel.setLabelFor(penalty);
-            check.addActionListener(e -> penalty.setEnabled(check.isSelected()));
-            penalty.setEnabled(check.isSelected());
+            Runnable refresh = () -> {
+                if (!check.isSelected()) {
+                    always.setSelected(false);
+                }
+                always.setEnabled(check.isSelected());
+                penalty.setEnabled(check.isSelected());
+                penaltyLabel.setText(always.isSelected() ? "Priority" : "Miss penalty");
+            };
+            check.addActionListener(e -> refresh.run());
+            always.addActionListener(e -> {
+                if (always.isSelected() && (current == null || !current.required())) {
+                    double value = ((Number) penalty.getValue()).doubleValue();
+                    if (value == 1.0d) {
+                        penalty.setValue(0.0d);
+                    }
+                }
+                refresh.run();
+            });
+            refresh.run();
             JPanel line = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
             line.add(check);
             line.add(penaltyLabel);
             line.add(penalty);
+            line.add(always);
             body.add(line);
             checks.put(instrument.getKey(), check);
+            alwaysBoxes.put(instrument.getKey(), always);
             penalties.put(instrument.getKey(), penalty);
         }
         Window owner = SwingUtilities.getWindowAncestor(this);
@@ -303,8 +341,19 @@ public final class BandOptimizerForm extends JPanel {
         ok.addActionListener(e -> {
             row.affinities.clear();
             for (Map.Entry<Long, JCheckBox> entry : checks.entrySet()) {
-                if (entry.getValue().isSelected()) {
-                    row.affinities.put(entry.getKey(), ((Number) penalties.get(entry.getKey()).getValue()).doubleValue());
+                if (!entry.getValue().isSelected()) {
+                    continue;
+                }
+                if (alwaysBoxes.get(entry.getKey()).isSelected()) {
+                    row.affinities.put(
+                            entry.getKey(),
+                            new AffinitySetting(
+                                    ((Number) penalties.get(entry.getKey()).getValue()).doubleValue(), true));
+                } else {
+                    row.affinities.put(
+                            entry.getKey(),
+                            new AffinitySetting(
+                                    ((Number) penalties.get(entry.getKey()).getValue()).doubleValue(), false));
                 }
             }
             dialog.dispose();
@@ -426,12 +475,15 @@ public final class BandOptimizerForm extends JPanel {
         };
     }
 
+    private record AffinitySetting(double missPenalty, boolean required) {
+    }
+
     private static final class PlayerRuleRow {
         private final long playerId;
         private final String name;
         private final boolean onLayout;
         private final JTextField switchField;
-        private final Map<Long, Double> affinities;
+        private final Map<Long, AffinitySetting> affinities;
         private final JPanel panel;
 
         private PlayerRuleRow(
@@ -439,7 +491,7 @@ public final class BandOptimizerForm extends JPanel {
                 String name,
                 boolean onLayout,
                 JTextField switchField,
-                Map<Long, Double> affinities,
+                Map<Long, AffinitySetting> affinities,
                 JPanel panel) {
             this.playerId = playerId;
             this.name = name;

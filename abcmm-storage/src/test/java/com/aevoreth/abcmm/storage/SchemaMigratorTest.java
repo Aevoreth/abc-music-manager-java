@@ -27,7 +27,7 @@ class SchemaMigratorTest {
              Statement statement = connection.createStatement()) {
             try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
                 assertTrue(version.next());
-                assertEquals(17, version.getInt(1));
+                assertEquals(18, version.getInt(1));
             }
             try (ResultSet statuses = statement.executeQuery("SELECT COUNT(*) FROM Status")) {
                 assertTrue(statuses.next());
@@ -64,7 +64,7 @@ class SchemaMigratorTest {
              Statement statement = connection.createStatement();
              ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
             assertTrue(version.next());
-            assertEquals(17, version.getInt(1));
+            assertEquals(18, version.getInt(1));
         }
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
@@ -123,7 +123,7 @@ class SchemaMigratorTest {
              Statement statement = connection.createStatement()) {
             try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
                 assertTrue(version.next());
-                assertEquals(17, version.getInt(1));
+                assertEquals(18, version.getInt(1));
             }
             for (String table : new String[] {
                     "BandOptimizationProfile",
@@ -150,6 +150,58 @@ class SchemaMigratorTest {
             }
             assertEquals(assignmentCount, count(database, "SetlistBandAssignment"));
             assertEquals(songLayoutAssignmentCount, count(database, "SongLayoutAssignment"));
+        }
+    }
+
+    @Test
+    void addsRequiredColumnWithoutChangingExistingPenalties() throws Exception {
+        Path db = tempDir.resolve("v17-affinity.sqlite");
+        long bandId;
+        long playerId;
+        long instrumentId;
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db)) {
+            SqliteBandRepository bands = new SqliteBandRepository(database);
+            SqlitePlayerRepository players = new SqlitePlayerRepository(database);
+            bandId = bands.addBand("Band", null);
+            playerId = players.addPlayer("Ada", null, null);
+            instrumentId = players.listInstruments().get(0).id();
+            try (Statement statement = database.connection().createStatement()) {
+                statement.execute("DROP TABLE BandInstrumentAffinity");
+                statement.execute("""
+                        CREATE TABLE BandInstrumentAffinity (
+                            band_id INTEGER NOT NULL,
+                            player_id INTEGER NOT NULL,
+                            instrument_id INTEGER NOT NULL,
+                            miss_penalty REAL NOT NULL,
+                            PRIMARY KEY (band_id, player_id, instrument_id)
+                        )
+                        """);
+                statement.execute("UPDATE schema_version SET version = 17");
+            }
+            try (PreparedStatement insert = database.connection().prepareStatement(
+                    """
+                    INSERT INTO BandInstrumentAffinity (band_id, player_id, instrument_id, miss_penalty)
+                    VALUES (?, ?, ?, 2.5)
+                    """)) {
+                insert.setLong(1, bandId);
+                insert.setLong(2, playerId);
+                insert.setLong(3, instrumentId);
+            insert.executeUpdate();
+        }
+    }
+
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
+             Statement statement = database.connection().createStatement()) {
+            try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
+                assertTrue(version.next());
+                assertEquals(18, version.getInt(1));
+            }
+            try (ResultSet row = statement.executeQuery(
+                    "SELECT miss_penalty, required FROM BandInstrumentAffinity")) {
+                assertTrue(row.next());
+                assertEquals(2.5d, row.getDouble("miss_penalty"));
+                assertEquals(0, row.getInt("required"));
+            }
         }
     }
 

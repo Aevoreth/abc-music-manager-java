@@ -54,6 +54,7 @@ import com.aevoreth.abcmm.storage.JsonPreferencesStore;
 import com.aevoreth.abcmm.storage.SqliteBandRepository;
 import com.aevoreth.abcmm.storage.SqliteDatabase;
 import com.aevoreth.abcmm.storage.SqliteLibraryScanService;
+import com.aevoreth.abcmm.storage.SqliteOptimizationJournal;
 import com.aevoreth.abcmm.storage.SqliteOptimizationProfileRepository;
 import com.aevoreth.abcmm.storage.SqlitePlayLogRepository;
 import com.aevoreth.abcmm.storage.SqlitePlayerRepository;
@@ -447,6 +448,8 @@ public final class MainFrame extends JFrame {
             bandsPanel.setOptimizationProfileRepository(optimizationProfiles);
             bandsPanel.bind(playerRepository, bandRepository);
             setlistsPanel.setOptimizationProfileRepository(optimizationProfiles);
+            setlistsPanel.setOptimizationJournal(
+                    DataPaths.databasePath(), new SqliteOptimizationJournal(database));
             setlistsPanel.bind(
                     playerRepository,
                     bandRepository,
@@ -516,6 +519,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.setSongs(List.of());
             bandsPanel.setOptimizationProfileRepository(null);
             setlistsPanel.setOptimizationProfileRepository(null);
+            setlistsPanel.setOptimizationJournal(null, null);
             setlistsPanel.setPlayLogRepository(null);
             setlistsPanel.setStatuses(List.of());
             setPlayPanel.setStatuses(List.of());

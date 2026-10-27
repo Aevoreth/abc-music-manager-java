@@ -55,6 +55,8 @@ You can also create a setlist from the current ABC playback queue: open **Parts 
 
 On the details panel, computed timing shows **Raw Duration**, **Actual Duration** (with delays), and **Time remaining**. A **Locked** badge appears when the set is locked.
 
+**Optimize instruments** and **Undo last optimization** sit under the set name. See [Optimize instruments](#optimize-instruments).
+
 ---
 
 ## Songs in set {#timing}
@@ -95,6 +97,18 @@ Before import, the app shows a notice: ABCP import is intended for playlists **y
 See [Import and export formats](import-export.md).
 
 ---
+
+## Optimize instruments {#optimize-instruments}
+
+**Optimize instruments** proposes part assignments that reduce instrument changes from one song to the next. Song order, ABC files, song layouts, and stage positions stay as they are.
+
+The dialog shows the band layout, the saved weights and target, how many parts are pinned, and a search budget for this run only. Choose Quick (2 seconds), Normal (10 seconds), Thorough (60 seconds), or Custom and a number of seconds. That budget is not saved back to the band. Search runs in the background. The score column updates with the best valid assignment found so far, and the part changes are listed when the search stops. **Cancel** keeps that assignment. Closing the dialog also stops the search. Nothing is written until you choose **Apply**.
+
+The comparison lists raw change counts separately from weighted costs, and it says the result is not proven optimal. **Apply** saves the whole preview as one operation. **Undo last optimization** restores that operation, including after a restart. If songs, pins, or assignments changed after the apply, undo stops and explains the conflict instead of overwriting those edits.
+
+On the band optimizer rules, **Prefer** adds a miss penalty when that player plays a different instrument. **Always, when the song has it** assigns that instrument on every song that includes it. Songs that do not include the instrument are left free. If more players are set to always take it than the song has parts, the higher **Priority** takes a part and the others may play any other part. Equal priority lets the search choose who takes it. A part pinned to someone else is not available.
+
+A locked setlist can still be previewed. Apply stays off, and undo is refused, until you unlock the setlist.
 
 ## Locked setlists {#locked-setlists}
 

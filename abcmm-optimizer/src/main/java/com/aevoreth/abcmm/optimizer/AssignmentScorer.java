@@ -2,8 +2,10 @@ package com.aevoreth.abcmm.optimizer;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -27,11 +29,35 @@ public final class AssignmentScorer {
             OptimizationRules rules) {
         List<Diagnostic> diagnostics = new ArrayList<>();
         diagnostics.addAll(ruleDiagnostics(problem, rules));
-        diagnostics.addAll(AssignmentValidator.validate(problem, assignment));
+        diagnostics.addAll(AssignmentValidator.validate(problem, assignment, rules));
         if (!diagnostics.isEmpty()) {
             return new ScoreOutcome.Rejected(diagnostics);
         }
         return new ScoreOutcome.Accepted(breakdown(problem, assignment, rules));
+    }
+
+    /**
+     * Raw adjacent-song instrument switches for each layout player, in performer order.
+     * Idle on either side of a boundary counts as zero, matching {@link #score}.
+     */
+    public static Map<Long, Integer> switchesByPlayer(OptimizationProblem problem, Assignment assignment) {
+        Objects.requireNonNull(problem, "problem");
+        Objects.requireNonNull(assignment, "assignment");
+        Map<Long, Integer> counts = new LinkedHashMap<>();
+        List<SongOccurrence> occurrences = problem.occurrences();
+        Map<Long, Set<Long>> equivalence = problem.equivalentInstrumentIds();
+        for (Performer performer : problem.performers()) {
+            int switches = 0;
+            for (int i = 1; i < occurrences.size(); i++) {
+                Long previous = playedInstrument(occurrences.get(i - 1), assignment, performer.playerId());
+                Long current = playedInstrument(occurrences.get(i), assignment, performer.playerId());
+                if (switches(previous, current, equivalence)) {
+                    switches++;
+                }
+            }
+            counts.put(performer.playerId(), switches);
+        }
+        return Map.copyOf(counts);
     }
 
     private static List<Diagnostic> ruleDiagnostics(OptimizationProblem problem, OptimizationRules rules) {
@@ -308,6 +334,9 @@ public final class AssignmentScorer {
         for (InstrumentAffinity affinity : affinities) {
             if (PhysicalInstrumentEquivalence.sameInstrument(affinity.instrumentId(), instrumentId, equivalence)) {
                 return 0.0d;
+            }
+            if (affinity.required()) {
+                continue;
             }
             if (affinity.missPenalty() > highest) {
                 highest = affinity.missPenalty();

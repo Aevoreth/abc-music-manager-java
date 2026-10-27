@@ -127,12 +127,12 @@ class OptimizerCliTest {
     void budgetFlagOverridesTheSavedPreset() {
         FeasibilityReport report = new FeasibilityReport(List.of());
         LoadOutcome flagged = new LoadOutcome(
-                1, 0L, 0L, null, null, report, null, SearchBudgetPreset.THOROUGH, null);
+                1, 0L, 0L, null, null, report, null, SearchBudgetPreset.THOROUGH, null, List.of());
         assertEquals(Duration.ZERO, OptimizerCli.searchBudget(flagged));
         LoadOutcome preset = new LoadOutcome(
-                1, 0L, null, null, null, report, null, SearchBudgetPreset.QUICK, null);
+                1, 0L, null, null, null, report, null, SearchBudgetPreset.QUICK, null, List.of());
         assertEquals(Duration.ofSeconds(2), OptimizerCli.searchBudget(preset));
-        LoadOutcome missing = new LoadOutcome(1, null, null, null, null, report, null, null, null);
+        LoadOutcome missing = new LoadOutcome(1, null, null, null, null, report, null, null, null, List.of());
         assertEquals(Duration.ofSeconds(10), OptimizerCli.searchBudget(missing));
     }
 

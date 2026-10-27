@@ -2,6 +2,7 @@ package com.aevoreth.abcmm.domain.setplay;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,6 +15,8 @@ import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
 import com.aevoreth.abcmm.domain.band.InstrumentInfo;
 import com.aevoreth.abcmm.domain.band.PlayerRepository;
+import com.aevoreth.abcmm.domain.band.SongLayoutAssignmentInfo;
+import com.aevoreth.abcmm.domain.band.SongLayoutRepository;
 import com.aevoreth.abcmm.domain.export.CsvPartSheet;
 import com.aevoreth.abcmm.domain.export.ExportPartMeta;
 import com.aevoreth.abcmm.domain.export.LayoutExportOrder;
@@ -28,7 +31,9 @@ import com.aevoreth.abcmm.domain.setlist.SetlistRepository;
 
 /**
  * Builds a {@link SetPlayPartsSheet} from the loaded setlist using CSV export column
- * order and CSV part-renaming rules.
+ * order and CSV part-renaming rules. A setlist override wins, including an explicit
+ * empty part. Players with no override row use the song layout, so an optimized set
+ * that stored only the changed parts still shows everyone.
  */
 public final class SetPlayPartsSheetBuilder {
 
@@ -41,6 +46,7 @@ public final class SetPlayPartsSheetBuilder {
             SetlistRepository setlistRepository,
             BandRepository bandRepository,
             PlayerRepository playerRepository,
+            SongLayoutRepository songLayoutRepository,
             SetExportPreferences exportPrefs) throws LibraryException {
         Objects.requireNonNull(items, "items");
         SetExportSettings settings = new SetExportSettings();
@@ -101,17 +107,25 @@ public final class SetPlayPartsSheetBuilder {
             for (ExportPartMeta part : PartsJsonParser.parse(item.partsJson())) {
                 byNum.put(part.partNumber(), part);
             }
-            Map<Long, Integer> assigns = new HashMap<>();
+            Map<Long, Integer> overrides = new HashMap<>();
+            Set<Long> overridePlayers = new HashSet<>();
             if (setlistRepository != null) {
                 for (SetlistBandAssignmentInfo a : setlistRepository.listBandAssignments(item.id())) {
-                    if (a.partNumber() != null) {
-                        assigns.put(a.playerId(), a.partNumber());
-                    }
+                    overrides.put(a.playerId(), a.partNumber());
+                    overridePlayers.add(a.playerId());
+                }
+            }
+            Map<Long, Integer> layoutAssigns = new HashMap<>();
+            if (songLayoutRepository != null && item.songLayoutId() != null) {
+                for (SongLayoutAssignmentInfo a : songLayoutRepository.listAssignments(item.songLayoutId())) {
+                    layoutAssigns.put(a.playerId(), a.partNumber());
                 }
             }
             List<String> cells = new ArrayList<>();
             for (BandLayoutSlotInfo slot : slots) {
-                Integer pn = assigns.get(slot.playerId());
+                Integer pn = overridePlayers.contains(slot.playerId())
+                        ? overrides.get(slot.playerId())
+                        : layoutAssigns.get(slot.playerId());
                 if (pn != null && byNum.containsKey(pn)) {
                     ExportPartMeta part = byNum.get(pn);
                     String label = cellLabel(part, pn, useInstrument, instrumentNames, settings);

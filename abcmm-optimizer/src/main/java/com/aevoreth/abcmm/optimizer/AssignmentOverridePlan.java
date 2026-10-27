@@ -23,6 +23,23 @@ public final class AssignmentOverridePlan {
     private AssignmentOverridePlan() {
     }
 
+    /**
+     * Plan from the layout rows captured on a successful load. Performers on that
+     * problem are the layout players, in layout order.
+     */
+    public static List<AssignmentOverride> plan(LoadOutcome outcome, Assignment assignment) {
+        Objects.requireNonNull(outcome, "outcome");
+        OptimizationProblem problem = outcome.problem();
+        if (problem == null) {
+            throw new IllegalArgumentException("problem");
+        }
+        List<Long> players = new ArrayList<>();
+        for (Performer performer : problem.performers()) {
+            players.add(performer.playerId());
+        }
+        return plan(players, outcome.itemSources(), assignment);
+    }
+
     public static List<AssignmentOverride> plan(
             List<Long> layoutPlayerIds,
             List<EffectiveAssignmentResolver.ItemSources> items,

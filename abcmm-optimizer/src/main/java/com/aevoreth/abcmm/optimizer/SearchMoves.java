@@ -1,7 +1,8 @@
 package com.aevoreth.abcmm.optimizer;
 
 /**
- * Feasible neighborhood. A move that would break ownership or a pin is refused.
+ * Feasible neighborhood. A move that would break ownership, a pin, or a required
+ * instrument is refused.
  * Pair swaps include active-to-idle rotations. A 3-cycle is the multi-part move.
  * Window moves apply one pair or one cycle to every song in a contiguous range.
  */
@@ -82,7 +83,14 @@ final class SearchMoves {
             return false;
         }
         int[] parts = state.partByPlayer[song];
-        return receiverOwns(state, song, second, parts[first]) && receiverOwns(state, song, first, parts[second]);
+        int[] next = parts.clone();
+        next[first] = parts[second];
+        next[second] = parts[first];
+        return receiverOwns(state, song, second, parts[first])
+                && receiverOwns(state, song, first, parts[second])
+                && keepsRequired(state, song, first, parts[second])
+                && keepsRequired(state, song, second, parts[first])
+                && claimsHold(state, song, next);
     }
 
     static boolean cycleLegal(CandidateState state, int song, int first, int second, int third, int orientation) {
@@ -193,9 +201,40 @@ final class SearchMoves {
         int toFirst = orientation == 0 ? parts[second] : parts[third];
         int toSecond = orientation == 0 ? parts[third] : parts[first];
         int toThird = orientation == 0 ? parts[first] : parts[second];
+        int[] next = parts.clone();
+        next[first] = toFirst;
+        next[second] = toSecond;
+        next[third] = toThird;
         return receiverOwns(state, song, first, toFirst)
                 && receiverOwns(state, song, second, toSecond)
-                && receiverOwns(state, song, third, toThird);
+                && receiverOwns(state, song, third, toThird)
+                && keepsRequired(state, song, first, toFirst)
+                && keepsRequired(state, song, second, toSecond)
+                && keepsRequired(state, song, third, toThird)
+                && claimsHold(state, song, next);
+    }
+
+    private static boolean claimsHold(CandidateState state, int song, int[] parts) {
+        for (RequiredInstrumentPlan.Claim claim : state.index.requiredClaims[song]) {
+            int onInstrument = 0;
+            for (int player : claim.players) {
+                int part = parts[player];
+                if (part >= 0 && state.index.allowedPart[song][player][part]) {
+                    onInstrument++;
+                }
+            }
+            if (onInstrument != claim.seats) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean keepsRequired(CandidateState state, int song, int player, int part) {
+        if (!state.index.mustPlay[song][player]) {
+            return true;
+        }
+        return part >= 0 && state.index.allowedPart[song][player][part];
     }
 
     private static boolean pinned(CandidateState state, int song, int player) {

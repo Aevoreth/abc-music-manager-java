@@ -81,7 +81,9 @@ import com.aevoreth.abcmm.domain.export.SetExportException;
 import com.aevoreth.abcmm.domain.export.SetExportItemInfo;
 import com.aevoreth.abcmm.domain.export.SetExportService;
 import com.aevoreth.abcmm.domain.library.LibraryException;
+import com.aevoreth.abcmm.domain.optimizer.OptimizationJournal;
 import com.aevoreth.abcmm.domain.optimizer.OptimizationProfileRepository;
+import com.aevoreth.abcmm.domain.optimizer.OptimizationUndoResult;
 import com.aevoreth.abcmm.domain.library.LibrarySong;
 import com.aevoreth.abcmm.domain.library.PlayLogRepository;
 import com.aevoreth.abcmm.domain.library.SongRepository;
@@ -130,6 +132,8 @@ public final class SetlistsPanel extends JPanel {
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
     private SetlistRepository setlistRepository;
+    private Path optimizationDatabase;
+    private OptimizationJournal optimizationJournal;
     private SongRepository songRepository;
     private SongLayoutRepository songLayoutRepository;
     private Preferences preferences;
@@ -146,6 +150,8 @@ public final class SetlistsPanel extends JPanel {
     private final JLabel nameValue = new JLabel("\u2014");
     private final JButton editDetailsButton = new JButton("Edit");
     private final JButton exportDetailsButton = new JButton("Export");
+    private final JButton optimizeButton = new JButton("Optimize instruments");
+    private final JButton undoOptimizationButton = new JButton("Undo last optimization");
     private final JButton deleteSetlistButton = new JButton(PlaybackIcons.trash(14));
     private final JLabel setCodeValue = new JLabel("\u2014");
     private final JLabel layoutValue = new JLabel("\u2014");
@@ -190,6 +196,7 @@ public final class SetlistsPanel extends JPanel {
     private JSplitPane mainSplit;
     private JSplitPane topSplit;
     private boolean suppressSelection;
+    private boolean suppressAssignmentReload;
     private boolean columnWidthsRestored;
     private boolean mainSplitInitialized;
     private boolean metaSplitRestored;
@@ -215,7 +222,7 @@ public final class SetlistsPanel extends JPanel {
         itemTable.setFillsViewportHeight(true);
         itemTable.setRowHeight(28);
         itemTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
+            if (!e.getValueIsAdjusting() && !suppressAssignmentReload) {
                 reloadAssignments();
             }
         });
@@ -268,6 +275,11 @@ public final class SetlistsPanel extends JPanel {
 
     public void setOptimizationProfileRepository(OptimizationProfileRepository optimizationProfiles) {
         assignmentPanel.setOptimizationProfileRepository(optimizationProfiles);
+    }
+
+    public void setOptimizationJournal(Path database, OptimizationJournal journal) {
+        this.optimizationDatabase = database;
+        this.optimizationJournal = journal;
     }
 
     public void bind(
@@ -450,6 +462,16 @@ public final class SetlistsPanel extends JPanel {
         exportDetailsButton.addActionListener(e -> exportSelectedSet());
         deleteSetlistButton.setToolTipText("Delete setlist");
         deleteSetlistButton.addActionListener(e -> deleteCurrentSetlist());
+        optimizeButton.setToolTipText("Preview instrument assignments for this setlist. Nothing is saved until you apply.");
+        optimizeButton.addActionListener(e -> optimizeInstruments());
+        undoOptimizationButton.setToolTipText("Restore assignments from the last optimization.");
+        undoOptimizationButton.addActionListener(e -> {
+            String message = undoLastOptimization();
+            if (message != null && !message.isBlank()) {
+                JOptionPane.showMessageDialog(
+                        this, message, "Undo last optimization", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
 
         JPanel nameRow = new JPanel(new BorderLayout(8, 0));
         nameRow.setOpaque(false);
@@ -467,8 +489,14 @@ public final class SetlistsPanel extends JPanel {
         nameValueRow.add(nameActions, BorderLayout.EAST);
         nameRow.add(nameValueRow, BorderLayout.CENTER);
         nameRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(editDetailsButton.getPreferredSize().height, 24) + 12));
-        nameRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        nameRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
         metaPanel.add(nameRow);
+
+        JPanel optimizeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        optimizeRow.setOpaque(false);
+        optimizeRow.add(optimizeButton);
+        optimizeRow.add(undoOptimizationButton);
+        metaPanel.add(flowRow(optimizeRow));
 
         JPanel setCodeField = inlineField("Set Code", setCodeValue, SetlistDetailsDialog.SET_CODE_TOOLTIP);
         metaPanel.add(setCodeField);
@@ -1276,6 +1304,8 @@ public final class SetlistsPanel extends JPanel {
         deleteSetlistButton.setEnabled(enabled);
         exportButton.setEnabled(enabled);
         exportDetailsButton.setEnabled(enabled);
+        optimizeButton.setEnabled(enabled);
+        undoOptimizationButton.setEnabled(enabled);
         boolean songsEditable = enabled && !isSelectedSetlistLocked();
         addSongButton.setEnabled(songsEditable);
         removeSongButton.setEnabled(songsEditable);
@@ -1802,6 +1832,77 @@ public final class SetlistsPanel extends JPanel {
                 current == null ? null : current.partsJson(),
                 itemModel.items());
         refreshWarningColumn();
+    }
+
+    /**
+     * Re-read assignment cards and song warnings after apply or undo.
+     * Does not call {@link #reloadAssignments()}, which copies a song layout onto an item
+     * that has no override rows and would undo a restore of absent rows.
+     */
+    private void refreshAfterOptimization() {
+        SetlistInfo setlist = selectedSetlist();
+        if (setlist == null || setlistRepository == null) {
+            return;
+        }
+        int selected = itemTable.getSelectedRow();
+        suppressAssignmentReload = true;
+        try {
+            itemModel.setItems(setlistRepository.listItems(setlist.id()));
+            if (selected >= 0 && selected < itemModel.getRowCount()) {
+                itemTable.setRowSelectionInterval(selected, selected);
+            } else if (itemModel.getRowCount() > 0) {
+                itemTable.setRowSelectionInterval(0, 0);
+            }
+        } catch (LibraryException ex) {
+            showError(ex.getMessage());
+            return;
+        } finally {
+            suppressAssignmentReload = false;
+        }
+        SetlistItemInfo current = selectedItem();
+        assignmentPanel.refresh(
+                setlist.id(),
+                setlist.locked(),
+                setlist.bandLayoutId(),
+                current == null ? null : current.id(),
+                current == null ? null : current.songLayoutId(),
+                current == null ? null : current.partsJson(),
+                itemModel.items());
+        refreshWarningColumn();
+    }
+
+    private void optimizeInstruments() {
+        SetlistInfo setlist = selectedSetlist();
+        if (setlist == null || optimizationDatabase == null || optimizationJournal == null) {
+            showError("Open a library before optimizing instruments.");
+            return;
+        }
+        SetlistOptimizationPanel.show(
+                this,
+                optimizationDatabase,
+                setlist,
+                resolveLayoutLabel(setlist.bandLayoutId()),
+                optimizationJournal,
+                playerRepository,
+                setlistRepository,
+                this::refreshAfterOptimization);
+    }
+
+    String undoLastOptimization() {
+        SetlistInfo setlist = selectedSetlist();
+        if (setlist == null || optimizationJournal == null) {
+            return "Open a library before undoing an optimization.";
+        }
+        try {
+            OptimizationUndoResult result = optimizationJournal.undoLatest(setlist.id());
+            refreshAfterOptimization();
+            if (result.undone()) {
+                return "Restored the assignments from before the last optimization.";
+            }
+            return result.message();
+        } catch (LibraryException ex) {
+            return ex.getMessage();
+        }
     }
 
     /**

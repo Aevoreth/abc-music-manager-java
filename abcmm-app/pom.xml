@@ -29,6 +29,10 @@
     </dependency>
     <dependency>
       <groupId>com.aevoreth.abcmm</groupId>
+      <artifactId>abcmm-optimizer</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.aevoreth.abcmm</groupId>
       <artifactId>abcmm-maestro-adapter</artifactId>
     </dependency>
     <dependency>

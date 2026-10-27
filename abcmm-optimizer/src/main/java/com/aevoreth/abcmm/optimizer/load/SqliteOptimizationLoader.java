@@ -202,7 +202,8 @@ public final class SqliteOptimizationLoader {
                 new FeasibilityReport(diagnostics),
                 rules,
                 profile.searchBudget(),
-                revision);
+                revision,
+                List.copyOf(sources));
     }
 
     private static Long bandIdForLayout(SqliteDatabase database, long layoutId) throws LibraryException {
@@ -449,7 +450,8 @@ public final class SqliteOptimizationLoader {
                 new FeasibilityReport(List.of(diagnostic)),
                 null,
                 null,
-                null);
+                null,
+                List.of());
     }
 
     private static String failureCode(LibraryException ex) {

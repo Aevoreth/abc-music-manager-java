@@ -55,6 +55,7 @@ class SqliteOptimizationLoaderTest {
         assertEquals(1, problem.transitionCount());
         assertEquals(0, outcome.report().exitCode());
         assertTrue(outcome.report().baselineFeasible());
+        assertEquals(problem.itemCount(), outcome.itemSources().size());
         assertNotNull(outcome.revision());
         assertFalse(outcome.revision().overrides().isEmpty());
 

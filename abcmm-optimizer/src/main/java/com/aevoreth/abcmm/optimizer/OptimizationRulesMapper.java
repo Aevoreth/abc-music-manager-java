@@ -37,7 +37,10 @@ public final class OptimizationRulesMapper {
         List<InstrumentAffinity> affinities = new ArrayList<>();
         for (InstrumentAffinityWeight weight : profile.instrumentAffinities()) {
             affinities.add(new InstrumentAffinity(
-                    weight.playerId(), weight.instrumentId(), weight.missPenalty()));
+                    weight.playerId(),
+                    weight.instrumentId(),
+                    weight.missPenalty(),
+                    weight.required()));
         }
         List<PartPreference> parts = new ArrayList<>();
         for (PartPreferenceWeight weight : preferences.partPreferences()) {

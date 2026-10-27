@@ -15,11 +15,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Creates and migrates the SQLite schema through version 17 (Java-only from v13).
+ * Creates and migrates the SQLite schema through version 18 (Java-only from v13).
  */
 final class SchemaMigrator {
 
-    static final int CURRENT_SCHEMA_VERSION = 17;
+    static final int CURRENT_SCHEMA_VERSION = 18;
 
     /** 24 LOTRO instruments for Players tab (same order as Python). */
     static final List<String> PLAYER_INSTRUMENTS = List.of(
@@ -411,6 +411,11 @@ final class SchemaMigrator {
             // Empty journal only. Do not rewrite setlist or song-layout assignments.
             createOptimizationHistoryTable(connection);
             setSchemaVersion(connection, 17);
+            current = 17;
+        }
+        if (current < 18) {
+            addRequiredAffinityColumn(connection);
+            setSchemaVersion(connection, 18);
         }
     }
 
@@ -443,6 +448,7 @@ final class SchemaMigrator {
                         player_id INTEGER NOT NULL REFERENCES Player(id),
                         instrument_id INTEGER NOT NULL REFERENCES Instrument(id),
                         miss_penalty REAL NOT NULL,
+                        required INTEGER NOT NULL DEFAULT 0,
                         PRIMARY KEY (band_id, player_id, instrument_id)
                     )
                     """);
@@ -469,6 +475,20 @@ final class SchemaMigrator {
                         PRIMARY KEY (setlist_item_id, part_number)
                     )
                     """);
+        }
+    }
+
+    /**
+     * Existing affinity rows stay soft preferences. Fresh databases already have the column.
+     */
+    private static void addRequiredAffinityColumn(Connection connection) throws SQLException {
+        if (!tableExists(connection, "BandInstrumentAffinity")
+                || hasColumn(connection, "BandInstrumentAffinity", "required")) {
+            return;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(
+                    "ALTER TABLE BandInstrumentAffinity ADD COLUMN required INTEGER NOT NULL DEFAULT 0");
         }
     }
 

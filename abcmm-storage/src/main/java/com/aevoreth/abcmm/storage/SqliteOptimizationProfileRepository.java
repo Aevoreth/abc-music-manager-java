@@ -235,8 +235,9 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
             statement.executeUpdate();
         }
         String affinitySql = """
-                INSERT INTO BandInstrumentAffinity (band_id, player_id, instrument_id, miss_penalty)
-                SELECT ?, player_id, instrument_id, miss_penalty
+                INSERT INTO BandInstrumentAffinity
+                    (band_id, player_id, instrument_id, miss_penalty, required)
+                SELECT ?, player_id, instrument_id, miss_penalty, required
                 FROM BandInstrumentAffinity
                 WHERE band_id = ?
                 """;
@@ -511,8 +512,8 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
     private void insertAffinities(long bandId, List<InstrumentAffinityWeight> weights) throws SQLException {
         String sql = """
                 INSERT INTO BandInstrumentAffinity
-                    (band_id, player_id, instrument_id, miss_penalty)
-                VALUES (?, ?, ?, ?)
+                    (band_id, player_id, instrument_id, miss_penalty, required)
+                VALUES (?, ?, ?, ?, ?)
                 """;
         try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
             for (InstrumentAffinityWeight weight : weights) {
@@ -520,6 +521,7 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                 statement.setLong(2, weight.playerId());
                 statement.setLong(3, weight.instrumentId());
                 statement.setDouble(4, weight.missPenalty());
+                statement.setInt(5, weight.required() ? 1 : 0);
                 statement.executeUpdate();
             }
         }
@@ -546,7 +548,7 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
 
     private List<InstrumentAffinityWeight> listAffinities(long bandId) throws SQLException {
         String sql = """
-                SELECT player_id, instrument_id, miss_penalty
+                SELECT player_id, instrument_id, miss_penalty, required
                 FROM BandInstrumentAffinity
                 WHERE band_id = ?
                 ORDER BY player_id, instrument_id
@@ -559,7 +561,8 @@ public final class SqliteOptimizationProfileRepository implements OptimizationPr
                     weights.add(new InstrumentAffinityWeight(
                             rs.getLong("player_id"),
                             rs.getLong("instrument_id"),
-                            rs.getDouble("miss_penalty")));
+                            rs.getDouble("miss_penalty"),
+                            rs.getInt("required") != 0));
                 }
                 return weights;
             }
