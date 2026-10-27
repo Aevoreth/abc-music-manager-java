@@ -306,6 +306,11 @@ public final class SqliteSetlistRepository implements SetlistRepository {
     public void deleteSetlist(long id) throws LibraryException {
         try {
             removeSetlistItemsAndOrphanLayouts(id);
+            try (PreparedStatement clearHistory = database.connection().prepareStatement(
+                    "DELETE FROM SetlistOptimizationHistory WHERE setlist_id = ?")) {
+                clearHistory.setLong(1, id);
+                clearHistory.executeUpdate();
+            }
             try (PreparedStatement clearPlayLog = database.connection().prepareStatement(
                     "UPDATE PlayLog SET context_setlist_id = NULL WHERE context_setlist_id = ?")) {
                 clearPlayLog.setLong(1, id);

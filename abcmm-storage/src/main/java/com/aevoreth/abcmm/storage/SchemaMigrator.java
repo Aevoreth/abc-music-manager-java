@@ -15,11 +15,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Creates and migrates the SQLite schema through version 16 (Java-only from v13).
+ * Creates and migrates the SQLite schema through version 17 (Java-only from v13).
  */
 final class SchemaMigrator {
 
-    static final int CURRENT_SCHEMA_VERSION = 16;
+    static final int CURRENT_SCHEMA_VERSION = 17;
 
     /** 24 LOTRO instruments for Players tab (same order as Python). */
     static final List<String> PLAYER_INSTRUMENTS = List.of(
@@ -405,6 +405,12 @@ final class SchemaMigrator {
         if (current < 16) {
             createAssignmentPinTable(connection);
             setSchemaVersion(connection, 16);
+            current = 16;
+        }
+        if (current < 17) {
+            // Empty journal only. Do not rewrite setlist or song-layout assignments.
+            createOptimizationHistoryTable(connection);
+            setSchemaVersion(connection, 17);
         }
     }
 
@@ -480,6 +486,33 @@ final class SchemaMigrator {
                         PRIMARY KEY (setlist_item_id, part_number)
                     )
                     """);
+        }
+    }
+
+    /**
+     * One row per optimization apply. Before and after JSON are complete override
+     * snapshots: a missing player is omitted and an explicit null part is stored.
+     * Deleting the setlist removes the journal. Assignment rows themselves are not
+     * given a unique key.
+     */
+    private static void createOptimizationHistoryTable(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS SetlistOptimizationHistory (
+                        id INTEGER PRIMARY KEY,
+                        setlist_id INTEGER NOT NULL REFERENCES Setlist(id) ON DELETE CASCADE,
+                        created_at TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        rules_json TEXT NOT NULL,
+                        structure_json TEXT NOT NULL,
+                        before_overrides_json TEXT NOT NULL,
+                        after_overrides_json TEXT NOT NULL,
+                        undone_at TEXT
+                    )
+                    """);
+            statement.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_setlistoptimizationhistory_setlist "
+                            + "ON SetlistOptimizationHistory(setlist_id, id)");
         }
     }
 

@@ -2,12 +2,14 @@ package com.aevoreth.abcmm.optimizer;
 
 import java.util.Objects;
 
+import com.aevoreth.abcmm.domain.optimizer.OptimizationRevision;
 import com.aevoreth.abcmm.domain.optimizer.SearchBudgetPreset;
 
 /**
  * Read-only load result. {@code problem} is null when the database cannot yield a snapshot.
  * Saved rules and the search-budget preset are present whenever {@code problem} is.
  * {@code budgetSeconds} is the caller's override and stays null when the preset should be used.
+ * {@code revision} is the setlist snapshot to pass to apply, and is null when the load failed.
  */
 public record LoadOutcome(
         long setlistId,
@@ -17,7 +19,8 @@ public record LoadOutcome(
         OptimizationProblem problem,
         FeasibilityReport report,
         OptimizationRules rules,
-        SearchBudgetPreset searchBudget) {
+        SearchBudgetPreset searchBudget,
+        OptimizationRevision revision) {
 
     public LoadOutcome {
         if (setlistId <= 0) {

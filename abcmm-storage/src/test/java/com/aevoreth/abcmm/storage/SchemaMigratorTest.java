@@ -20,14 +20,14 @@ class SchemaMigratorTest {
     Path tempDir;
 
     @Test
-    void openOrCreateBuildsSchemaVersionSixteenWithSeeds() throws Exception {
+    void openOrCreateBuildsSchemaVersionSeventeenWithSeeds() throws Exception {
         Path db = tempDir.resolve("new.sqlite");
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement()) {
             try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
                 assertTrue(version.next());
-                assertEquals(16, version.getInt(1));
+                assertEquals(17, version.getInt(1));
             }
             try (ResultSet statuses = statement.executeQuery("SELECT COUNT(*) FROM Status")) {
                 assertTrue(statuses.next());
@@ -49,22 +49,22 @@ class SchemaMigratorTest {
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ("
                             + "'BandOptimizationProfile','BandPlayerSwitchWeight','BandInstrumentAffinity',"
                             + "'SetlistPartPreference','SetlistItemKeepWeight','SetlistPartKeepWeight',"
-                            + "'SetlistAssignmentPin')")) {
+                            + "'SetlistAssignmentPin','SetlistOptimizationHistory')")) {
                 assertTrue(profiles.next());
-                assertEquals(7, profiles.getInt(1));
+                assertEquals(8, profiles.getInt(1));
             }
         }
     }
 
     @Test
-    void openOrCreateMigratesOlderVersionToSixteen() throws Exception {
+    void openOrCreateMigratesOlderVersionToSeventeen() throws Exception {
         Path db = FixtureDatabases.createWrongVersionFixture(tempDir.resolve("v11.sqlite"));
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
              Statement statement = connection.createStatement();
              ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
             assertTrue(version.next());
-            assertEquals(16, version.getInt(1));
+            assertEquals(17, version.getInt(1));
         }
         try (SqliteDatabase database = SqliteDatabase.openOrCreate(db);
              Connection connection = database.connection();
@@ -123,7 +123,7 @@ class SchemaMigratorTest {
              Statement statement = connection.createStatement()) {
             try (ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
                 assertTrue(version.next());
-                assertEquals(16, version.getInt(1));
+                assertEquals(17, version.getInt(1));
             }
             for (String table : new String[] {
                     "BandOptimizationProfile",
@@ -132,7 +132,8 @@ class SchemaMigratorTest {
                     "SetlistPartPreference",
                     "SetlistItemKeepWeight",
                     "SetlistPartKeepWeight",
-                    "SetlistAssignmentPin"
+                    "SetlistAssignmentPin",
+                    "SetlistOptimizationHistory"
             }) {
                 try (ResultSet rows = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
                     assertTrue(rows.next());

@@ -19,6 +19,7 @@ import java.util.Set;
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
 import com.aevoreth.abcmm.domain.optimizer.OccurrencePreferences;
+import com.aevoreth.abcmm.domain.optimizer.OptimizationRevision;
 import com.aevoreth.abcmm.domain.band.InstrumentInfo;
 import com.aevoreth.abcmm.domain.band.PlayerInfo;
 import com.aevoreth.abcmm.domain.band.PlayerInstrumentInfo;
@@ -46,6 +47,7 @@ import com.aevoreth.abcmm.optimizer.RequiredPartResolver;
 import com.aevoreth.abcmm.optimizer.SongOccurrence;
 import com.aevoreth.abcmm.storage.SqliteBandRepository;
 import com.aevoreth.abcmm.storage.SqliteDatabase;
+import com.aevoreth.abcmm.storage.SqliteOptimizationJournal;
 import com.aevoreth.abcmm.storage.SqliteOptimizationProfileRepository;
 import com.aevoreth.abcmm.storage.SqlitePlayerRepository;
 import com.aevoreth.abcmm.storage.SqliteSetlistRepository;
@@ -190,6 +192,7 @@ public final class SqliteOptimizationLoader {
         List<Diagnostic> diagnostics = new ArrayList<>(loadDiagnostics);
         diagnostics.addAll(resolved.diagnostics());
         diagnostics.addAll(AssignmentFeasibility.check(problem, request.players()).diagnostics());
+        OptimizationRevision revision = new SqliteOptimizationJournal(database).revision(setlist.id());
         return new LoadOutcome(
                 request.setlistId(),
                 request.seed(),
@@ -198,7 +201,8 @@ public final class SqliteOptimizationLoader {
                 problem,
                 new FeasibilityReport(diagnostics),
                 rules,
-                profile.searchBudget());
+                profile.searchBudget(),
+                revision);
     }
 
     private static Long bandIdForLayout(SqliteDatabase database, long layoutId) throws LibraryException {
@@ -443,6 +447,7 @@ public final class SqliteOptimizationLoader {
                 request.players(),
                 null,
                 new FeasibilityReport(List.of(diagnostic)),
+                null,
                 null,
                 null);
     }

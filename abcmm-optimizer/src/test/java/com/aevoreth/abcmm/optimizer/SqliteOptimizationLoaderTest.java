@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.aevoreth.abcmm.domain.optimizer.AssignmentOverride;
 import com.aevoreth.abcmm.domain.optimizer.AssignmentPin;
 import com.aevoreth.abcmm.domain.optimizer.BandOptimizationProfile;
 import com.aevoreth.abcmm.domain.optimizer.InstrumentAffinityWeight;
@@ -54,6 +55,8 @@ class SqliteOptimizationLoaderTest {
         assertEquals(1, problem.transitionCount());
         assertEquals(0, outcome.report().exitCode());
         assertTrue(outcome.report().baselineFeasible());
+        assertNotNull(outcome.revision());
+        assertFalse(outcome.revision().overrides().isEmpty());
 
         SongOccurrence first = problem.occurrences().get(0);
         SongOccurrence second = problem.occurrences().get(1);
@@ -75,6 +78,9 @@ class SqliteOptimizationLoaderTest {
         OptimizationProblem problem = outcome.problem();
         long itemId = problem.occurrences().get(0).setlistItemId();
         assertNull(problem.baseline(itemId, library.alice).partNumber());
+        assertNotNull(outcome.revision());
+        assertTrue(outcome.revision().overrides().contains(
+                new AssignmentOverride(itemId, library.alice, null)));
         assertNull(problem.effectiveInstrumentId(itemId, library.alice));
         assertEquals(2, problem.baseline(itemId, library.bob).partNumber());
         assertEquals(2, outcome.report().exitCode());
@@ -150,11 +156,13 @@ class SqliteOptimizationLoaderTest {
 
         LoadOutcome missingSetlist = load(9_999_999L, null);
         assertNull(missingSetlist.problem());
+        assertNull(missingSetlist.revision());
         assertTrue(has(missingSetlist, DiagnosticSeverity.INTEGRITY, "setlist_not_found"));
 
         LoadOutcome missingFile = new SqliteOptimizationLoader().load(new LoadRequest(
                 tempDir.resolve("absent.sqlite"), 1, null, null, null));
         assertNull(missingFile.problem());
+        assertNull(missingFile.revision());
         assertTrue(has(missingFile, DiagnosticSeverity.INTEGRITY, "missing_database"));
 
         LoadOutcome roster = load(library.feasibleId, 9);
