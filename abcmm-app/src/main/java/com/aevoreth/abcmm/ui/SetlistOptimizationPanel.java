@@ -91,6 +91,11 @@ final class SetlistOptimizationPanel extends JPanel {
     private final SetlistRepository setlists;
     private final Runnable onApplied;
 
+    private final JPanel ruleWarning = new JPanel(new BorderLayout(10, 4));
+    private final JTextArea ruleWarningText = new JTextArea(2, 40);
+    private final JButton fixRulesButton = new JButton("Review and fix…");
+    private Long conflictItem;
+    private Integer conflictPart;
     private final JLabel rulesLabel = new JLabel(" ");
     private final JLabel lockLabel = new JLabel(
             "This setlist is locked. You can preview it. Apply stays off until it is unlocked.");
@@ -104,6 +109,10 @@ final class SetlistOptimizationPanel extends JPanel {
     private final DefaultTableModel changes = readOnlyModel("Song", "Player", "Current part", "Proposed part");
     private final DefaultTableModel burdens = readOnlyModel("Player", "Current switches", "Proposed switches");
     private final JTextArea diagnostics = new JTextArea(5, 40);
+    private boolean durationInitialized;
+    private java.util.function.IntSupplier readDuration = () -> 0;
+    private java.util.function.IntConsumer writeDuration = seconds -> { };
+    private final JButton settingsButton = new JButton("Optimizer settings…");
     private final JButton searchButton = new JButton("Search");
     private final JButton cancelButton = new JButton("Cancel");
     private final JButton applyButton = new JButton("Apply");
@@ -138,15 +147,46 @@ final class SetlistOptimizationPanel extends JPanel {
         this.onApplied = onApplied == null ? () -> {
         } : onApplied;
 
+        ruleWarning.setVisible(false);
+        ruleWarning.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new java.awt.Color(190, 130, 25)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)));
+        JLabel warningIcon = new JLabel(javax.swing.UIManager.getIcon("OptionPane.warningIcon"));
+        warningIcon.setVerticalAlignment(JLabel.TOP);
+        ruleWarning.add(warningIcon, BorderLayout.WEST);
+        JPanel warningMessage = new JPanel(new BorderLayout(0, 4));
+        JLabel warningTitle = new JLabel("Optimizer rules need attention");
+        warningTitle.setFont(warningTitle.getFont().deriveFont(java.awt.Font.BOLD));
+        ruleWarningText.setEditable(false); ruleWarningText.setOpaque(false);
+        ruleWarningText.setLineWrap(true); ruleWarningText.setWrapStyleWord(true);
+        ruleWarningText.getAccessibleContext().setAccessibleName("Optimizer rule warning");
+        warningMessage.add(warningTitle, BorderLayout.NORTH);
+        warningMessage.add(ruleWarningText, BorderLayout.CENTER);
+        ruleWarning.add(warningMessage, BorderLayout.CENTER);
+        ruleWarning.add(fixRulesButton, BorderLayout.EAST);
+        fixRulesButton.setToolTipText("Open the affected song and part to change or clear rules for characters outside the selected band.");
+        fixRulesButton.addActionListener(e -> {
+            if (searching || loaded == null || conflictItem == null) return;
+            try {
+                if (OptimizerSettingsDialog.show(this, database, null, setlist.id(), conflictItem, conflictPart)) {
+                    onApplied.run();
+                    searchButton.setEnabled(false); applyButton.setEnabled(false); startLoad();
+                }
+            } catch (LibraryException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Optimizer settings", JOptionPane.WARNING_MESSAGE);
+            }
+        });
+        add(ruleWarning, BorderLayout.NORTH);
         lockLabel.setVisible(setlist.locked());
         budget.setRenderer(budgetRenderer());
         budget.setSelectedItem(RunBudget.NORMAL);
-        budget.setToolTipText("Time for this search only. It is not saved to the band.");
-        JLabel budgetCaption = new JLabel("Search budget");
-        budgetCaption.setLabelFor(budget);
+        budget.setToolTipText("Maximum search time. Longer searches may improve the result. The last duration used is remembered for this band layout.");
+        JLabel budgetCaption = new JLabel("Search duration");
+        budgetCaption.setLabelFor(budget); budgetCaption.setToolTipText(budget.getToolTipText());
         JLabel secondsCaption = new JLabel("Seconds");
         secondsCaption.setLabelFor(customSeconds);
-        customSeconds.setToolTipText("How many seconds this search may run when Custom is selected.");
+        OptimizerTooltips.describe(customSeconds, "Maximum search time in seconds when Custom is selected. Cancel keeps the best valid assignment found so far.");
+        secondsCaption.setToolTipText(customSeconds.getToolTipText());
         customSeconds.getAccessibleContext().setAccessibleName("Custom search seconds");
         SpinnerMouseWheel.install(customSeconds);
         Dimension spinnerSize = customSeconds.getPreferredSize();
@@ -174,6 +214,7 @@ final class SetlistOptimizationPanel extends JPanel {
         JScrollPane diagnosticScroll = scrolling(diagnostics, 480, 96);
         diagnosticScroll.setVisible(false);
         JCheckBox showDiagnostics = new JCheckBox("Show diagnostics");
+        showDiagnostics.setToolTipText("Show detailed search information and diagnostics.");
         showDiagnostics.addActionListener(e -> {
             diagnosticScroll.setVisible(showDiagnostics.isSelected());
             revalidate();
@@ -193,13 +234,9 @@ final class SetlistOptimizationPanel extends JPanel {
         gc.gridx = 2;
         gc.weightx = 0;
         gc.fill = GridBagConstraints.NONE;
-        header.add(budgetCaption, gc);
         gc.gridx = 3;
-        header.add(budget, gc);
         gc.gridx = 4;
-        header.add(secondsCaption, gc);
         gc.gridx = 5;
-        header.add(customSeconds, gc);
         gc.gridx = 0;
         gc.gridy = 1;
         gc.gridwidth = 1;
@@ -271,6 +308,9 @@ final class SetlistOptimizationPanel extends JPanel {
         bodyScroll.getHorizontalScrollBar().setUnitIncrement(16);
         add(bodyScroll, BorderLayout.CENTER);
 
+        searchButton.setToolTipText("Find assignments for every part and improve instrument transitions. Preview only; Apply saves the result.");
+        cancelButton.setToolTipText("Stop searching and keep the best valid assignment found so far.");
+        settingsButton.setToolTipText("Edit shared band goals, instrument rules, and song-specific exceptions.");
         searchButton.setEnabled(false);
         cancelButton.setEnabled(false);
         applyButton.setEnabled(false);
@@ -285,6 +325,17 @@ final class SetlistOptimizationPanel extends JPanel {
         });
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        settingsButton.addActionListener(e -> {
+            if (searching) return;
+            try {
+                if (OptimizerSettingsDialog.show(this, database, null, setlist.id())) {
+                    onApplied.run();
+                    searchButton.setEnabled(false); applyButton.setEnabled(false); startLoad();
+                }
+            } catch (LibraryException ex) { JOptionPane.showMessageDialog(this, ex.getMessage(), "Optimizer settings", JOptionPane.WARNING_MESSAGE); }
+        });
+        buttons.add(settingsButton);
+        buttons.add(budgetCaption); buttons.add(budget); buttons.add(secondsCaption); buttons.add(customSeconds);
         buttons.add(searchButton);
         JButton help = new JButton("Optimizer help…");
         help.addActionListener(event -> OptimizerHelpDialog.show(this));
@@ -303,9 +354,12 @@ final class SetlistOptimizationPanel extends JPanel {
             OptimizationJournal journal,
             PlayerRepository players,
             SetlistRepository setlists,
-            Runnable onApplied) {
+            Runnable onApplied,
+            com.aevoreth.abcmm.domain.prefs.Preferences preferences,
+            com.aevoreth.abcmm.domain.prefs.PreferencesStore preferencesStore) {
         SetlistOptimizationPanel panel = new SetlistOptimizationPanel(
                 database, setlist, layoutLabel, journal, players, setlists, onApplied);
+        panel.bindDurationPreferences(preferences, preferencesStore);
         Window owner = SwingUtilities.getWindowAncestor(parent);
         JDialog dialog = new JDialog(owner, "Optimize instruments", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -390,6 +444,7 @@ final class SetlistOptimizationPanel extends JPanel {
 
     private void showLoad(LoadOutcome outcome) {
         loaded = outcome;
+        updateRuleWarning(outcome);
         candidate = null;
         baselineScore = null;
         proven.setVisible(false);
@@ -412,20 +467,32 @@ final class SetlistOptimizationPanel extends JPanel {
         rulesLabel.setText("Target " + rules.targetChanges()
                 + " or fewer changes. Weights: smooth " + weight(rules.smoothWeight())
                 + ", total " + weight(rules.totalWeight())
-                + ", role " + weight(rules.roleWeight())
+                + ", instrument preferences " + weight(rules.roleWeight())
                 + ", keep " + weight(rules.keepWeight())
                 + ". Pins: " + problem.pins().size() + ".");
-        if (outcome.searchBudget() != null) {
+        if (!durationInitialized && outcome.searchBudget() != null) {
             budget.setSelectedItem(RunBudget.from(outcome.searchBudget()));
+            int remembered = readDuration.getAsInt();
+            if (remembered > 0) {
+                boolean preset = false;
+                for (RunBudget value : RunBudget.values()) if (value.preset != null && value.preset.budget().toSeconds() == remembered) {
+                    budget.setSelectedItem(value); preset = true; break;
+                }
+                if (!preset) selectCustomSeconds(Math.min(CUSTOM_SECONDS_MAX, remembered));
+            }
+            durationInitialized = true;
         }
         StringBuilder text = new StringBuilder();
         if (locked) {
             text.append("This setlist is locked. Search can run, and Apply stays off.\n");
         }
         if (!outcome.report().baselineFeasible()) {
-            text.append("The current assignments break a rule. Search can still look for a repair.");
+            long unassigned = outcome.report().diagnostics().stream().filter(d -> "uncovered_part".equals(d.code())).count();
+            text.append(unassigned > 0
+                    ? unassigned + " parts need assignments. Search will assign them to characters who own the instruments."
+                    : "The current assignments break a rule. Search can still look for a repair.");
             for (Diagnostic diagnostic : outcome.report().diagnostics()) {
-                if (diagnostic.severity() == DiagnosticSeverity.BASELINE) {
+                if (diagnostic.severity() == DiagnosticSeverity.BASELINE && !"uncovered_part".equals(diagnostic.code())) {
                     text.append('\n').append(explain(diagnostic));
                 }
             }
@@ -446,6 +513,34 @@ final class SetlistOptimizationPanel extends JPanel {
         updateApplyEnabled();
     }
 
+    private void updateRuleWarning(LoadOutcome outcome) {
+        conflictItem = null; conflictPart = null;
+        if (outcome.problem() == null) { ruleWarning.setVisible(false); return; }
+        java.util.Set<Long> layoutPlayers = new java.util.HashSet<>();
+        outcome.problem().performers().forEach(p -> layoutPlayers.add(p.playerId()));
+        int conflicts = 0;
+        for (var preference : outcome.rules().partPreferences()) {
+            if (!layoutPlayers.contains(preference.playerId())) {
+                conflicts++; conflictItem = preference.setlistItemId(); conflictPart = preference.partNumber();
+            }
+        }
+        for (var pin : outcome.problem().pins()) {
+            if (!layoutPlayers.contains(pin.playerId())) {
+                conflicts++; conflictItem = pin.setlistItemId(); conflictPart = pin.partNumber();
+            }
+        }
+        ruleWarning.setVisible(conflicts > 0);
+        if (conflicts > 0) {
+            ruleWarningText.setText(conflicts + (conflicts == 1 ? " saved rule refers" : " saved rules refer")
+                    + " to characters outside this band layout and prevent auto-assignment. "
+                    + (outcome.problem().locked() ? "Unlock the set to change these rules." : "Review them to change the character or clear incompatible rules."));
+            fixRulesButton.setText(outcome.problem().locked() ? "Review rules…" : "Review and fix…");
+        }
+        revalidate(); repaint();
+    }
+
+    boolean ruleWarningVisible() { return ruleWarning.isVisible(); }
+
     private void startSearch() {
         if (!canSearch() || searching) {
             return;
@@ -457,6 +552,9 @@ final class SetlistOptimizationPanel extends JPanel {
         searchStarted = System.nanoTime();
         long seed = newSeed();
         Duration selected = selectedDuration();
+        rememberDuration();
+        settingsButton.setEnabled(false);
+        fixRulesButton.setEnabled(false);
         searchButton.setEnabled(false);
         cancelButton.setEnabled(true);
         applyButton.setEnabled(false);
@@ -474,6 +572,8 @@ final class SetlistOptimizationPanel extends JPanel {
             protected void done() {
                 elapsedTimer.stop();
                 searching = false;
+                settingsButton.setEnabled(true);
+                fixRulesButton.setEnabled(true);
                 progress.setIndeterminate(false);
                 cancelButton.setEnabled(false);
                 if (closed) {
@@ -663,6 +763,10 @@ final class SetlistOptimizationPanel extends JPanel {
                 ? ""
                 : " (" + diagnostic.detail() + ")";
         return switch (diagnostic.code()) {
+            case "pin_unknown_player", "rule_unknown_player" ->
+                    "A saved optimizer rule refers to a character outside this band layout. "
+                            + "Open Optimizer settings → Song exceptions to clear or change that rule." + detail;
+            case "uncovered_part" -> "A part needs an assignment; Search can assign it automatically." + detail;
             case "missing_band_layout" -> "This setlist has no band layout.";
             case "setlist_not_found" -> "The setlist was not found.";
             case "missing_database" -> "The library database was not found.";
@@ -760,6 +864,27 @@ final class SetlistOptimizationPanel extends JPanel {
         budget.setSelectedItem(RunBudget.CUSTOM);
         customSeconds.setValue(seconds);
     }
+
+    void bindDurationPreferences(com.aevoreth.abcmm.domain.prefs.Preferences preferences,
+            com.aevoreth.abcmm.domain.prefs.PreferencesStore store) {
+        if (preferences == null) return;
+        String key = "optimizer_duration:" + database.toAbsolutePath().normalize() + ":" + setlist.bandLayoutId();
+        readDuration = () -> {
+            Object value = preferences.extras().get(key);
+            return value instanceof Number n ? n.intValue() : 0;
+        };
+        writeDuration = seconds -> {
+            preferences.extras().put(key, seconds);
+            if (store != null) {
+                try { store.save(preferences); }
+                catch (com.aevoreth.abcmm.domain.prefs.PreferencesException ex) {
+                    System.getLogger(SetlistOptimizationPanel.class.getName()).log(System.Logger.Level.WARNING, "Could not remember optimizer duration", ex);
+                }
+            }
+        };
+    }
+
+    void rememberDuration() { writeDuration.accept((int) selectedDuration().toSeconds()); }
 
     Duration selectedDuration() {
         try {

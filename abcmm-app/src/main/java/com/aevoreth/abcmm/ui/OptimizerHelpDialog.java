@@ -1,6 +1,7 @@
 package com.aevoreth.abcmm.ui;
 
 import java.awt.Component;
+import java.awt.Window;
 
 import javax.swing.SwingUtilities;
 
@@ -9,6 +10,11 @@ final class OptimizerHelpDialog {
     private OptimizerHelpDialog() {}
 
     static void show(Component parent) {
-        UserGuideDialog.open(SwingUtilities.getWindowAncestor(parent), "optimizer.md");
+        UserGuideDialog.open(ownerOf(parent), "optimizer.md");
+    }
+
+    static Window ownerOf(Component parent) {
+        if (parent == null) return null;
+        return parent instanceof Window window ? window : SwingUtilities.getWindowAncestor(parent);
     }
 }

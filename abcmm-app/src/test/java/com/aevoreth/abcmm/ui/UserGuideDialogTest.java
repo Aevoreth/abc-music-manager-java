@@ -10,6 +10,27 @@ import org.junit.jupiter.api.Test;
 final class UserGuideDialogTest {
 
     @Test
+    void optimizerHelpBelongsToTheSettingsWindowAndRemainsModelessAndUnblocked() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(java.awt.GraphicsEnvironment.isHeadless());
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            var optimizer = new javax.swing.JDialog((java.awt.Frame) null);
+            var settings = new javax.swing.JDialog(optimizer, java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+            UserGuideDialog guide = null;
+            try {
+                assertEquals(settings, OptimizerHelpDialog.ownerOf(settings));
+                assertEquals(settings, OptimizerHelpDialog.ownerOf(settings.getRootPane()));
+                guide = new UserGuideDialog(OptimizerHelpDialog.ownerOf(settings), "optimizer.md");
+                assertEquals(settings, guide.getOwner());
+                assertEquals(java.awt.Dialog.ModalityType.MODELESS, guide.getModalityType());
+                assertEquals(java.awt.Dialog.ModalExclusionType.APPLICATION_EXCLUDE, guide.getModalExclusionType());
+            } finally {
+                if (guide != null) guide.dispose();
+                settings.dispose(); optimizer.dispose();
+            }
+        });
+    }
+
+    @Test
     void resolveRelative_fromIndex() {
         assertEquals("library.md", UserGuideDialog.resolveRelative("index.md", "library.md"));
         assertEquals("settings/appearance.md",

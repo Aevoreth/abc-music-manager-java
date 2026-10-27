@@ -279,6 +279,7 @@ public final class SetlistsPanel extends JPanel {
 
     public void setOptimizationJournal(Path database, OptimizationJournal journal) {
         this.optimizationDatabase = database;
+        assignmentPanel.setOptimizerDatabase(database);
         this.optimizationJournal = journal;
     }
 
@@ -1885,7 +1886,7 @@ public final class SetlistsPanel extends JPanel {
                 optimizationJournal,
                 playerRepository,
                 setlistRepository,
-                this::refreshAfterOptimization);
+                this::refreshAfterOptimization, preferences, preferencesStore);
     }
 
     String undoLastOptimization() {

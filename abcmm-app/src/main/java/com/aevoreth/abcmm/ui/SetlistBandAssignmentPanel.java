@@ -84,6 +84,9 @@ public final class SetlistBandAssignmentPanel extends JPanel {
     private SetlistRepository setlistRepository;
     private SongLayoutRepository songLayoutRepository;
     private OptimizationProfileRepository optimizationProfiles;
+    private java.nio.file.Path optimizerDatabase;
+
+    public void setOptimizerDatabase(java.nio.file.Path path) { optimizerDatabase = path; }
     private Runnable assignmentChangedHandler;
 
     private final JLabel hintLabel = new JLabel();
@@ -638,7 +641,7 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             menu.add(item);
         }
         menu.addSeparator();
-        JMenuItem optimizer = new JMenuItem("Optimizer settings for this song…");
+        JMenuItem optimizer = new JMenuItem("Optimizer settings for this part…");
         optimizer.setFont(menuFont);
         optimizer.addActionListener(e -> showOccurrenceSettings(card));
         menu.add(optimizer);
@@ -1107,32 +1110,14 @@ public final class SetlistBandAssignmentPanel extends JPanel {
             hintLabel.setText("Optimizer settings are not connected.");
             return;
         }
-        Integer partNumber = parsePartNumber(card.partNumber());
-        Long instrumentId = null;
-        if (partNumber != null) {
-            for (SongPartMeta part : assignmentParts) {
-                if (part.partNumber() == partNumber) {
-                    instrumentId = part.instrumentId();
-                    break;
-                }
-            }
+        if (optimizerDatabase == null) {
+            hintLabel.setText("Optimizer settings are not connected.");
+            return;
         }
         try {
-            boolean saved = OccurrenceOptimizerDialog.show(
-                    this,
-                    optimizationProfiles,
-                    setlistId,
-                    itemId,
-                    card.playerId(),
-                    card.playerName(),
-                    partNumber,
-                    instrumentId,
-                    card.instrumentName(),
-                    ownsInstrument(card.playerId(), instrumentId),
-                    playerNames);
-            if (saved && assignmentChangedHandler != null) {
-                assignmentChangedHandler.run();
-            }
+            boolean saved = OptimizerSettingsDialog.show(this, optimizerDatabase, null, setlistId,
+                    itemId, parsePartNumber(card.partNumber()));
+            if (saved && assignmentChangedHandler != null) assignmentChangedHandler.run();
         } catch (LibraryException ex) {
             hintLabel.setText(ex.getMessage() == null || ex.getMessage().isBlank()
                     ? "Failed to open optimizer settings."

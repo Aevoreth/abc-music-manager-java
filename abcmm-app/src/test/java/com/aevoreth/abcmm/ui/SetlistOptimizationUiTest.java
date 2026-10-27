@@ -123,6 +123,127 @@ class SetlistOptimizationUiTest {
         }
     }
 
+    @Test
+    void unifiedSongExceptionsStageChangesAndKeepRepeatedOccurrencesSeparate() throws Exception {
+        Path path = tempDir.resolve("exceptions.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(path)) {
+            Library library = Library.open(database);
+            var profiles = new com.aevoreth.abcmm.storage.SqliteOptimizationProfileRepository(database);
+            var item = library.setlists.listItems(library.openSetlistId).getFirst();
+            long repeat = library.setlists.addItem(library.openSetlistId, item.songId(), 1, null, library.songLayoutId);
+            var old = new com.aevoreth.abcmm.domain.optimizer.OccurrencePreferences(
+                    List.of(new com.aevoreth.abcmm.domain.optimizer.PartPreferenceWeight(item.id(), 1, library.ada, 7)),
+                    List.of(new com.aevoreth.abcmm.domain.optimizer.ItemKeepWeight(item.id(), 2)),
+                    List.of(new com.aevoreth.abcmm.domain.optimizer.PartKeepWeight(item.id(), 1, 3)));
+            profiles.replaceOccurrencePreferences(library.openSetlistId, old);
+            profiles.replacePins(library.openSetlistId, List.of(new com.aevoreth.abcmm.domain.optimizer.AssignmentPin(item.id(), 1, library.ada)));
+            var loaded = SetlistOptimizationActions.load(path, library.openSetlistId, null);
+            var form = new SongExceptionsForm(profiles, loaded.problem(), library.setlists.listItems(library.openSetlistId), java.util.Map.of(library.ada, "Ada"));
+            if (System.getProperty("optimizer.snapshot") != null) UnifiedOptimizerSettingsTest.snapshot(form, "song-exceptions");
+            var table = UnifiedOptimizerSettingsTest.find(form, javax.swing.JTable.class);
+            assertEquals("Pin to character", table.getValueAt(0, 1));
+            form.validateEdits(); form.save();
+            assertEquals(old, profiles.listOccurrencePreferences(library.openSetlistId));
+            table.setValueAt("Automatic", 0, 1);
+            // A pending edit does not write until the containing settings window saves.
+            form.validateEdits();
+            assertEquals(1, profiles.listPins(library.openSetlistId).size());
+            UnifiedOptimizerSettingsTest.find(form, javax.swing.JComboBox.class).setSelectedIndex(1);
+            assertEquals("Automatic", table.getValueAt(0, 1));
+            table.setValueAt("Prefer character", 0, 1); table.setValueAt("11", 0, 3);
+            form.save();
+            var saved = profiles.listOccurrencePreferences(library.openSetlistId);
+            assertEquals(List.of(new com.aevoreth.abcmm.domain.optimizer.PartPreferenceWeight(repeat, 1, library.ada, 11)), saved.partPreferences());
+            assertEquals(old.itemKeepWeights(), saved.itemKeepWeights());
+            assertEquals(old.partKeepWeights(), saved.partKeepWeights());
+            assertTrue(profiles.listPins(library.openSetlistId).isEmpty());
+            table.setValueAt("NaN", 0, 3);
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, form::validateEdits);
+        }
+    }
+
+    @Test
+    void reloadingRulesKeepsTheChosenSearchDuration() throws Exception {
+        Path path = tempDir.resolve("reload.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(path)) {
+            Library library = Library.open(database);
+            var panel = panel(path, library, library.openSetlistId);
+            var preferences = new com.aevoreth.abcmm.domain.prefs.Preferences();
+            panel.bindDurationPreferences(preferences, null);
+            panel.loadOnCallerThread(); panel.selectCustomSeconds(240); panel.rememberDuration(); panel.loadOnCallerThread();
+            assertEquals(Duration.ofSeconds(240), panel.selectedDuration());
+            var reopened = panel(path, library, library.openSetlistId);
+            reopened.bindDurationPreferences(preferences, null); reopened.loadOnCallerThread();
+            assertEquals(Duration.ofSeconds(240), reopened.selectedDuration());
+        }
+    }
+
+    @Test
+    void optimizerAssignsSongsWithoutExistingLayoutAssignments() throws Exception {
+        Path path = tempDir.resolve("unassigned.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(path)) {
+            Library library = Library.open(database);
+            library.layouts.deleteSongLayout(library.songLayoutId);
+            var loaded = SetlistOptimizationActions.load(path, library.openSetlistId, null);
+            assertTrue(loaded.report().integrityOk());
+            assertFalse(loaded.report().baselineFeasible());
+            var preview = panel(path, library, library.openSetlistId);
+            preview.loadOnCallerThread();
+            assertFalse(preview.ruleWarningVisible());
+            var solved = assertInstanceOf(SearchOutcome.Solved.class,
+                    preview.searchOnCallerThread(Duration.ZERO, () -> false));
+            assertEquals(1, solved.assignment().slot(library.openItemId, library.ada).partNumber());
+            assertTrue(preview.applyButton().isEnabled());
+            assertTrue(SetlistOptimizationActions.apply(library.journal, loaded, solved.assignment()).applied());
+            assertEquals(1, library.setlists.listBandAssignments(library.openItemId).getFirst().partNumber());
+        }
+    }
+
+    @Test
+    void explicitCleanupOfOffLayoutRulesUnblocksAutoAssignmentWithoutDroppingValidPins() throws Exception {
+        Path path = tempDir.resolve("off-layout.sqlite");
+        try (SqliteDatabase database = SqliteDatabase.openOrCreate(path)) {
+            Library library = Library.open(database);
+            library.layouts.deleteSongLayout(library.songLayoutId);
+            var item = library.setlists.listItems(library.openSetlistId).getFirst();
+            long repeat = library.setlists.addItem(library.openSetlistId, item.songId(), 1, null, null);
+            long outsider = library.players.addPlayer("Outside band", null, null);
+            var profiles = new com.aevoreth.abcmm.storage.SqliteOptimizationProfileRepository(database);
+            var preferences = new com.aevoreth.abcmm.domain.optimizer.OccurrencePreferences(
+                    List.of(new com.aevoreth.abcmm.domain.optimizer.PartPreferenceWeight(item.id(), 1, outsider, 7)),
+                    List.of(new com.aevoreth.abcmm.domain.optimizer.ItemKeepWeight(item.id(), 3)),
+                    List.of(new com.aevoreth.abcmm.domain.optimizer.PartKeepWeight(item.id(), 1, 4)));
+            var validPin = new com.aevoreth.abcmm.domain.optimizer.AssignmentPin(repeat, 1, library.ada);
+            profiles.replaceOccurrencePreferences(library.openSetlistId, preferences);
+            profiles.replacePins(library.openSetlistId, List.of(
+                    new com.aevoreth.abcmm.domain.optimizer.AssignmentPin(item.id(), 1, outsider), validPin));
+            var loaded = SetlistOptimizationActions.load(path, library.openSetlistId, null);
+            assertInstanceOf(SearchOutcome.Infeasible.class, SetlistOptimizationActions.search(
+                    loaded, Duration.ZERO, 0, () -> false, null));
+            var blockedPreview = panel(path, library, library.openSetlistId);
+            blockedPreview.loadOnCallerThread();
+            assertTrue(blockedPreview.ruleWarningVisible(), "Show the fix warning before Search is run");
+            assertEquals("Review and fix…", UnifiedOptimizerSettingsTest.find(blockedPreview, javax.swing.JButton.class).getText());
+            var form = new SongExceptionsForm(profiles, loaded.problem(), library.setlists.listItems(library.openSetlistId),
+                    java.util.Map.of(library.ada, "Ada", outsider, "Outside band"));
+            form.clearOffLayoutRules();
+            assertEquals(2, profiles.listPins(library.openSetlistId).size());
+            assertEquals(preferences, profiles.listOccurrencePreferences(library.openSetlistId));
+            form.save();
+            assertEquals(List.of(validPin), profiles.listPins(library.openSetlistId));
+            blockedPreview.loadOnCallerThread();
+            assertFalse(blockedPreview.ruleWarningVisible(), "Clear the warning after rules are repaired");
+            assertTrue(profiles.listOccurrencePreferences(library.openSetlistId).partPreferences().isEmpty());
+            assertEquals(preferences.itemKeepWeights(), profiles.listOccurrencePreferences(library.openSetlistId).itemKeepWeights());
+            assertEquals(preferences.partKeepWeights(), profiles.listOccurrencePreferences(library.openSetlistId).partKeepWeights());
+            var preview = panel(path, library, library.openSetlistId);
+            preview.loadOnCallerThread();
+            var solved = assertInstanceOf(SearchOutcome.Solved.class, preview.searchOnCallerThread(Duration.ZERO, () -> false));
+            assertEquals(2, solved.assignment().slots().stream().filter(slot -> slot.partNumber() != null).count());
+            assertTrue(preview.applyButton().isEnabled());
+        }
+    }
+
     private static SetlistOptimizationPanel panel(Path path, Library library, long setlistId) throws Exception {
         return new SetlistOptimizationPanel(
                 path,

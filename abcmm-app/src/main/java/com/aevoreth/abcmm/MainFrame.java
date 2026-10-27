@@ -446,6 +446,7 @@ public final class MainFrame extends JFrame {
             SqliteOptimizationProfileRepository optimizationProfiles =
                     new SqliteOptimizationProfileRepository(database);
             bandsPanel.setOptimizationProfileRepository(optimizationProfiles);
+            bandsPanel.setOptimizerDatabase(database.databasePath());
             bandsPanel.bind(playerRepository, bandRepository);
             setlistsPanel.setOptimizationProfileRepository(optimizationProfiles);
             setlistsPanel.setOptimizationJournal(
@@ -518,6 +519,7 @@ public final class MainFrame extends JFrame {
             libraryPanel.setTranscribers(List.of());
             libraryPanel.setSongs(List.of());
             bandsPanel.setOptimizationProfileRepository(null);
+            bandsPanel.setOptimizerDatabase(null);
             setlistsPanel.setOptimizationProfileRepository(null);
             setlistsPanel.setOptimizationJournal(null, null);
             setlistsPanel.setPlayLogRepository(null);

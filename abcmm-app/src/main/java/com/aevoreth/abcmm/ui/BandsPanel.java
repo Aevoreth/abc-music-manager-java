@@ -86,7 +86,10 @@ public final class BandsPanel extends JPanel {
     private PlayerRepository playerRepository;
     private BandRepository bandRepository;
     private OptimizationProfileRepository optimizationProfiles;
-    private final JButton optimizerButton = new JButton("Optimizer rules…");
+    private java.nio.file.Path optimizerDatabase;
+
+    public void setOptimizerDatabase(java.nio.file.Path path) { optimizerDatabase = path; }
+    private final JButton optimizerButton = new JButton("Optimizer settings…");
 
     private final PlayersTableModel playersTableModel = new PlayersTableModel();
     private final JTable playersTable = new JTable(playersTableModel);
@@ -1003,12 +1006,12 @@ public final class BandsPanel extends JPanel {
             showError("Select a band first.");
             return;
         }
-        if (optimizationProfiles == null) {
+        if (optimizationProfiles == null || optimizerDatabase == null) {
             showError("Optimizer settings are not connected.");
             return;
         }
         try {
-            BandOptimizerForm.show(this, optimizationProfiles, bandRepository, playerRepository, selected.id());
+            OptimizerSettingsDialog.show(this, optimizerDatabase, selected.id(), null);
         } catch (LibraryException ex) {
             showError(ex.getMessage());
         }

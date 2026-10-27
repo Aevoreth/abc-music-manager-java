@@ -52,7 +52,7 @@ import org.commonmark.renderer.html.AttributeProviderFactory;
 import org.commonmark.renderer.html.HtmlRenderer;
 
 /**
- * Modal dialog that displays the bundled User Guide ({@code docs/user/}) as Markdown.
+ * Modeless help window that remains usable alongside application-modal settings.
  */
 public final class UserGuideDialog extends JDialog {
 
@@ -73,8 +73,9 @@ public final class UserGuideDialog extends JDialog {
     private final Deque<String> forwardStack = new ArrayDeque<>();
     private String currentRelPath;
 
-    private UserGuideDialog(Window owner, String initialPage) {
+    UserGuideDialog(Window owner, String initialPage) {
         super(owner, titleWithVersion(), ModalityType.MODELESS);
+        setModalExclusionType(java.awt.Dialog.ModalExclusionType.APPLICATION_EXCLUDE);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setMinimumSize(new Dimension(560, 420));
         setPreferredSize(new Dimension(720, 560));
