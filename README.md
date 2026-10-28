@@ -117,3 +117,9 @@ mvn -pl abcmm-app -am package -DskipTests
 See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 This project does not claim endorsement by the Maestro maintainers.
+
+### Developer preview releases
+
+Developer previews are experimental prereleases, excluded from GitHub's Latest release. Keep regular work in the current beta and back up the entire `.abc_music_manager` folder with the app closed before testing. Preview and beta builds share that folder, including when using the portable ZIP.
+
+To publish a preview, push a unique tag such as `dev-preview-0.5.0-optimizer.1` pointing at the desired branch commit. The numeric version must be suitable for Windows packaging. The Developer preview workflow builds ZIP/MSI downloads with prominent preview labels and backup warnings. Tags beginning with `dev-preview-` do not trigger the normal `v*` release workflow.

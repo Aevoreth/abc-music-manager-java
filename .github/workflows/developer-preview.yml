@@ -1,0 +1,89 @@
+name: Developer preview
+
+on:
+  push:
+    tags:
+      - 'dev-preview-*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Parse version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^dev-preview-(\d+\.\d+\.\d+)-[A-Za-z0-9][A-Za-z0-9.-]*$') {
+            throw "Tag must look like dev-preview-0.5.0-optimizer.1 (got: $tag)"
+          }
+          $ver = $Matches[1]
+          Write-Host "version=$ver"
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install WiX 3.11
+        shell: pwsh
+        run: |
+          $wixDir = Join-Path $env:RUNNER_TEMP 'wix311'
+          $zip = Join-Path $env:RUNNER_TEMP 'wix311-binaries.zip'
+          Invoke-WebRequest -Uri 'https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip' -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath $wixDir -Force
+          Add-Content -Path $env:GITHUB_PATH -Value $wixDir
+          & (Join-Path $wixDir 'candle.exe') -? | Select-Object -First 1
+
+      - name: Build shaded JAR
+        run: mvn -B -pl abcmm-app -am package -DskipTests
+
+      - name: Package ZIP and MSI
+        shell: pwsh
+        run: |
+          ./distribute/package-windows.ps1 `
+            -Version '${{ steps.version.outputs.version }}' `
+            -Jar 'abcmm-app/target/abc-music-manager.jar'
+
+      - name: Label preview downloads
+        shell: pwsh
+        run: |
+          foreach ($extension in @('zip', 'msi')) {
+            Move-Item -LiteralPath "distribute/output/ABC-Music-Manager-${{ steps.version.outputs.version }}.$extension" `
+              -Destination "distribute/output/ABC-Music-Manager-DEVELOPER-PREVIEW-${{ github.ref_name }}.$extension"
+          }
+
+      - name: Publish developer preview
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "DEVELOPER PREVIEW - ${{ github.ref_name }} - may break data"
+          prerelease: true
+          make_latest: "false"
+          fail_on_unmatched_files: true
+          body: |
+            ## Experimental developer preview - NOT the current beta
+
+            This build is for testing unfinished development work. It may crash, lose data, or change your library in ways the current beta cannot read. It is not the latest supported build and is not a beta-channel update.
+
+            **Back up your entire `.abc_music_manager` data folder before running this preview, including the database and preferences. Close the app before copying the folder. Keep that backup untouched.**
+
+            **Keep your regular work and any changes you need to preserve in the current beta channel.** Use this preview only for disposable testing. Do not assume preview changes can be carried back into the beta.
+
+            The portable ZIP also uses the shared data folder; unpacking it elsewhere does not isolate your library. The MSI may replace an existing installation. Restore your pre-preview data backup before returning to beta if the preview changed your data; reinstalling beta alone does not restore the database.
+
+            Built from commit `${{ github.sha }}`. Download the current beta from this repository's existing beta release.
+          generate_release_notes: true
+          files: |
+            distribute/output/ABC-Music-Manager-DEVELOPER-PREVIEW-${{ github.ref_name }}.zip
+            distribute/output/ABC-Music-Manager-DEVELOPER-PREVIEW-${{ github.ref_name }}.msi
