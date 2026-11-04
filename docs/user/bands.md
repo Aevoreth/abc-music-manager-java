@@ -23,6 +23,7 @@ Part assignment for a song can be prepared in [Song detail → Layouts](song-det
 
 - **Add Band** — create a new band
 - **Duplicate** — copy the selected band
+- **Delete** — shows how many distinct songs and setlists use the selected band layout. Confirming removes its song layouts, copied setlist assignments, player preferences and pins, and layout references before deleting the band. Songs, setlists, and players are preserved. Deletion cannot be undone.
 - Drag bands in the list to reorder
 
 ### Band editor

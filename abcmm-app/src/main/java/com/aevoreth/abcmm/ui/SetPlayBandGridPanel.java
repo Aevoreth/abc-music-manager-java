@@ -23,6 +23,7 @@ import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -49,6 +50,8 @@ public final class SetPlayBandGridPanel extends JPanel {
     private final Set<Long> highlightPlayerIds = new HashSet<>();
     private final GridCanvas canvas = new GridCanvas();
 
+    private final JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+    private double zoom = 1.0;
     private double panX;
     private double panY;
     private boolean panning;
@@ -66,7 +69,6 @@ public final class SetPlayBandGridPanel extends JPanel {
             setBorder(BorderFactory.createTitledBorder(title));
         }
 
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton recenter = new JButton("Re-center");
         recenter.addActionListener(e -> fitCardsToView());
         toolbar.add(recenter);
@@ -91,8 +93,8 @@ public final class SetPlayBandGridPanel extends JPanel {
                 if (!panning || panStart == null) {
                     return;
                 }
-                double dx = (e.getX() - panStart.x) / (double) UNIT_SIZE;
-                double dy = (e.getY() - panStart.y) / (double) UNIT_SIZE;
+                double dx = (e.getX() - panStart.x) / (UNIT_SIZE * zoom);
+                double dy = (e.getY() - panStart.y) / (UNIT_SIZE * zoom);
                 panX -= dx;
                 panY -= dy;
                 panStart = e.getPoint();
@@ -108,6 +110,21 @@ public final class SetPlayBandGridPanel extends JPanel {
         };
         canvas.addMouseListener(mouse);
         canvas.addMouseMotionListener(mouse);
+        canvas.setToolTipText("Scroll to zoom; drag to pan");
+        canvas.addMouseWheelListener(e -> {
+            if (panning) return;
+            Point2D.Double anchor = viewToLogical(e.getX(), e.getY());
+            zoom = Math.max(0.35, Math.min(3.0, zoom * Math.pow(1.1, -e.getPreciseWheelRotation())));
+            Point2D.Double shifted = viewToLogical(e.getX(), e.getY());
+            panX += anchor.x - shifted.x;
+            panY += anchor.y - shifted.y;
+            canvas.repaint();
+            e.consume();
+        });
+    }
+
+    public void addToolbarControl(JComponent control) {
+        toolbar.add(control);
     }
 
     public void setCanvasPreferredSize(int width, int height) {
@@ -169,16 +186,16 @@ public final class SetPlayBandGridPanel extends JPanel {
         double cx = canvas.getWidth() / 2.0;
         double cy = canvas.getHeight() / 2.0;
         return new Point2D.Double(
-                (lx - panX) * UNIT_SIZE + cx,
-                (ly - panY) * UNIT_SIZE + cy);
+                (lx - panX) * UNIT_SIZE * zoom + cx,
+                (ly - panY) * UNIT_SIZE * zoom + cy);
     }
 
     private Point2D.Double viewToLogical(double vx, double vy) {
         double cx = canvas.getWidth() / 2.0;
         double cy = canvas.getHeight() / 2.0;
         return new Point2D.Double(
-                (vx - cx) / UNIT_SIZE + panX,
-                (vy - cy) / UNIT_SIZE + panY);
+                (vx - cx) / (UNIT_SIZE * zoom) + panX,
+                (vy - cy) / (UNIT_SIZE * zoom) + panY);
     }
 
     private Rectangle cardBounds(SetPlayLayoutCard card) {
@@ -186,8 +203,8 @@ public final class SetPlayBandGridPanel extends JPanel {
         return new Rectangle(
                 (int) Math.round(topLeft.x),
                 (int) Math.round(topLeft.y),
-                card.widthUnits() * UNIT_SIZE,
-                card.heightUnits() * UNIT_SIZE);
+                (int) Math.round(card.widthUnits() * UNIT_SIZE * zoom),
+                (int) Math.round(card.heightUnits() * UNIT_SIZE * zoom));
     }
 
     private static void drawFitting(
@@ -275,7 +292,7 @@ public final class SetPlayBandGridPanel extends JPanel {
                 }
             }
 
-            Font baseFont = getFont().deriveFont(Font.PLAIN, 13f);
+            Font baseFont = getFont().deriveFont(Font.PLAIN, (float) (13f * zoom));
             final int lineGap = 1;
             Color defaultFill = cardFill();
             for (SetPlayLayoutCard card : cards) {
@@ -342,7 +359,7 @@ public final class SetPlayBandGridPanel extends JPanel {
                 }
                 y += lineH + lineGap;
 
-                Font big = baseFont.deriveFont(Font.BOLD, baseFont.getSize2D() + 16f);
+                Font big = baseFont.deriveFont(Font.BOLD, baseFont.getSize2D() + (float) (16f * zoom));
                 FontMetrics bigFm = g2.getFontMetrics(big);
                 int bigH = bigFm.getAscent() + bigFm.getDescent();
                 Color partColor = card.partDuplicate()
@@ -358,7 +375,7 @@ public final class SetPlayBandGridPanel extends JPanel {
                         g2, baseFont, card.instrumentName(), innerX, y, innerW, lineH, instColor);
                 y += lineH + lineGap;
 
-                Font small = baseFont.deriveFont(Math.max(10f, baseFont.getSize2D() - 1f));
+                Font small = baseFont.deriveFont(Math.max(3.5f, baseFont.getSize2D() - (float) zoom));
                 Color nameColor = card.partDuplicate() ? DUP_RED : TEXT;
                 int remaining = Math.max(lineH, r.y + r.height - margin - y);
                 drawFitting(

@@ -343,7 +343,7 @@ public final class BandsPanel extends JPanel {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
 
         JPanel left = new JPanel(new BorderLayout(4, 4));
-        JPanel bandToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JPanel bandToolbar = new JPanel(new WrapLayout(FlowLayout.LEFT, 4, 4));
         JButton add = new JButton("Add");
         JButton duplicate = new JButton("Duplicate");
         JButton delete = new JButton("Delete");
@@ -353,6 +353,19 @@ public final class BandsPanel extends JPanel {
         bandToolbar.add(add);
         bandToolbar.add(duplicate);
         bandToolbar.add(delete);
+        // Let BorderLayout grow the toolbar when the splitter causes buttons to wrap.
+        bandToolbar.addComponentListener(new ComponentAdapter() {
+            private int lastPreferredHeight = -1;
+
+            @Override
+            public void componentResized(ComponentEvent e) {
+                int preferredHeight = bandToolbar.getPreferredSize().height;
+                if (preferredHeight != lastPreferredHeight) {
+                    lastPreferredHeight = preferredHeight;
+                    bandToolbar.revalidate();
+                }
+            }
+        });
         left.add(bandToolbar, BorderLayout.NORTH);
         JPanel listHost = new JPanel(new BorderLayout(0, 2));
         listHost.add(new JLabel("Bands (drag to reorder)"), BorderLayout.NORTH);
@@ -908,15 +921,22 @@ public final class BandsPanel extends JPanel {
         if (selected == null || bandRepository == null) {
             return;
         }
-        int confirm = JOptionPane.showConfirmDialog(
-                this,
-                "Delete band \"" + selected.name() + "\"?",
-                "Delete band",
-                JOptionPane.OK_CANCEL_OPTION);
-        if (confirm != JOptionPane.OK_OPTION) {
-            return;
-        }
         try {
+            var usage = bandRepository.getBandUsage(selected.id());
+            int confirm = JOptionPane.showConfirmDialog(
+                    this,
+                    "Delete band layout \"" + selected.name() + "\"?\n\n"
+                            + usage.songCount() + " songs reference this band layout.\n"
+                            + "It is used in " + usage.setlistCount() + " setlists.\n\n"
+                            + "Deleting it will remove its song layouts, setlist part assignments,\n"
+                            + "and references to this band layout. Songs, setlists, and players will be kept.\n"
+                            + "This cannot be undone.",
+                    "Delete band layout",
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (confirm != JOptionPane.OK_OPTION) {
+                return;
+            }
             bandRepository.deleteBand(selected.id());
             reloadBands();
         } catch (LibraryException ex) {

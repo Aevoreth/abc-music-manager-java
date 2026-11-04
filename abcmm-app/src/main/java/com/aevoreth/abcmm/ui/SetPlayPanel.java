@@ -240,7 +240,6 @@ public final class SetPlayPanel extends JPanel {
     private JLabel bannerNext;
 
     private JSplitPane topSplit;
-    private JSplitPane bottomSplit;
     private JSplitPane mainSplit;
 
     public SetPlayPanel() {
@@ -423,18 +422,10 @@ public final class SetPlayPanel extends JPanel {
         topSplit = topSplitPane;
 
         playersInner.setLayout(new BoxLayout(playersInner, BoxLayout.Y_AXIS));
-        JScrollPane playersScroll = new JScrollPane(playersInner);
-        playersScroll.setBorder(BorderFactory.createTitledBorder("Your players"));
-        playersScroll.setToolTipText("Same as Players on the Parts tab — highlight the layout and Parts column accents.");
-        playersScroll.setPreferredSize(new Dimension(180, 200));
-        playersScroll.setMinimumSize(new Dimension(140, 120));
+        playbackPlayersBtn.addActionListener(e -> showPlayersMenu(playbackPlayersBtn));
+        gridPanel.addToolbarControl(playbackPlayersBtn);
 
-        JSplitPane bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, playersScroll, gridPanel);
-        bottomSplitPane.setResizeWeight(0.22);
-        bottomSplitPane.setContinuousLayout(true);
-        bottomSplit = bottomSplitPane;
-
-        JSplitPane mainSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, bottomSplit);
+        JSplitPane mainSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSplit, gridPanel);
         mainSplitPane.setResizeWeight(0.45);
         mainSplitPane.setContinuousLayout(true);
         mainSplitPane.setDividerLocation(MAIN_SPLIT_DEFAULT);
@@ -721,6 +712,7 @@ public final class SetPlayPanel extends JPanel {
     private final JTable partsTable = new JTable(partsTableModel);
     private JCheckBox partsShowSelectedOnly;
     private JButton partsPlayersBtn;
+    private final JButton playbackPlayersBtn = new JButton("Your players: 0 \u25be");
 
     private JPanel buildPartsPanel() {
         JPanel panel = new JPanel(new BorderLayout(6, 6));
@@ -732,7 +724,7 @@ public final class SetPlayPanel extends JPanel {
         instruments.addActionListener(e -> showInstrumentsNeeded());
         partsPlayersBtn = new JButton("Players: All");
         partsPlayersBtn.setToolTipText("Same as Your players on Playback — highlight on the grid and Parts columns.");
-        partsPlayersBtn.addActionListener(e -> showPartsPlayersMenu());
+        partsPlayersBtn.addActionListener(e -> showPlayersMenu(partsPlayersBtn));
         north.add(partsShowSelectedOnly);
         north.add(instruments);
         north.add(partsPlayersBtn);
@@ -824,13 +816,12 @@ public final class SetPlayPanel extends JPanel {
             songColumnSaveTimer.stop();
             publishSongColumns();
         }
-        if (preferences == null || mainSplit == null || topSplit == null || bottomSplit == null) {
+        if (preferences == null || mainSplit == null || topSplit == null) {
             return;
         }
         Map<String, Object> state = new LinkedHashMap<>();
         putSplitSizes(state, "main", mainSplit, MAIN_SPLIT_MIN, SECONDARY_PANE_MIN, true);
         putSplitSizes(state, "top", topSplit, TOP_SPLIT_MIN, SECONDARY_PANE_MIN, false);
-        putSplitSizes(state, "bottom", bottomSplit, BOTTOM_SPLIT_MIN, SECONDARY_PANE_MIN, false);
         if (!state.isEmpty()) {
             preferences.extras().put(SPLIT_PREF_KEY, state);
         }
@@ -2249,7 +2240,7 @@ public final class SetPlayPanel extends JPanel {
         if (splitsRestored || mainSplit == null) {
             return;
         }
-        if (mainSplit.getHeight() <= 0 || topSplit.getWidth() <= 0 || bottomSplit.getWidth() <= 0) {
+        if (mainSplit.getHeight() <= 0 || topSplit.getWidth() <= 0) {
             return;
         }
         restoreSplits();
@@ -2261,7 +2252,6 @@ public final class SetPlayPanel extends JPanel {
                 preferences == null ? null : preferences.extras().get(SPLIT_PREF_KEY));
         applySplitDivider(mainSplit, saved == null ? null : saved.get("main"), MAIN_SPLIT_DEFAULT, MAIN_SPLIT_MIN, true);
         applySplitDivider(topSplit, saved == null ? null : saved.get("top"), -1, TOP_SPLIT_MIN, false);
-        applySplitDivider(bottomSplit, saved == null ? null : saved.get("bottom"), -1, BOTTOM_SPLIT_MIN, false);
     }
 
     private static void putSplitSizes(
@@ -2888,10 +2878,11 @@ public final class SetPlayPanel extends JPanel {
             total = ids.size();
         }
         int n = highlightPlayers.size();
+        playbackPlayersBtn.setText("Your players: " + n + " \u25be");
         partsPlayersBtn.setText(n == 0 || (total > 0 && n == total) ? "Players: All" : "Players: " + n);
     }
 
-    private void showPartsPlayersMenu() {
+    private void showPlayersMenu(JButton anchor) {
         List<Map.Entry<Long, String>> players = listedPlayers();
         if (players.isEmpty()) {
             JOptionPane.showMessageDialog(this, "No players yet. Load a set with a band layout.", "Players",
@@ -2913,7 +2904,7 @@ public final class SetPlayPanel extends JPanel {
         JPopupMenu menu = new JPopupMenu();
         menu.setLayout(new BorderLayout());
         menu.add(scroll, BorderLayout.CENTER);
-        menu.show(partsPlayersBtn, 0, partsPlayersBtn.getHeight());
+        menu.show(anchor, 0, anchor.getHeight());
     }
 
     private void advance() {

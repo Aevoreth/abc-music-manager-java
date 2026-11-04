@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 
 import com.aevoreth.abcmm.domain.band.BandInfo;
+import com.aevoreth.abcmm.domain.band.BandUsage;
 import com.aevoreth.abcmm.domain.band.BandLayoutInfo;
 import com.aevoreth.abcmm.domain.band.BandLayoutSlotInfo;
 import com.aevoreth.abcmm.domain.band.BandRepository;
@@ -109,23 +111,100 @@ public final class SqliteBandRepository implements BandRepository {
     }
 
     @Override
-    public void deleteBand(long id) throws LibraryException {
-        try {
-            try (PreparedStatement slots = database.connection().prepareStatement(
-                    """
-                    DELETE FROM BandLayoutSlot
-                    WHERE band_layout_id IN (SELECT id FROM BandLayout WHERE band_id = ?)
-                    """)) {
-                slots.setLong(1, id);
-                slots.executeUpdate();
+    public BandUsage getBandUsage(long id) throws LibraryException {
+        String layouts = "SELECT id FROM BandLayout WHERE band_id = ?";
+        String songLayouts = "SELECT id FROM SongLayout WHERE band_layout_id IN (" + layouts + ")";
+        String sql = "SELECT (SELECT COUNT(*) FROM Song WHERE id IN "
+                + "(SELECT song_id FROM SongLayout WHERE band_layout_id IN (" + layouts + ")) "
+                + "OR last_band_layout_id IN (" + layouts + ") OR last_song_layout_id IN (" + songLayouts + ")), "
+                + "(SELECT COUNT(*) FROM Setlist WHERE band_layout_id IN (" + layouts + ") "
+                + "OR id IN (SELECT setlist_id FROM SetlistItem WHERE song_layout_id IN (" + songLayouts + ")))";
+        try (PreparedStatement statement = database.connection().prepareStatement(sql)) {
+            for (int i = 1; i <= 5; i++) {
+                statement.setLong(i, id);
             }
-            executeDelete("DELETE FROM BandLayout WHERE band_id = ?", id);
-            executeDelete("DELETE FROM BandMember WHERE band_id = ?", id);
-            new SqliteOptimizationProfileRepository(database).deleteBandScoped(id);
-            executeDelete("DELETE FROM Band WHERE id = ?", id);
+            try (ResultSet rs = statement.executeQuery()) {
+                rs.next();
+                return new BandUsage(rs.getInt(1), rs.getInt(2));
+            }
         } catch (SQLException ex) {
-            throw new LibraryException("Failed to delete band", ex);
+            throw new LibraryException("Failed to count band usage", ex);
         }
+    }
+
+    @Override
+    public void deleteBand(long id) throws LibraryException {
+        deleteAtomically(id, true);
+    }
+
+    private void deleteAtomically(long id, boolean band) throws LibraryException {
+        Connection connection = database.connection();
+        boolean ownTransaction = false;
+        Savepoint savepoint = null;
+        try {
+            ownTransaction = connection.getAutoCommit();
+            if (ownTransaction) {
+                connection.setAutoCommit(false);
+            }
+            savepoint = connection.setSavepoint();
+            if (band) {
+                for (BandLayoutInfo layout : listLayouts(id)) {
+                    cleanUpLayout(layout.id());
+                }
+                executeDelete("DELETE FROM BandMember WHERE band_id = ?", id);
+                new SqliteOptimizationProfileRepository(database).deleteBandScoped(id);
+                executeDelete("DELETE FROM Band WHERE id = ?", id);
+            } else {
+                cleanUpLayout(id);
+            }
+            connection.releaseSavepoint(savepoint);
+            if (ownTransaction) {
+                connection.commit();
+            }
+        } catch (SQLException | LibraryException ex) {
+            try {
+                if (ownTransaction) {
+                    connection.rollback();
+                } else if (savepoint != null) {
+                    connection.rollback(savepoint);
+                    connection.releaseSavepoint(savepoint);
+                }
+            } catch (SQLException rollback) {
+                ex.addSuppressed(rollback);
+            }
+            throw new LibraryException("Failed to delete band layout", ex);
+        } finally {
+            if (ownTransaction) {
+                try {
+                    connection.setAutoCommit(true);
+                } catch (SQLException ex) {
+                    throw new LibraryException("Failed to restore database transaction mode", ex);
+                }
+            }
+        }
+    }
+
+    private void cleanUpLayout(long layoutId) throws SQLException {
+        String songLayouts = "SELECT id FROM SongLayout WHERE band_layout_id = ?";
+        String affectedItems = "SELECT i.id FROM SetlistItem i JOIN Setlist s ON s.id = i.setlist_id "
+                + "WHERE s.band_layout_id = ? OR i.song_layout_id IN (" + songLayouts + ")";
+        // Clear copied parts and player-specific preferences while the links still identify their scope.
+        for (String table : List.of("SetlistBandAssignment", "SetlistPartPreference", "SetlistAssignmentPin")) {
+            try (PreparedStatement statement = database.connection().prepareStatement(
+                    "DELETE FROM " + table + " WHERE setlist_item_id IN (" + affectedItems + ")")) {
+                statement.setLong(1, layoutId);
+                statement.setLong(2, layoutId);
+                statement.executeUpdate();
+            }
+        }
+        executeDelete("UPDATE Song SET last_song_layout_id = NULL WHERE last_song_layout_id IN (" + songLayouts + ")", layoutId);
+        executeDelete("UPDATE Song SET last_band_layout_id = NULL WHERE last_band_layout_id = ?", layoutId);
+        executeDelete("UPDATE SetlistItem SET song_layout_id = NULL WHERE song_layout_id IN (" + songLayouts + ")", layoutId);
+        executeDelete("UPDATE Setlist SET band_layout_id = NULL WHERE band_layout_id = ?", layoutId);
+        executeDelete("DELETE FROM SongLayoutAssignment WHERE song_layout_id IN (" + songLayouts + ")", layoutId);
+        executeDelete("DELETE FROM SongLayout WHERE band_layout_id = ?", layoutId);
+        executeDelete("DELETE FROM BandLayoutSlot WHERE band_layout_id = ?", layoutId);
+        executeDelete("DELETE FROM BandLayout WHERE id = ?", layoutId);
     }
 
     @Override
@@ -357,12 +436,7 @@ public final class SqliteBandRepository implements BandRepository {
 
     @Override
     public void deleteLayout(long layoutId) throws LibraryException {
-        try {
-            executeDelete("DELETE FROM BandLayoutSlot WHERE band_layout_id = ?", layoutId);
-            executeDelete("DELETE FROM BandLayout WHERE id = ?", layoutId);
-        } catch (SQLException ex) {
-            throw new LibraryException("Failed to delete band layout", ex);
-        }
+        deleteAtomically(layoutId, false);
     }
 
     @Override

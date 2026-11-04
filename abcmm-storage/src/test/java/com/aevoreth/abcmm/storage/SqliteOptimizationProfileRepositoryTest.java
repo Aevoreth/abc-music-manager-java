@@ -518,7 +518,7 @@ class SqliteOptimizationProfileRepositoryTest {
             assertEquals(List.of(new AssignmentPin(keptItem, 1, ada)), profiles.listPins(setlistId));
 
             bands.deleteBand(bandId);
-            assertEquals(List.of(new AssignmentPin(keptItem, 1, ada)), profiles.listPins(setlistId));
+            assertEquals(List.of(), profiles.listPins(setlistId));
             setlists.deleteSetlist(setlistId);
             assertEquals(1, count(database, "SetlistAssignmentPin"));
             setlists.deleteSetlist(copySetlistId);

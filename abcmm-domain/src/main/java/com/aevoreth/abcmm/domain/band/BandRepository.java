@@ -15,6 +15,9 @@ public interface BandRepository {
 
     void updateBand(long id, String name, String notes) throws LibraryException;
 
+    BandUsage getBandUsage(long id) throws LibraryException;
+
+    /** Removes layout references before deleting the band, atomically. */
     void deleteBand(long id) throws LibraryException;
 
     void reorderBands(List<Long> idOrder) throws LibraryException;
